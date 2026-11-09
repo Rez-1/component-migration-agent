@@ -33,6 +33,7 @@ from migrator.evals import (
     run_experiment,
 )
 from migrator.evals.summary import build_summary, write_summary
+from migrator.execs import LocalRunner, Sandbox, docker_available
 from migrator.migrations import UnknownMigrationError, find_spec
 from migrator.pipeline import (
     PausedRun,
@@ -48,8 +49,11 @@ from migrator.pipeline import (
     start_run,
     write_usage_report,
 )
+from migrator.pr import PrError, open_pr, plan_pr
 from migrator.report import Scorecard, usd
 from migrator.review import AutoReviewer, Reviewer, RichReviewer
+from migrator.tracing import describe, flush, tracing_settings
+from migrator.workspace import RUN_FILES_DIR, run_files_ignored
 
 app = typer.Typer(
     help="The Migrator: moves a target repo from one component-library version to the next.",
@@ -195,12 +199,25 @@ def _finish_run(result: RunResult | PausedRun) -> None:
     if isinstance(result, PausedRun):
         console.print(
             f"Paused at the hand-off of [bold]{result.payload.path}[/]. Continue with: "
-            f"[bold]migrator resume {result.run_id}[/]"
+            f"[bold]migrator resume {result.run_dir}[/]"
         )
         return
     if result.workspace:
         console.print(f"Workspace kept at {result.workspace}")
     _print_scorecard(result.scorecard, result.run_dir)
+    meta = result.scorecard.meta
+    if result.branch:
+        console.print(
+            f"Branch [bold]{result.branch}[/] has {len(meta.commits)} commit(s) on top of "
+            f"{meta.base_branch or 'the starting commit'}:"
+        )
+        for c in meta.commits:
+            console.print(f"  {c.sha[:8]} {c.title}")
+        console.print(
+            f"PR body: {result.run_dir / 'pr-body.md'}. To push the branch and open a PR on "
+            f"your own repo or fork: [bold]migrator pr {result.run_dir} --open[/] "
+            "(without --open it shows what it would do)."
+        )
     if result.scorecard.status != "completed":
         raise typer.Exit(code=1)
 
@@ -215,6 +232,40 @@ MaxCostOpt = Annotated[
 ]
 
 
+SandboxChoice = Annotated[
+    str,
+    typer.Option(
+        "--sandbox",
+        help="Where install, Verify and the repair agent's run_verify execute: docker (the "
+        "pinned node image, no network during Verify), local (this machine, your "
+        "permissions) or auto (Docker when it is running, else local with a warning).",
+    ),
+]
+
+
+def _resolve_sandbox(choice: str, *, allow_auto: bool = True) -> Sandbox:
+    if choice == "docker":
+        return "docker"
+    if choice == "local":
+        return "local"
+    if choice != "auto" or not allow_auto:
+        raise _fail(f"--sandbox must be docker{', local or auto' if allow_auto else ' or local'}")
+    if docker_available():
+        return "docker"
+    err.print(
+        "[yellow]warning:[/] Docker is not running, so commands run on this machine with "
+        "your permissions, including the tests that execute code the repair agent edited. "
+        "Start Docker for the sandbox, or pass --sandbox local to choose this explicitly."
+    )
+    return "local"
+
+
+def _print_tracing() -> None:
+    line = describe(tracing_settings())
+    if line:
+        console.print(line)
+
+
 @app.command("migrate")
 def migrate_command(
     repo: RepoArg,
@@ -226,6 +277,11 @@ def migrate_command(
             "--dry-run", help="Run everything in a throwaway copy; the repo is untouched."
         ),
     ] = False,
+    branch: Annotated[
+        str | None,
+        typer.Option(help="The branch a real run commits to (default migrate/<library>-v<N>)."),
+    ] = None,
+    sandbox: SandboxChoice = "auto",
     config: Annotated[
         str,
         typer.Option(
@@ -242,21 +298,25 @@ def migrate_command(
         Path | None, typer.Option(exists=True, dir_okay=False, help="A traps.yaml to score.")
     ] = None,
     run_dir: Annotated[
-        Path | None, typer.Option(help="Where run files go (default runs/<run-id>/).")
+        Path | None,
+        typer.Option(
+            help="Where run files go (default <repo>/.migrator/runs/<run-id>/ for a real "
+            "run, runs/<run-id>/ for a dry run)."
+        ),
     ] = None,
     keep_workspace: Annotated[
-        bool, typer.Option(help="Keep the throwaway workspace for inspection.")
+        bool,
+        typer.Option(help="Keep the workspace (a dry run's copy, a real run's worktree)."),
     ] = False,
     root: Annotated[
         Path | None, typer.Option(help="The folder holding evals/configs (default: here).")
     ] = None,
 ) -> None:
-    """Migrate a target repo: Scan, Pre-check, Rules, Verify, Repair, Review, Report."""
-    if not dry_run_:
-        raise _fail(
-            "only --dry-run is implemented. Real runs (a git worktree on "
-            "migrate/mui-v5 with one commit per stage) arrive with PR creation in M4."
-        )
+    """Migrate a target repo: Scan, Pre-check, Rules, Verify, Repair, Review, Report.
+
+    A real run (the default) needs a clean git working tree. It works in a git worktree
+    on a new branch and commits each stage there (Rules, the repair agent, edits at
+    Review); your working tree is never touched. --dry-run uses a throwaway copy."""
     _check_max_cost(max_cost)
     try:
         spec = find_spec(from_, to)
@@ -272,7 +332,10 @@ def migrate_command(
             )
         confirm_caps_once(configuration, max_cost or configuration.cost.max_run_usd)
     run_id = new_run_id()
-    target = (run_dir or _default_run_dir(run_id)).resolve()
+    real = not dry_run_
+    default_dir = repo / RUN_FILES_DIR / "runs" / run_id if real else _default_run_dir(run_id)
+    target = (run_dir or default_dir).resolve()
+    chosen = _resolve_sandbox(sandbox)
     opts = RunOptions(
         repo=repo,
         spec=spec,
@@ -284,9 +347,13 @@ def migrate_command(
         run_id=run_id,
         max_run_usd=max_cost,
         mode="cli",
+        sandbox=chosen,
+        real=real,
+        branch=branch,
     )
     console.print(
-        f"Run [bold]{run_id}[/] · configuration [bold]{configuration.name}[/]"
+        f"Run [bold]{run_id}[/] · {'real run' if real else 'dry run'} · sandbox {chosen} · "
+        f"configuration [bold]{configuration.name}[/]"
         + (
             f" · cost cap {usd(max_cost or configuration.cost.max_run_usd)} per run, "
             f"{usd(configuration.cost.max_month_usd)} per month"
@@ -294,13 +361,20 @@ def migrate_command(
             else " · rules only, no model calls"
         )
     )
+    _print_tracing()
     reviewer: Reviewer = AutoReviewer() if no_review else RichReviewer(console)
     try:
         result = start_run(opts, on_stage=_on_stage, reviewer=reviewer)
     except (RunError, ConfigError) as exc:
         raise _fail(str(exc)) from exc
     finally:
-        _flush_traces()
+        flush()
+    if real and not run_files_ignored(repo):
+        console.print(
+            f"[yellow]Note:[/] git does not ignore {RUN_FILES_DIR}/ in {repo}. The run files "
+            f"are never committed, but add `{RUN_FILES_DIR}/` to .gitignore (or "
+            ".git/info/exclude) so they stay out of `git status`."
+        )
     _finish_run(result)
 
 
@@ -328,18 +402,46 @@ def resume_command(
     except RunError as exc:
         raise _fail(str(exc)) from exc
     finally:
-        _flush_traces()
+        flush()
     _finish_run(result)
 
 
-def _flush_traces() -> None:
-    """A short-lived CLI must flush LangSmith traces before it exits (when tracing is on)."""
-    try:
-        from langchain_core.tracers.langchain import wait_for_all_tracers
+@app.command("pr")
+def pr_command(
+    run_id: Annotated[str, typer.Argument(help="A finished real run (its id or run folder).")],
+    open_: Annotated[
+        bool,
+        typer.Option(
+            "--open",
+            help="Push the branch and open the PR with gh. Without it, only show what "
+            "would happen.",
+        ),
+    ] = False,
+    remote: Annotated[str, typer.Option(help="The git remote to push to.")] = "origin",
+    base: Annotated[
+        str | None, typer.Option(help="The PR's base branch (default: where the run started).")
+    ] = None,
+    draft: Annotated[bool, typer.Option(help="Open the PR as a draft.")] = False,
+) -> None:
+    """Open a pull request for a real run's branch, on your own repo or fork only.
 
-        wait_for_all_tracers()
-    except Exception:  # tracing is optional; never fail a run over it
-        pass
+    Refuses dry runs, eval runs, unfinished runs, non-GitHub remotes, and remotes whose
+    owner is not the account `gh` is logged in as."""
+    runner = LocalRunner()
+    try:
+        plan = plan_pr(find_run_dir(run_id), runner, remote=remote, base=base, draft=draft)
+    except RunError as exc:
+        raise _fail(str(exc)) from exc
+    if not open_:
+        for line in plan.describe():
+            console.print(line, markup=False, highlight=False)
+        console.print("Nothing was pushed. Add --open to do it.")
+        return
+    try:
+        url = open_pr(plan, runner)
+    except PrError as exc:
+        raise _fail(str(exc)) from exc
+    console.print(f"Opened {url}")
 
 
 def _repo_root(root: Path | None) -> Path:
@@ -379,6 +481,14 @@ def eval_run(
     timeout_s: Annotated[
         float, typer.Option(help="Hard wall-clock ceiling per run, in seconds.")
     ] = DEFAULT_CEILING_S,
+    sandbox: Annotated[
+        str,
+        typer.Option(
+            "--sandbox",
+            help="docker (default: the pinned node image per case, no network during "
+            "Verify) or local (this machine).",
+        ),
+    ] = "docker",
     root: RootOpt = None,
     results_dir: ResultsOpt = None,
 ) -> None:
@@ -409,6 +519,7 @@ def eval_run(
             baseline_configuration=baseline,
             max_cost_usd=max_cost,
             ceiling_s=timeout_s,
+            sandbox=_resolve_sandbox(sandbox, allow_auto=False),
         )
     except (ConfigurationError, ConfigError, EvalError) as exc:
         raise _fail(str(exc)) from exc
@@ -418,6 +529,7 @@ def eval_run(
         f"· run cap {usd(configuration.cost.max_run_usd)}, month cap "
         f"{usd(configuration.cost.max_month_usd)}"
         + (f", experiment cap {usd(max_cost)}" if max_cost is not None else "")
+        + f" · sandbox {plan.sandbox}"
     )
     if configuration.uses_llm:
         ledger = Ledger()
@@ -446,12 +558,13 @@ def eval_run(
         elif event.kind == "skipped":
             console.log(f"{label} already scored, skipped")
 
+    _print_tracing()
     try:
         outcome = run_experiment(plan, on_event=on_event)
     except (ConfigurationError, EvalError) as exc:
         raise _fail(str(exc)) from exc
     finally:
-        _flush_traces()
+        flush()
     console.print(
         f"Experiment [bold]{outcome.experiment}[/]: {outcome.scored} runs scored, "
         f"{outcome.errors} not scored, {outcome.skipped} already done. "

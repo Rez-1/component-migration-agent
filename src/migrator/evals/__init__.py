@@ -38,7 +38,7 @@ from migrator import __version__
 from migrator.config import CaseConfig, load_case
 from migrator.configuration import Configuration, ensure_runnable
 from migrator.cost import CostPreflight, Ledger, LedgerPreflight, PlannedExperiment, Usage
-from migrator.execs import CommandRunner, RunTimeoutError
+from migrator.execs import CommandRunner, RunTimeoutError, Sandbox
 from migrator.migrations import MigrationSpec, available_specs
 from migrator.pipeline import RunError, RunOptions, RunResult, dry_run, new_run_id
 from migrator.report import Scorecard
@@ -430,6 +430,8 @@ class ExperimentPlan(BaseModel):
     max_cost_usd: float | None = None
     ceiling_s: float = DEFAULT_CEILING_S
     tools_cache: Path | None = None
+    # Evals run commands in Docker by default (ticket #15); "local" opts out.
+    sandbox: Sandbox = "docker"
 
 
 class ExperimentOutcome(BaseModel):
@@ -552,6 +554,7 @@ def run_experiment(
             run_id=run_id,
             max_run_usd=run_cap,
             mode="eval",
+            sandbox=plan.sandbox,
         )
         started = time.monotonic()
         failure: tuple[FailureClass, str] | None = None
