@@ -10,6 +10,21 @@ from rich.console import Console
 from rich.table import Table
 
 from migrator.config import ConfigError, load_case
+from migrator.configuration import ConfigurationError, ensure_runnable, find_configuration
+from migrator.evals import (
+    DEFAULT_CEILING_S,
+    DEFAULT_REPEATS,
+    EvalError,
+    ExperimentPlan,
+    RunEvent,
+    Split,
+    experiment_dir,
+    load_cases,
+    now,
+    read_manifest,
+    run_experiment,
+)
+from migrator.evals.summary import build_summary, write_summary
 from migrator.migrations import UnknownMigrationError, find_spec
 from migrator.pipeline import (
     RunError,
@@ -21,14 +36,16 @@ from migrator.pipeline import (
     run_scan,
     write_usage_report,
 )
-from migrator.report import Scorecard
+from migrator.report import Scorecard, usd
 
 app = typer.Typer(
     help="The Migrator: moves a target repo from one component-library version to the next.",
     no_args_is_help=True,
     add_completion=False,
 )
-eval_app = typer.Typer(help="Eval runs and experiment summaries (M2).", no_args_is_help=True)
+eval_app = typer.Typer(
+    help="Experiments over eval cases, and their summaries.", no_args_is_help=True
+)
 app.add_typer(eval_app, name="eval")
 console = Console()
 err = Console(stderr=True)
@@ -195,16 +212,150 @@ def resume_command(run_id: Annotated[str, typer.Argument(help="The run to contin
     raise _fail("resume is not implemented yet: runs pause for review from M3")
 
 
+def _repo_root(root: Path | None) -> Path:
+    return (root or Path.cwd()).resolve()
+
+
+RootOpt = Annotated[
+    Path | None,
+    typer.Option(help="The repository root holding evals/ (default: the current folder)."),
+]
+ResultsOpt = Annotated[
+    Path | None,
+    typer.Option(help="Where experiments are written (default <root>/runs/evals, git-ignored)."),
+]
+
+
 @eval_app.command("run")
 def eval_run(
-    split: Annotated[str, typer.Option(help="dev or held-out")] = "dev",
-    config: Annotated[str, typer.Option(help="A configuration in evals/configs/.")] = "baseline",
+    split: Annotated[str, typer.Option(help="dev or held-out.")] = "dev",
+    config: Annotated[
+        str, typer.Option(help="A configuration name in evals/configs/, or a .toml path.")
+    ] = "baseline",
+    case: Annotated[
+        str | None, typer.Option(help="Run only this case (it must be in the split).")
+    ] = None,
+    repeats: Annotated[int, typer.Option(min=1, help="Runs per case.")] = DEFAULT_REPEATS,
+    resume: Annotated[
+        str | None, typer.Option(help="Continue an experiment, e.g. dev/baseline.")
+    ] = None,
+    max_cost: Annotated[
+        float | None,
+        typer.Option(
+            "--max-cost",
+            help="USD cap for the experiment; required for configurations that call a model.",
+        ),
+    ] = None,
+    timeout_s: Annotated[
+        float, typer.Option(help="Hard wall-clock ceiling per run, in seconds.")
+    ] = DEFAULT_CEILING_S,
+    root: RootOpt = None,
+    results_dir: ResultsOpt = None,
 ) -> None:
-    """Run an experiment: every case in a split under one configuration (M2)."""
-    raise _fail("eval run is not implemented yet (M2)")
+    """Run an experiment: every case in a split under one configuration, N runs each."""
+    base = _repo_root(root)
+    results = (results_dir or base / "runs" / "evals").resolve()
+    configs = base / "evals" / "configs"
+    if split not in ("dev", "held-out"):
+        raise _fail(f"--split must be dev or held-out, not {split!r}")
+    split_name: Split = "dev" if split == "dev" else "held-out"
+    try:
+        configuration = find_configuration(config, configs)
+        ensure_runnable(configuration)
+        baseline = (
+            find_configuration("baseline", configs)
+            if (configs / "baseline.toml").is_file()
+            else None
+        )
+        cases = load_cases(base / "evals" / "cases", split_name, case)
+        plan = ExperimentPlan(
+            root=base,
+            results_dir=results,
+            split=split_name,
+            configuration=configuration,
+            cases=cases,
+            repeats=repeats,
+            resume=resume,
+            baseline_configuration=baseline,
+            max_cost_usd=max_cost,
+            ceiling_s=timeout_s,
+        )
+    except (ConfigurationError, ConfigError, EvalError) as exc:
+        raise _fail(str(exc)) from exc
+    console.print(
+        f"[bold]{configuration.name}[/] on {len(cases)} {split} case(s) × {repeats} runs "
+        f"· run cap {usd(configuration.cost.max_run_usd)}, month cap "
+        f"{usd(configuration.cost.max_month_usd)}"
+    )
+
+    def on_event(event: RunEvent) -> None:
+        label = f"{event.case} run {event.rep + 1}"
+        if event.kind == "start":
+            console.log(f"[bold]{label}[/] started")
+        elif event.kind == "scored":
+            console.log(f"[bold]{label}[/] scored: {event.message}")
+        elif event.kind == "error":
+            console.log(f"[bold red]{label} not scored[/]: {event.message}")
+        elif event.kind == "skipped":
+            console.log(f"{label} already scored, skipped")
+
+    try:
+        outcome = run_experiment(plan, on_event=on_event)
+    except (ConfigurationError, EvalError) as exc:
+        raise _fail(str(exc)) from exc
+    console.print(
+        f"Experiment [bold]{outcome.experiment}[/]: {outcome.scored} runs scored, "
+        f"{outcome.errors} not scored, {outcome.skipped} already done. "
+        f"Results: {outcome.path / 'results.jsonl'}"
+    )
+    console.print(f"Next: migrator eval summary {outcome.experiment}")
+    if outcome.errors:
+        raise typer.Exit(code=1)
 
 
 @eval_app.command("summary")
-def eval_summary(experiment: Annotated[str, typer.Argument()]) -> None:
-    """Summarise an experiment's scorecards (M2)."""
-    raise _fail("eval summary is not implemented yet (M2)")
+def eval_summary(
+    experiment: Annotated[
+        str, typer.Argument(help="An experiment id such as dev/baseline, or its folder.")
+    ],
+    against: Annotated[
+        str | None,
+        typer.Option(help="The Baseline experiment to compare with (default <split>/baseline)."),
+    ] = None,
+    out: Annotated[
+        Path | None, typer.Option(help="Folder for the summary (default: the experiment's).")
+    ] = None,
+    stable: Annotated[
+        bool,
+        typer.Option(help="Leave out dates, times and run ids (for a committed summary)."),
+    ] = False,
+    root: RootOpt = None,
+    results_dir: ResultsOpt = None,
+) -> None:
+    """Summarise an experiment's scorecards: mean and spread, traps, the Baseline."""
+    base = _repo_root(root)
+    results = (results_dir or base / "runs" / "evals").resolve()
+    try:
+        variant = experiment_dir(results, experiment)
+        manifest = read_manifest(variant)
+        if against is not None:
+            against_dir: Path | None = experiment_dir(results, against)
+        else:
+            default = results / manifest.split / "baseline"
+            against_dir = default if (default / "experiment.json").is_file() else None
+        summary = build_summary(variant, against_dir, created_at=now())
+    except EvalError as exc:
+        raise _fail(str(exc)) from exc
+    path = write_summary(summary, out or variant, stable=stable)
+    share = next(m for m in summary.metrics if m.id == "migrated_share")
+    per_clean = summary.cost.per_clean_run_usd
+    console.print(
+        f"[bold]{summary.experiment}[/] ({summary.configuration}): clean runs "
+        f"{summary.clean_runs} of {summary.runs_scored}, migrated without a human "
+        f"{round((share.mean or 0) * 100)}% (runs: "
+        + ", ".join(f"{round(v * 100)}%" for v in share.values)
+        + f"), cost per clean run {usd(per_clean) if per_clean is not None else '—'}"
+        + (f"; compared with {summary.against.experiment}" if summary.against else "")
+        + "."
+    )
+    console.print(f"Experiment summary: {path}")
