@@ -61,7 +61,7 @@ Changed but not affected: `package-lock.json`, `package.json`.
 | Missed | human | 1: styles-needs-theme-provider |
 | Not scored | visual-only | 1: switch-default-color |
 
-Every agent and human trap was caught by verify.
+Every agent and human trap's check still fails at the final verify.
 
 ## Cheating checks
 

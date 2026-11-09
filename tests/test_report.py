@@ -197,7 +197,7 @@ def test_markdown_render(card_input: ReportInput) -> None:
     assert "**Clean run: no. Final verify found 2 failures in 2 files.**" in md
     assert "**1 of 3 affected files migrated without a human (33%)**" in md
     assert "| Missed | agent | 2: grid-types, dialog-backdrop |" in md
-    assert "Not caught by verify: never-caught." in md
+    assert "Fixed (their checks now pass at the final verify): never-caught." in md
     assert "| 1 files | Migrated by rules | 0 | Clean |" in md
 
 
@@ -240,3 +240,21 @@ def test_a_crashed_suite_fires_the_trap_check_and_untouched_files_miss() -> None
     quiet = _trap("quiet", "agent", "src/Other.tsx", ["typecheck"])
     assert score_trap(quiet, [], {}, set(), rules_ok=True).result == "Missed"
     assert score_trap(quiet, [], {"src/Other.tsx": "rules"}, set(), True).result == "Other layer"
+
+
+def test_schema_2_scorecards_still_load() -> None:
+    """M2 experiments' scorecards (no repair block, no regressions list) must load, or
+    ``eval summary`` can't compare a new experiment with the M2 Baseline."""
+    import json
+
+    from migrator.report import Scorecard
+    from tests.conftest import REPO_ROOT
+
+    data = json.loads((REPO_ROOT / "docs/results/baseline/scorecard.json").read_text())
+    for key in ("repair", "regressions"):
+        data.pop(key)
+    data["schema_version"] = 2
+    for key in ("stopped_by_cap", "warnings"):
+        data["cost"].pop(key)
+    card = Scorecard.model_validate(data)
+    assert card.regressions == [] and card.repair is None

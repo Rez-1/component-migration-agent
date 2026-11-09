@@ -195,8 +195,9 @@ class Scorecard(BaseModel):
     verify: VerifySummary | None
     traps: list[TrapResult] | None
     cheating: CheatingReport | None  # None when the run stopped before Verify
-    repair: RepairSummary | None  # None when repair is off (the Baseline)
-    regressions: list[str]
+    # Schema 3 fields default, so schema-2 scorecards (M2 experiments) still load.
+    repair: RepairSummary | None = None  # None when repair is off (the Baseline)
+    regressions: list[str] = []
     cost: RunCost
     meta: RunMeta
 
@@ -814,17 +815,26 @@ def render_scorecard(card: Scorecard) -> str:
             groups.items(), key=lambda kv: (order[kv[0][0]], layer_order.get(kv[0][1], 9))
         ):
             lines.append(f"| {result} | {layer} | {len(ids)}: {', '.join(ids)} |")
-        uncaught = [
-            t.id
+        quiet = [
+            t
             for t in card.traps
             if t.expected_layer in ("agent", "human") and not any(c.fired for c in t.checks)
         ]
-        lines += [
-            "",
-            "Every agent and human trap was caught by verify."
-            if not uncaught
-            else f"Not caught by verify: {', '.join(uncaught)}.",
-        ]
+        fixed = [t.id for t in quiet if t.result in ("Expected", "Other layer")]
+        uncaught = [t.id for t in quiet if t.result not in ("Expected", "Other layer")]
+        if not quiet:
+            lines += ["", "Every agent and human trap's check still fails at the final verify."]
+        if fixed:
+            lines += [
+                "",
+                f"Fixed (their checks now pass at the final verify): {', '.join(fixed)}.",
+            ]
+        if uncaught:
+            lines += [
+                "",
+                f"Missed without a failing check (verify did not catch them): "
+                f"{', '.join(uncaught)}.",
+            ]
 
     lines += _repair_section(card)
     lines += _cheating_section(card)
