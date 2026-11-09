@@ -1,0 +1,139 @@
+# Known-good fixes for the 8 agent traps, as the repair agent would make them.
+#
+# Each entry is one failing file (in the order the Migrator repairs them) and the
+# find-and-replace edits that fix it, applied to the workspace as the Rules stage
+# left it (the four codemods, then the dependency bump). Every edit stays inside the
+# failing file or a local file it imports, adds no escape hatch and is far below the
+# hand-off size limit, so replaying them through apply_edit trips no guardrail.
+#
+# The human trap (styles-needs-theme-provider) is not here: its file,
+# src/screens/ProfileCard.tsx, is handed off. Its fix is in human-fix.yaml.
+#
+# Used by tests/test_oracle_slow.py, which replays these with a scripted model
+# through the whole graph and checks the scorecard: all 8 agent traps Expected.
+schema_version: 1
+case: fixture-mui4
+
+files:
+  - path: src/theme.ts
+    traps: [button-label-override]
+    note: The label slot is gone in v5; move the sentence-case override to the root slot.
+    edits:
+      - path: src/theme.ts
+        old: "      label: { textTransform: 'none' },"
+        new: "      root: { textTransform: 'none' },"
+
+  - path: src/screens/AccountDialog.tsx
+    traps: [dialog-disable-backdrop-click]
+    note: disableBackdropClick is gone; ignore the backdrop-click reason in onClose.
+    edits:
+      - path: src/screens/AccountDialog.tsx
+        old: "<Dialog open={open} onClose={handleClose} aria-labelledby=\"delete-title\">"
+        new: |-
+          <Dialog
+                  open={open}
+                  onClose={(_event, reason) => {
+                    if (reason !== 'backdropClick') handleClose();
+                  }}
+                  aria-labelledby="delete-title"
+                >
+
+  - path: src/screens/Dashboard.tsx
+    traps: [spacing-arithmetic]
+    note: >-
+      theme.spacing() returns a px string in v5. Multiply inside spacing(), and keep
+      titleMinHeight a number (UsersTable.tableHeight adds to it).
+    edits:
+      - path: src/screens/Dashboard.tsx
+        old: "    marginTop: theme.spacing(1) * 3,"
+        new: "    marginTop: theme.spacing(3),"
+      - path: src/screens/Dashboard.tsx
+        old: "export const titleMinHeight = (theme: Theme): number => theme.spacing(4) + 24;"
+        new: "export const titleMinHeight = (theme: Theme): number => parseFloat(theme.spacing(4)) + 24;"
+
+  - path: src/screens/Notifications.tsx
+    traps: [typography-sr-only]
+    note: The srOnly variant is gone; use the visuallyHidden style, as the guide shows.
+    edits:
+      - path: src/screens/Notifications.tsx
+        old: |-
+          import {
+            Badge,
+        new: |-
+          import {
+            Badge,
+            Box,
+      - path: src/screens/Notifications.tsx
+        old: "import MailIcon from '@mui/icons-material/Mail';"
+        new: |-
+          import MailIcon from '@mui/icons-material/Mail';
+          import { visuallyHidden } from '@mui/utils';
+      - path: src/screens/Notifications.tsx
+        old: |-
+          <Typography variant="srOnly" component="span">
+                    {unread === 0 ? 'No unread notifications' : `${unread} unread notifications`}
+                  </Typography>
+        new: |-
+          <Box component="span" sx={visuallyHidden}>
+                    {unread === 0 ? 'No unread notifications' : `${unread} unread notifications`}
+                  </Box>
+
+  - path: src/screens/ProfileForm.tsx
+    traps: [select-event-type]
+    note: Select's onChange event is SelectChangeEvent in v5.
+    edits:
+      - path: src/screens/ProfileForm.tsx
+        old: "import { Button, FormControl, InputLabel, Select, TextField, Typography } from '@mui/material';"
+        new: |-
+          import {
+            Button,
+            FormControl,
+            InputLabel,
+            Select,
+            SelectChangeEvent,
+            TextField,
+            Typography,
+          } from '@mui/material';
+      - path: src/screens/ProfileForm.tsx
+        old: "const handleRoleChange = (event: React.ChangeEvent<{ name?: string; value: unknown }>) => {"
+        new: "const handleRoleChange = (event: SelectChangeEvent<Role>) => {"
+
+  - path: src/screens/ResponsiveNav.tsx
+    traps: [breakpoint-sizes]
+    note: >-
+      v5's md breakpoint is 900px, not 960px; the comment above asks for below 960px,
+      so query that width directly rather than changing every screen's breakpoints.
+    edits:
+      - path: src/screens/ResponsiveNav.tsx
+        old: "useMediaQuery(theme.breakpoints.down('md'))"
+        new: "useMediaQuery(theme.breakpoints.down(960))"
+
+  - path: src/screens/Search.tsx
+    traps: [autocomplete-render-option]
+    note: renderOption now gets the li props first and must return the whole option.
+    edits:
+      - path: src/screens/Search.tsx
+        old: |-
+          renderOption={(option) => (
+                    <span className={classes.option}>
+                      {option.label}
+                      <span className={classes.country}>{option.country}</span>
+                    </span>
+                  )}
+        new: |-
+          renderOption={(props, option) => (
+                    <li {...props}>
+                      <span className={classes.option}>
+                        {option.label}
+                        <span className={classes.country}>{option.country}</span>
+                      </span>
+                    </li>
+                  )}
+
+  - path: src/screens/Settings.tsx
+    traps: [button-color-expression]
+    note: The default colour is gone; inherit is the closest v5 colour to v4's grey default.
+    edits:
+      - path: src/screens/Settings.tsx
+        old: "color={dirty ? 'primary' : 'default'}"
+        new: "color={dirty ? 'primary' : 'inherit'}"

@@ -1,0 +1,36 @@
+# The known-good fix for the human trap (styles-needs-theme-provider).
+#
+# ProfileCard's test renders the card bare through renderComponent. On v4,
+# makeStyles fell back to a default theme; @mui/styles on v5 has none, so the test
+# fails with "theme.spacing is not a function". The app itself is fine (App.tsx wraps
+# everything in the theme). The right fix gives renderComponent the theme, in
+# src/test-utils.tsx: a Test file (imported only by tests), which the repair agent may
+# not edit, so the agent's expected result is a hand-off and this is the human's
+# answer to it (the Review stage's Edit choice).
+#
+# Used by tests/test_oracle_slow.py: a scripted reviewer applies it at the hand-off.
+schema_version: 1
+case: fixture-mui4
+handed_off: src/screens/ProfileCard.tsx
+edits:
+  - path: src/test-utils.tsx
+    old: "import { AppProviders } from './App';"
+    new: |-
+      import { ThemeProvider } from '@mui/material/styles';
+      import { AppProviders } from './App';
+      import { theme } from './theme';
+  - path: src/test-utils.tsx
+    old: |-
+      export function renderComponent(ui: ReactElement, options?: RenderOptions) {
+        return render(ui, options);
+      }
+    new: |-
+      export function renderComponent(ui: ReactElement, options?: RenderOptions) {
+        function WithTheme({ children }: { children: ReactNode }) {
+          return <ThemeProvider theme={theme}>{children}</ThemeProvider>;
+        }
+        return render(ui, { wrapper: WithTheme, ...options });
+      }
+  - path: src/test-utils.tsx
+    old: "import { ReactElement } from 'react';"
+    new: "import { ReactElement, ReactNode } from 'react';"
