@@ -14,6 +14,12 @@ limits are edges, not prompt text: an attempt ends when the agent calls ``run_ve
 the cost cap ends Repair for every remaining file (they end Unmigrated, and the run
 still goes through Review and Report, so there is always a scorecard).
 
+A real run (not ``--dry-run``) works in a git worktree on the migration branch and
+commits each stage from its own node, after Rules, after Repair and after Review
+(``commit_rules``, ``commit_agent``, ``commit_review``). Commit nodes never pause, and
+each looks for its own commit (by its trailers) before making one, so a crash or a
+resume never commits a stage twice. Dry runs pass through them unchanged.
+
 Review handles one hand-off per node execution and loops through an edge. The node
 does nothing before ``interrupt()``: the payload (diff, failures, file hashes) is
 computed by ``prepare_review`` and stored in state, so a resumed Review never repeats
@@ -81,7 +87,9 @@ from migrator.report import (
     ReportInput,
     RunMeta,
     build_scorecard,
+    render_pr_body,
     render_scorecard,
+    usd,
     write_json,
 )
 from migrator.review import ReviewPayload
@@ -97,7 +105,15 @@ from migrator.verify import (
     precheck,
     verify,
 )
-from migrator.workspace import create_dry_run_workspace, hash_file
+from migrator.workspace import (
+    StageCommit,
+    StageName,
+    Worktree,
+    commit_stage,
+    create_dry_run_workspace,
+    hash_file,
+    remove_worktree,
+)
 
 Mode = Literal["eval", "cli"]
 StageCallback = Callable[[str, str], None]
@@ -139,6 +155,7 @@ class RunState(TypedDict, total=False):
     final_usage_path: str | None
     cheating: dict[str, Any] | None
     scorecard_path: str | None
+    commits: list[dict[str, Any]]  # StageCommit, one per stage that changed files (real runs)
 
 
 class RunDeps:
@@ -165,6 +182,8 @@ class RunDeps:
         templates: PromptTemplates | None,
         retriever: GuideRetriever | None,
         on_stage: StageCallback | None = None,
+        worktree: Worktree | None = None,
+        sandbox: str = "local",
     ):
         self.repo = repo
         self.spec = spec
@@ -184,6 +203,8 @@ class RunDeps:
         self.templates = templates
         self.retriever = retriever
         self.say = on_stage or (lambda _stage, _msg: None)
+        self.worktree = worktree  # a real run's git worktree; None for a dry run
+        self.sandbox = sandbox
 
     @property
     def repair_on(self) -> bool:
@@ -346,8 +367,11 @@ class RunGraph:
     def precheck_node(self, state: RunState) -> RunState:
         t0 = time.monotonic()
         d = self.d
-        parent = Path(tempfile.mkdtemp(prefix=f"migrator-{state['run_id']}-"))
-        workspace = create_dry_run_workspace(d.repo, parent / "workspace")
+        if d.worktree is not None:
+            workspace = d.worktree.path  # a real run: the worktree on the migration branch
+        else:
+            parent = Path(tempfile.mkdtemp(prefix=f"migrator-{state['run_id']}-"))
+            workspace = create_dry_run_workspace(d.repo, parent / "workspace")
         node_version = _tool_version(d.runner, "node", workspace)
         npm_version = _tool_version(d.runner, d.config.package_manager, workspace)
         # What the Pre-check verifies: the untouched workspace, for the cheating checks.
@@ -461,7 +485,7 @@ class RunGraph:
         return {}
 
     def route_next_file(self, state: RunState) -> str:
-        return "start_file" if state.get("queue") else "prepare_review"
+        return "start_file" if state.get("queue") else "commit_agent"
 
     def start_file_node(self, state: RunState) -> RunState:
         d = self.d
@@ -768,7 +792,7 @@ class RunGraph:
         return {**updates, "review": payload.model_dump(mode="json")}
 
     def route_prepare_review(self, state: RunState) -> str:
-        return "review" if state.get("review") else "final_verify"
+        return "review" if state.get("review") else "commit_review"
 
     def review_node(self, state: RunState) -> RunState:
         # Nothing before interrupt(): on resume this node starts again from here.
@@ -848,6 +872,51 @@ class RunGraph:
             }
         )
         return updates
+
+    # ------------------------------------------------------------------ stage commits
+
+    def commit_rules_node(self, state: RunState) -> RunState:
+        return self.commit(state, "rules")
+
+    def commit_agent_node(self, state: RunState) -> RunState:
+        return self.commit(state, "agent")
+
+    def commit_review_node(self, state: RunState) -> RunState:
+        return self.commit(state, "review")
+
+    def commit(self, state: RunState, stage: StageName) -> RunState:
+        """Commit one stage's changes on a real run's branch, once (a no-op for dry runs)."""
+        d = self.d
+        if d.worktree is None:
+            return {}
+        commits = [StageCommit.model_validate(c) for c in state.get("commits") or []]
+        if any(c.stage == stage for c in commits):
+            return {}
+        title, body = self.commit_message(stage, state)
+        made = commit_stage(d.worktree, run_id=state["run_id"], stage=stage, title=title, body=body)
+        if made is None:
+            d.say("Commit", f"{stage}: nothing changed, no commit")
+            return {}
+        d.say("Commit", f"{made.sha[:8]} {made.title} ({len(made.files)} files)")
+        return {
+            "commits": [*[c.model_dump(mode="json") for c in commits], made.model_dump(mode="json")]
+        }
+
+    def commit_message(self, stage: StageName, state: RunState) -> tuple[str, str]:
+        migration = f"{self.d.spec.from_} to {self.d.spec.to}"
+        if stage == "rules":
+            return f"Migrate {migration}: Rules (codemods and dependency map)", rules_commit_body(
+                RulesResult.model_validate(state["rules"])
+            )
+        report = self.report_of(state)
+        if stage == "agent":
+            fixed = [f for f in report.files if f.outcome == "Migrated by agent"]
+            calls = [CallRecord.model_validate(c) for c in state.get("calls") or []]
+            return (
+                f"Migrate {migration}: repair agent fixes in {len(fixed)} files",
+                agent_commit_body(report, calls),
+            )
+        return f"Migrate {migration}: changes made at Review", review_commit_body(report)
 
     # ------------------------------------------------------------------ final verify, report
 
@@ -935,6 +1004,10 @@ class RunGraph:
             node_version=state.get("node_version"),
             npm_version=state.get("npm_version"),
             timings_s=timings,
+            sandbox=d.sandbox,
+            branch=d.worktree.branch if d.worktree else None,
+            base_branch=d.worktree.base_branch if d.worktree else None,
+            commits=[StageCommit.model_validate(c) for c in state.get("commits") or []],
         )
         layers: dict[str, Layer] | None = None
         if (
@@ -976,10 +1049,16 @@ class RunGraph:
         )
         write_json(card, run_dir / "scorecard.json")
         (run_dir / "scorecard.md").write_text(render_scorecard(card), "utf-8")
+        # The PR body, rendered from the same JSON; written for every run, opened as a PR
+        # only by the separate `migrator pr --open` step.
+        (run_dir / "pr-body.md").write_text(render_pr_body(card), "utf-8")
         d.say("Report", f"written to {run_dir}")
         ws = state.get("workspace")
         if ws and not d.keep_workspace:
-            shutil.rmtree(Path(ws).parent, ignore_errors=True)
+            if d.worktree is not None:
+                remove_worktree(d.worktree)  # the branch and its commits stay
+            else:
+                shutil.rmtree(Path(ws).parent, ignore_errors=True)
         return {"scorecard_path": str(run_dir / "scorecard.json")}
 
     # ------------------------------------------------------------------ wiring
@@ -990,13 +1069,14 @@ class RunGraph:
 
     def route_rules(self, state: RunState) -> str:
         rules = state.get("rules") or {}
-        return "verify" if rules.get("status") == "ok" else "report"
+        return "commit_rules" if rules.get("status") == "ok" else "report"
 
     def build(self) -> StateGraph[RunState]:
         g: StateGraph[RunState] = StateGraph(RunState)
         g.add_node("scan", self.scan_node)
         g.add_node("precheck", self.precheck_node)
         g.add_node("rules", self.rules_node)
+        g.add_node("commit_rules", self.commit_rules_node)
         g.add_node("verify", self.verify_node)
         g.add_node("plan_repair", self.plan_repair_node)
         g.add_node("next_file", self.next_file_node)
@@ -1004,29 +1084,92 @@ class RunGraph:
         g.add_node("agent", self.agent_node)
         g.add_node("tools", self.tools_node)
         g.add_node("file_end", self.file_end_node)
+        g.add_node("commit_agent", self.commit_agent_node)
         g.add_node("prepare_review", self.prepare_review_node)
         g.add_node("review", self.review_node)
+        g.add_node("commit_review", self.commit_review_node)
         g.add_node("final_verify", self.final_verify_node)
         g.add_node("report", self.report_node)
 
         g.add_edge(START, "scan")
         g.add_edge("scan", "precheck")
         g.add_conditional_edges("precheck", self.route_precheck, ["rules", "report"])
-        g.add_conditional_edges("rules", self.route_rules, ["verify", "report"])
+        g.add_conditional_edges("rules", self.route_rules, ["commit_rules", "report"])
+        g.add_edge("commit_rules", "verify")
         g.add_edge("verify", "plan_repair")
         g.add_edge("plan_repair", "next_file")
-        g.add_conditional_edges("next_file", self.route_next_file, ["start_file", "prepare_review"])
+        g.add_conditional_edges("next_file", self.route_next_file, ["start_file", "commit_agent"])
+        g.add_edge("commit_agent", "prepare_review")
         g.add_conditional_edges("start_file", self.route_start_file, ["agent", "file_end"])
         g.add_conditional_edges("agent", self.route_agent, ["tools", "file_end"])
         g.add_conditional_edges("tools", self.route_tools, ["agent", "file_end"])
         g.add_edge("file_end", "next_file")
         g.add_conditional_edges(
-            "prepare_review", self.route_prepare_review, ["review", "final_verify"]
+            "prepare_review", self.route_prepare_review, ["review", "commit_review"]
         )
         g.add_edge("review", "prepare_review")
+        g.add_edge("commit_review", "final_verify")
         g.add_edge("final_verify", "report")
         g.add_edge("report", END)
         return g
+
+
+# --------------------------------------------------------------------------- commit messages
+
+
+def rules_commit_body(rules: RulesResult) -> str:
+    lines = ["The deterministic layer, no model: the migration spec's rule steps, in order.", ""]
+    for step in rules.steps:
+        if step.status == "skipped":
+            continue
+        label = step.kind if step.name == step.kind else f"{step.kind} {step.name}"
+        lines.append(f"- {label}: {step.detail}")
+    todos = len(rules.codemod_todos)
+    lines += [
+        "",
+        f"Codemod TODOs left: {todos}" + (" (listed in the PR body)." if todos else "."),
+    ]
+    return "\n".join(lines)
+
+
+def agent_commit_body(report: RepairReport, calls: list[CallRecord]) -> str:
+    fixed = [f for f in report.files if f.outcome == "Migrated by agent"]
+    lines = [
+        "Fixed by the repair agent; each passed the narrow verify (type-check, lint on the",
+        "file, related tests):",
+        "",
+    ]
+    for f in fixed:
+        models = ", ".join(dict.fromkeys(a.model for a in f.attempts))
+        others = [p for p in f.touched if p != f.path]
+        lines.append(
+            f"- {f.path}: {len(f.attempts)} attempt{'s' if len(f.attempts) != 1 else ''} ({models})"
+            + (f", also {', '.join(others)}" if others else "")
+        )
+    handed = [f for f in report.files if f.outcome == "Handed off"]
+    if handed:
+        lines += ["", "Handed off to Review (not in this commit):"]
+        lines += [f"- {f.path}: {f.reason or 'handed off'}" for f in handed]
+    unmigrated = [f for f in report.files if f.outcome == "Unmigrated"]
+    if unmigrated:
+        lines += ["", "Unmigrated:"] + [f"- {f.path}: {f.reason or ''}" for f in unmigrated]
+    cost = sum(c.cost_usd for c in calls)
+    lines += ["", f"{len(calls)} model calls, {usd(cost)}."]
+    return "\n".join(lines)
+
+
+def review_commit_body(report: RepairReport) -> str:
+    lines = ["Decided by a human at Review:", ""]
+    for f in report.files:
+        if f.migrated_by_human:
+            lines.append(f"- {f.path}: edited by a human; passes the narrow verify")
+        elif f.review == "keep":
+            lines.append(f"- {f.path}: the repair agent's patch kept; still handed off")
+    reviewed = {f.path for f in report.files if f.migrated_by_human or f.review == "keep"}
+    others = [p for p in report.human_changed if p not in reviewed]
+    if others:
+        lines += ["", "Also changed by the human: " + ", ".join(others)]
+    return "\n".join(lines)
 
 
 def final_layers(after_rules: FileSet, final: FileSet, report: RepairReport) -> dict[str, Layer]:

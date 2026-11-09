@@ -19,6 +19,9 @@ from migrator.execs import (
     node_image,
     settle,
 )
+from migrator.migrations import MigrationSpec
+from migrator.pipeline import RunError, RunOptions, start_run
+from tests.fakes import make_mini_repo
 
 
 def runner(tmp_path: Path) -> DockerRunner:
@@ -92,6 +95,19 @@ def test_node_images_are_pinned_per_major_version() -> None:
 def test_a_missing_docker_fails_clearly() -> None:
     with pytest.raises(SandboxError, match="Docker is not available"):
         DockerRunner(node_image("20"), docker="/nonexistent/docker").check()
+
+
+def test_a_run_in_docker_without_docker_is_refused(
+    tmp_path: Path, spec: MigrationSpec, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def no_docker(self: DockerRunner) -> str:
+        raise SandboxError("Docker is not available (test)")
+
+    monkeypatch.setattr(DockerRunner, "check", no_docker)
+    repo = make_mini_repo(tmp_path / "repo")
+    with pytest.raises(RunError, match="Docker is not available"):
+        start_run(RunOptions(repo=repo, spec=spec, run_dir=tmp_path / "run", sandbox="docker"))
+    assert not (tmp_path / "run").exists()  # refused before anything ran
 
 
 def test_settle_waits_only_after_a_recent_host_write(tmp_path: Path) -> None:

@@ -1,4 +1,5 @@
-"""The Report stage: the scorecard of one run, as JSON (the source) and markdown.
+"""The Report stage: the scorecard of one run, as JSON (the source) and markdown, and
+the pull-request body rendered from the same JSON (ticket #10).
 
 Everything outside ``meta`` is deterministic for the same inputs, so CI can compare a
 Baseline run with a committed expected scorecard (``stable_view``). Times, versions
@@ -22,6 +23,7 @@ from migrator.repair.records import RepairReport
 from migrator.rules import CodemodTodo, RulesResult
 from migrator.scan import UsageReport
 from migrator.verify import Failure, PrecheckResult, TestTotals, VerifyResult
+from migrator.workspace import StageCommit
 
 # 2: cheating checks, cost block, configuration digest (M2).
 # 3: the repair block, Regressions against the Verify after Rules, a clean run ignores
@@ -176,6 +178,12 @@ class RunMeta(BaseModel):
     node_version: str | None
     npm_version: str | None
     timings_s: dict[str, float]
+    # Where commands ran, and a real run's branch and stage commits (M4). In meta, so
+    # the stable view (and the committed expected scorecard) does not change.
+    sandbox: str | None = None
+    branch: str | None = None
+    base_branch: str | None = None
+    commits: list[StageCommit] = []
 
 
 class Scorecard(BaseModel):
@@ -876,5 +884,118 @@ def render_scorecard(card: Scorecard) -> str:
     lines += [
         "",
         f"Node {m.node_version or '?'}, npm {m.npm_version or '?'}, migrator {m.migrator_version}.",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+# --------------------------------------------------------------------------- PR body
+
+STAGE_LABELS = {"rules": "Rules", "agent": "Repair agent", "review": "Review (human)"}
+
+
+def _md_cell(text: str, limit: int = 160) -> str:
+    text = " ".join(text.split()).replace("|", "\\|")
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def pr_title(card: Scorecard) -> str:
+    share = card.headline.migrated_without_human
+    return (
+        f"Migrate {card.migration.replace('->', ' to ')}: {share.count} of {share.total} files "
+        f"migrated without a human"
+    )
+
+
+def render_pr_body(card: Scorecard) -> str:
+    """The PR body: the scorecard's summary, the hand-off checklist, the codemod TODOs
+    and the cost. Rendered from the scorecard alone, so the JSON stays the source."""
+    h = card.headline
+    m = card.meta
+    share = h.migrated_without_human
+    by = h.outcomes
+    clean = (
+        "Clean run: yes."
+        if h.clean_run
+        else f"Clean run: no. The final verify found {h.failures} failures in "
+        f"{h.failing_files} files."
+    )
+    lines = [
+        f"Migration `{card.migration}` by the Migrator, run `{m.run_id}`, configuration "
+        f"`{card.configuration}`"
+        + (f", commands sandboxed in {m.sandbox}" if m.sandbox else "")
+        + ". Every number below comes from the run's `scorecard.json`.",
+        "",
+        f"**{clean}** **{share.count} of {share.total} affected files migrated without a "
+        f"human ({_pct(share.share)})**: {by['Migrated by rules']} by rules, "
+        f"{by['Migrated by agent']} by the repair agent, {by['Migrated by human']} by a human "
+        f"at Review. {by['Handed off']} handed off, {by['Unmigrated']} unmigrated.",
+        "",
+        "| | This run |",
+        "|---|---|",
+        f"| Clean run | {_yes_no(h.clean_run)} |",
+        f"| Migrated without a human | {share.count} / {share.total} ({_pct(share.share)}) |",
+        f"| Hand-offs | {h.hand_offs} |",
+        f"| Regressions | {h.regressions} |",
+        f"| Cheating-check hits | {_cheating_cell(card)} |",
+        f"| Codemod TODOs left | {h.codemod_todos} |",
+    ]
+    if h.traps:
+        lines.append(f"| Traps (fixture) | {_traps_line(h.traps)} |")
+    lines += [f"| Cost / time | {usd(card.cost.total_usd)} · {_duration(m.duration_s)} |", ""]
+
+    # The checklist: what a human must finish before merging.
+    reasons = {f.path: f.reason for f in card.repair.files} if card.repair else {}
+    failures = card.verify.failures if card.verify else []
+    handed = [f for f in card.files if f.outcome == "Handed off"]
+    lines += ["## Hand-offs: for a human to finish", ""]
+    if not handed:
+        lines.append("None: no file was handed off.")
+    for f in handed:
+        lines.append(
+            f"- [ ] `{f.path}`: {_md_cell(reasons.get(f.path) or f.note or 'handed off', 300)}"
+        )
+        for fail in [x for x in failures if x.file == f.path][:5]:
+            where = (
+                fail.test_name
+                if fail.source == "test"
+                else (f"line {fail.line}" if fail.line else "")
+            )
+            lines.append(
+                f"  - {fail.source}{f' {where}' if where else ''}: {_md_cell(fail.message)}"
+            )
+    unmigrated = [f for f in card.files if f.outcome == "Unmigrated"]
+    if unmigrated:
+        lines += ["", "Unmigrated (no layer finished them):", ""]
+        lines += [
+            f"- [ ] `{f.path}`: {_md_cell(reasons.get(f.path) or f.note or 'unmigrated', 300)}"
+            for f in unmigrated
+        ]
+    if card.regressions:
+        lines += [
+            "",
+            "Regressions (clean after Rules, failing at the final verify): "
+            + ", ".join(f"`{p}`" for p in card.regressions)
+            + ".",
+        ]
+    todos = card.rules.codemod_todos if card.rules else []
+    lines += ["", "## Codemod TODOs", ""]
+    if not todos:
+        lines.append("None: the codemods left no FIXME or TODO comments.")
+    lines += [f"- [ ] `{t.file}` line {t.line}: {_md_cell(t.text)}" for t in todos]
+
+    if m.commits:
+        lines += ["", "## Commits", "", "| Stage | Commit | Files |", "|---|---|---|"]
+        lines += [
+            f"| {STAGE_LABELS.get(c.stage, c.stage)} | {c.sha[:8]} {_md_cell(c.title)} | "
+            f"{len(c.files)} |"
+            for c in m.commits
+        ]
+    lines += ["", "## Cost", "", _cost_line(card.cost)]
+    lines += [
+        "",
+        f"<sub>Node {m.node_version or '?'}, npm {m.npm_version or '?'}, migrator "
+        f"{m.migrator_version}. Verify ran the repo's type-check, lint and tests"
+        + (" in a Docker container with no network." if m.sandbox == "docker" else ".")
+        + "</sub>",
     ]
     return "\n".join(lines) + "\n"

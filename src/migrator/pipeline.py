@@ -3,9 +3,16 @@
 Every run is one LangGraph graph with a checkpointer and one ``thread_id`` (the run
 id). CLI runs use ``SqliteSaver`` with the database in the run folder, so a run paused
 for review can be resumed by another process (``migrator resume <run-id>``); evals use
-``InMemorySaver``, because they answer every hand-off in the same process. M3 supports
-dry runs: the whole run happens in a throwaway copy and the target repo is never
-touched.
+``InMemorySaver``, because they answer every hand-off in the same process.
+
+Two kinds of run (ticket #9):
+
+- A **dry run** happens in a throwaway copy; the target repo is never touched. Evals
+  and CI only make dry runs.
+- A **real run** refuses a dirty working tree, then works in a ``git worktree`` of the
+  repo's HEAD on a new branch (``migrate/mui-v5``), outside the repo folder, and commits
+  each stage there. The user's own working tree is never touched; the run files go in
+  ``<repo>/.migrator/runs/<run-id>/``, which no commit includes.
 """
 
 from __future__ import annotations
@@ -19,6 +26,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
@@ -26,6 +34,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 from pydantic import BaseModel, ConfigDict
 
+from migrator import __version__
 from migrator.config import (
     CaseConfig,
     ConfigError,
@@ -39,7 +48,15 @@ from migrator.config import (
 )
 from migrator.configuration import BASELINE, Configuration, ensure_runnable
 from migrator.cost import CostGuard, Ledger
-from migrator.execs import CommandRunner, DeadlineRunner, LocalRunner
+from migrator.execs import (
+    CommandRunner,
+    DeadlineRunner,
+    LocalRunner,
+    Sandbox,
+    SandboxError,
+    make_runner,
+    node_image,
+)
 from migrator.graph import (
     RECURSION_LIMIT,
     Mode,
@@ -56,8 +73,16 @@ from migrator.repair.retriever import GuideRetriever
 from migrator.repair.tools import RepairTools
 from migrator.report import Scorecard, write_json
 from migrator.review import AutoReviewer, Reviewer, ReviewPayload
+from migrator.rules import tools_cache_root
 from migrator.scan import ScanInput, UsageReport, scan
 from migrator.scan.render import render_usage_report
+from migrator.workspace import (
+    RUN_FILES_DIR,
+    GitError,
+    Worktree,
+    add_worktree,
+    check_real_run,
+)
 
 __all__ = ["RunError", "RunOptions", "RunResult", "check_detection", "dry_run"]
 
@@ -82,6 +107,14 @@ class RunOptions(BaseModel):
     # The run's USD cap; None uses the configuration's. Never unlimited.
     max_run_usd: float | None = None
     mode: Mode = "eval"  # "cli": real use (cheating-check hits become hand-offs)
+    # Where commands run (ticket #15): "docker" (the pinned node image, network off
+    # during Verify) or "local" (this machine). Callers choose; the CLI defaults evals to
+    # Docker. A runner passed to start_run explicitly (tests) wins over this.
+    sandbox: Sandbox = "local"
+    # A real run: a git worktree on ``branch`` (default from the spec, migrate/mui-v5)
+    # with one commit per stage. Never in evals.
+    real: bool = False
+    branch: str | None = None
 
 
 class RunResult(BaseModel):
@@ -90,6 +123,7 @@ class RunResult(BaseModel):
     usage: UsageReport
     scorecard: Scorecard
     workspace: Path | None  # kept only with keep_workspace
+    branch: str | None = None  # a real run's migration branch
 
 
 class PausedRun(BaseModel):
@@ -173,9 +207,12 @@ class RunRecord(BaseModel):
     tools_cache: str | None
     max_run_usd: float | None
     mode: Mode
+    sandbox: Sandbox = "local"
     status: Literal["running", "paused", "done"] = "running"
     paused_hashes: dict[str, str] | None = None
     workspace: str | None = None
+    worktree: Worktree | None = None  # a real run's worktree and branch
+    pr_url: str | None = None  # set by `migrator pr --open`
 
 
 def run_record_path(run_dir: Path) -> Path:
@@ -197,6 +234,30 @@ def write_run_record(run_dir: Path, record: RunRecord) -> None:
 # --------------------------------------------------------------------------- deps
 
 
+def sandbox_runner(
+    sandbox: Sandbox, config: ResolvedRepoConfig, tools_cache: Path | None
+) -> tuple[CommandRunner, Path | None]:
+    """The run's runner and its codemod tools cache. Docker installs the tools inside
+    the container (for Linux), so they get a cache of their own per image, mounted
+    read-only while the codemods run."""
+    if sandbox == "local":
+        return LocalRunner(), tools_cache
+    image = node_image(config.node)
+    tag = re.sub(r"[^A-Za-z0-9.]+", "-", image.split("@")[0])
+    cache = (tools_cache or tools_cache_root() / "docker" / tag).resolve()
+    return make_runner("docker", config.node, read_only=[cache]), cache
+
+
+def default_branch(spec: MigrationSpec) -> str:
+    """``migrate/mui-v5`` for a migration to ``mui@5``."""
+    return "migrate/" + re.sub(r"[^A-Za-z0-9.-]+", "-", spec.to.replace("@", "-v"))
+
+
+def worktree_path(repo: Path, run_id: str) -> Path:
+    """Outside the repo folder, so the user's own tsc, ESLint and Jest never see it."""
+    return tools_cache_root() / "worktrees" / f"{repo.name}-{run_id}"
+
+
 def build_deps(
     opts: RunOptions,
     *,
@@ -207,6 +268,7 @@ def build_deps(
     ledger: Ledger,
     model_factory: ModelFactory | None,
     on_stage: StageCallback | None,
+    worktree: Worktree | None = None,
 ) -> RunDeps:
     configuration = opts.configuration
     spec = configuration.apply_to(opts.spec)
@@ -233,6 +295,7 @@ def build_deps(
             run_id=run_id,
             case=opts.case.id if opts.case else None,
             tags=[f"config:{configuration.name}", *([f"case:{opts.case.id}"] if opts.case else [])],
+            configuration=configuration.name,
         )
     return RunDeps(
         repo=opts.repo.resolve(),
@@ -253,6 +316,8 @@ def build_deps(
         templates=templates,
         retriever=retriever,
         on_stage=on_stage,
+        worktree=worktree,
+        sandbox=opts.sandbox,
     )
 
 
@@ -266,18 +331,36 @@ def sqlite_checkpointer(run_dir: Path) -> Iterator[SqliteSaver]:
         conn.close()
 
 
-def _graph_config(run_id: str, opts: RunOptions) -> RunnableConfig:
-    return {
+def _graph_config(
+    run_id: str, opts: RunOptions, callbacks: list[BaseCallbackHandler] | None = None
+) -> RunnableConfig:
+    """The graph's config: a checkpoint thread per run, and the LangSmith names and
+    metadata (used only when tracing is on, see ``migrator.tracing``)."""
+    case = opts.case.id if opts.case else None
+    config: RunnableConfig = {
         "configurable": {"thread_id": run_id},
         "recursion_limit": RECURSION_LIMIT,
         "run_name": "migrator-run",
-        "tags": [f"config:{opts.configuration.name}"],
+        "tags": [
+            f"config:{opts.configuration.name}",
+            f"mode:{opts.mode}",
+            *([f"case:{case}"] if case else []),
+        ],
         "metadata": {
-            "thread_id": run_id,
+            "thread_id": run_id,  # groups the first invoke and every resume in LangSmith
+            "run_id": run_id,
             "configuration": opts.configuration.name,
-            "case": opts.case.id if opts.case else None,
+            "case": case,
+            "repo": opts.repo.name,
+            "mode": opts.mode,
+            "real_run": opts.real,
+            "sandbox": opts.sandbox,
+            "migrator_version": __version__,
         },
     }
+    if callbacks:
+        config["callbacks"] = list(callbacks)
+    return config
 
 
 def _drive(
@@ -310,6 +393,7 @@ def _result(state: dict[str, Any], run_id: str, run_dir: Path, keep: bool) -> Ru
         usage=usage,
         scorecard=card,
         workspace=Path(ws) if keep and ws else None,
+        branch=card.meta.branch,
     )
 
 
@@ -323,26 +407,47 @@ def start_run(
     checkpointer: BaseCheckpointSaver[Any] | None = None,
     ledger: Ledger | None = None,
     durable: bool | None = None,
+    callbacks: list[BaseCallbackHandler] | None = None,
 ) -> RunResult | PausedRun:
     """Run the whole graph. With a Reviewer that pauses (the CLI's), the run can stop at
     a hand-off and return ``PausedRun``; ``resume_run`` continues it."""
     configuration = opts.configuration
     ensure_runnable(configuration)
-    base_runner: CommandRunner = runner or LocalRunner()
-    if opts.ceiling_s is not None:
-        base_runner = DeadlineRunner(base_runner, opts.ceiling_s)
     repo = opts.repo.resolve()
     spec = configuration.apply_to(opts.spec)
     run_dir = opts.run_dir.resolve()
     run_id = opts.run_id or run_dir.name
     check_detection(repo, spec)
     config = resolve_config(repo, spec, opts.case)
+    branch = opts.branch or default_branch(spec)
+    if opts.real:
+        if opts.mode == "eval":
+            raise RunError("evals only make dry runs; a real run commits to the target repo")
+        try:
+            check_real_run(repo, branch)
+        except GitError as exc:
+            raise RunError(str(exc)) from exc
+    if runner is None:
+        try:
+            runner, tools_cache = sandbox_runner(opts.sandbox, config, opts.tools_cache)
+        except SandboxError as exc:
+            raise RunError(str(exc)) from exc
+        opts = opts.model_copy(update={"tools_cache": tools_cache})
+    base_runner: CommandRunner = runner
+    if opts.ceiling_s is not None:
+        base_runner = DeadlineRunner(base_runner, opts.ceiling_s)
     usage = run_scan(repo, spec, config)
     if not usage.affected_files():
         raise RunError(f"{repo} has no usages of {spec.from_} in {', '.join(config.source_globs)}")
     traps_path = opts.traps or (opts.case.traps_path() if opts.case else None)
     traps = load_traps(traps_path) if traps_path is not None else None
     ledger = ledger or Ledger()
+    worktree: Worktree | None = None
+    if opts.real:
+        try:
+            worktree = add_worktree(repo, worktree_path(repo, run_id), branch)
+        except GitError as exc:
+            raise RunError(str(exc)) from exc
     deps = build_deps(
         opts,
         runner=base_runner,
@@ -352,6 +457,7 @@ def start_run(
         ledger=ledger,
         model_factory=model_factory,
         on_stage=on_stage,
+        worktree=worktree,
     )
     record = RunRecord(
         run_id=run_id,
@@ -366,17 +472,24 @@ def start_run(
         tools_cache=str(opts.tools_cache) if opts.tools_cache else None,
         max_run_usd=opts.max_run_usd,
         mode=opts.mode,
+        sandbox=opts.sandbox,
+        worktree=worktree,
+        workspace=str(worktree.path) if worktree else None,
     )
     write_run_record(run_dir, record)
     reviewer = reviewer or AutoReviewer()
     builder = RunGraph(deps).build()
-    config_ = _graph_config(run_id, opts)
+    config_ = _graph_config(run_id, opts, callbacks)
     use_sqlite = durable if durable is not None else checkpointer is None and opts.mode == "cli"
     durability: Literal["sync", "async"] = "sync" if use_sqlite else "async"
 
+    first = initial_state(run_id, run_dir)
+    if worktree is not None:
+        first["workspace"] = str(worktree.path)
+
     def go(saver: BaseCheckpointSaver[Any]) -> RunResult | PausedRun:
         graph = builder.compile(checkpointer=saver)
-        state, paused = _drive(graph, initial_state(run_id, run_dir), config_, reviewer, durability)
+        state, paused = _drive(graph, first, config_, reviewer, durability)
         return _finish(state, paused, run_dir, record, opts.keep_workspace)
 
     if checkpointer is not None:
@@ -450,6 +563,7 @@ def resume_run(
     on_stage: StageCallback | None = None,
     model_factory: ModelFactory | None = None,
     ledger: Ledger | None = None,
+    callbacks: list[BaseCallbackHandler] | None = None,
 ) -> RunResult | PausedRun:
     """Continue a run paused at a hand-off, from its SQLite checkpoint."""
     run_dir = run_dir.resolve()
@@ -478,21 +592,30 @@ def resume_run(
         run_id=record.run_id,
         max_run_usd=record.max_run_usd,
         mode=record.mode,
+        sandbox=record.sandbox,
+        real=record.worktree is not None,
+        branch=record.worktree.branch if record.worktree else None,
     )
     traps = load_traps(Path(record.traps)) if record.traps else None
     config = resolve_config(opts.repo, configuration.apply_to(spec), case)
+    if runner is None:
+        try:
+            runner, _cache = sandbox_runner(record.sandbox, config, opts.tools_cache)
+        except SandboxError as exc:
+            raise RunError(str(exc)) from exc
     deps = build_deps(
         opts,
-        runner=runner or LocalRunner(),
+        runner=runner,
         config=config,
         traps=traps,
         run_id=record.run_id,
         ledger=ledger or Ledger(),
         model_factory=model_factory,
         on_stage=on_stage,
+        worktree=record.worktree,
     )
     builder = RunGraph(deps).build()
-    config_ = _graph_config(record.run_id, opts)
+    config_ = _graph_config(record.run_id, opts, callbacks)
     with sqlite_checkpointer(run_dir) as saver:
         graph = builder.compile(checkpointer=saver)
         snapshot = graph.get_state(config_)
@@ -515,11 +638,16 @@ def resume_run(
 
 
 def find_run_dir(run_id: str, base: Path | None = None) -> Path:
-    """``runs/<run-id>/`` under the current folder (where ``migrate`` writes runs)."""
+    """A run folder: the path itself, ``runs/<run-id>/`` under the current folder (dry
+    runs), or ``.migrator/runs/<run-id>/`` (real runs, from inside the target repo)."""
     candidate = Path(run_id)
     if candidate.is_dir() and run_record_path(candidate).is_file():
         return candidate
-    path = (base or Path.cwd()) / "runs" / run_id
-    if not run_record_path(path).is_file():
-        raise RunError(f"no run {run_id!r} in {path.parent} (looked for run.json)")
-    return path
+    here = base or Path.cwd()
+    places = [here / "runs" / run_id, here / RUN_FILES_DIR / "runs" / run_id]
+    for path in places:
+        if run_record_path(path).is_file():
+            return path
+    raise RunError(
+        f"no run {run_id!r} in {places[0].parent} or {places[1].parent} (looked for run.json)"
+    )
