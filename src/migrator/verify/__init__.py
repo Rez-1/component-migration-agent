@@ -1,0 +1,284 @@
+"""The Pre-check and Verify stages.
+
+Verify runs the case's (or the repo's) type-check, lint and test commands in the
+workspace and turns their output into Failures. The Pre-check is the same verification
+on the untouched workspace: a repo whose type-check already fails is rejected, and
+lint and test failures it finds are recorded as Pre-existing failures, which later
+verifies exclude.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict
+
+from migrator.config import (
+    VERIFY_ORDER,
+    ResolvedRepoConfig,
+    Runner,
+    VerifyCommands,
+    VerifyName,
+    read_package_json,
+)
+from migrator.execs import CommandResult, CommandRunner
+from migrator.verify.parsers import (
+    Failure,
+    TestTotals,
+    parse_eslint_json,
+    parse_eslint_stylish,
+    parse_jest_json,
+    parse_tsc,
+)
+from migrator.workspace import install_command, record_install
+
+__all__ = [
+    "CommandOutcome",
+    "Failure",
+    "PrecheckInput",
+    "PrecheckResult",
+    "TestTotals",
+    "VerifyInput",
+    "VerifyResult",
+    "install",
+    "precheck",
+    "verify",
+]
+
+
+class CommandOutcome(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    command: str
+    exit_code: int
+    duration_s: float
+    failures: int = 0
+    parsed_with: str = ""
+    log: str = ""
+
+
+class VerifyInput(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    workspace: Path
+    commands: VerifyCommands
+    runner: Runner | None
+    log_dir: Path
+    label: str = "verify"
+    pre_existing: list[Failure] = []
+
+
+class VerifyResult(BaseModel):
+    commands: list[CommandOutcome]
+    failures: list[Failure]  # charged to the run
+    pre_existing: list[Failure] = []  # Pre-existing failures seen again, excluded
+    test_totals: TestTotals | None = None
+
+    def failing_files(self) -> list[str]:
+        return sorted({f.file for f in self.failures if f.file is not None})
+
+    def failures_in(self, path: str) -> list[Failure]:
+        return [f for f in self.failures if f.file == path]
+
+    def command(self, name: str) -> CommandOutcome | None:
+        return next((c for c in self.commands if c.name == name), None)
+
+
+def _script_body(workspace: Path, command: str) -> str:
+    """The command plus the package.json script it runs, to see which tool it calls."""
+    words = command.split()
+    script = None
+    if words[:2] == ["npm", "test"] or words[:2] in (["yarn", "test"], ["pnpm", "test"]):
+        script = "test"
+    elif len(words) >= 3 and words[1] == "run":
+        script = words[2]
+    elif len(words) >= 2 and words[0] == "yarn":
+        script = words[1]
+    body = command
+    if script:
+        scripts = read_package_json(workspace).get("scripts")
+        if isinstance(scripts, dict):
+            body += " " + str(scripts.get(script, ""))
+    return body
+
+
+def with_args(command: str, args: list[str]) -> str:
+    """Append arguments to a command; ``npm run``/``npm test`` need ``--`` first."""
+    sep = " -- " if command.startswith("npm ") and " -- " not in command else " "
+    return command + sep + " ".join(args)
+
+
+def _run_one(
+    name: VerifyName, command: str, inp: VerifyInput, runner: CommandRunner
+) -> tuple[CommandOutcome, list[Failure], TestTotals | None]:
+    ws = inp.workspace
+    root = str(ws.resolve())
+    inp.log_dir.mkdir(parents=True, exist_ok=True)
+    log = inp.log_dir / f"{inp.label}-{name}.log"
+    body = _script_body(ws, command)
+    json_out: Path | None = None
+    run_command = command
+    if name == "lint" and "eslint" in body:
+        json_out = (inp.log_dir / f"{inp.label}-eslint.json").resolve()
+        run_command = with_args(command, ["-f", "json", "-o", str(json_out)])
+    elif name == "test" and inp.runner == "jest":
+        json_out = (inp.log_dir / f"{inp.label}-jest.json").resolve()
+        run_command = with_args(
+            command, ["--json", f"--outputFile={json_out}", "--testLocationInResults"]
+        )
+    elif name == "test" and inp.runner == "vitest":
+        # Vitest's JSON reporter writes the same shape as Jest's (not yet exercised by a case).
+        json_out = (inp.log_dir / f"{inp.label}-vitest.json").resolve()
+        run_command = with_args(command, ["--reporter=json", f"--outputFile={json_out}"])
+    if json_out is not None:
+        json_out.unlink(missing_ok=True)
+
+    result: CommandResult = runner.run(run_command, ws, log_file=log)
+    failures: list[Failure] = []
+    totals: TestTotals | None = None
+    parsed_with = "exit code"
+    if name == "typecheck":
+        failures, parsed_with = parse_tsc(result.output, root), "tsc"
+    elif name == "lint":
+        warnings = not result.ok  # --max-warnings tripped: warnings count
+        if json_out is not None and json_out.is_file():
+            failures = parse_eslint_json(json_out.read_text("utf-8"), root, warnings)
+            parsed_with = "eslint json"
+        else:
+            failures, parsed_with = (
+                parse_eslint_stylish(result.output, root, warnings),
+                "eslint text",
+            )
+    elif json_out is not None and json_out.is_file():
+        failures, totals = parse_jest_json(
+            json_out.read_text("utf-8"), root, lambda p: (ws / p).is_file()
+        )
+        parsed_with = f"{inp.runner} json"
+
+    if not result.ok and not failures:
+        why = "timed out" if result.timed_out else f"exited {result.exit_code}"
+        failures = [
+            Failure(
+                source=name,
+                file=None,
+                message=f"`{command}` {why} without failures the Migrator could parse",
+            )
+        ]
+    outcome = CommandOutcome(
+        name=name,
+        command=command,
+        exit_code=result.exit_code,
+        duration_s=result.duration_s,
+        failures=len(failures),
+        parsed_with=parsed_with,
+        log=log.name,
+    )
+    return outcome, failures, totals
+
+
+def verify(inp: VerifyInput, runner: CommandRunner) -> VerifyResult:
+    """Run every configured verify command, in order, and collect the Failures."""
+    known = {f.key() for f in inp.pre_existing}
+    outcomes: list[CommandOutcome] = []
+    charged: list[Failure] = []
+    seen_again: list[Failure] = []
+    totals: TestTotals | None = None
+    for name in VERIFY_ORDER:
+        command = getattr(inp.commands, name)
+        if not command:
+            continue
+        outcome, failures, cmd_totals = _run_one(name, command, inp, runner)
+        outcomes.append(outcome)
+        totals = cmd_totals or totals
+        for failure in failures:
+            (seen_again if failure.key() in known else charged).append(failure)
+    return VerifyResult(
+        commands=outcomes, failures=charged, pre_existing=seen_again, test_totals=totals
+    )
+
+
+# --------------------------------------------------------------------------- pre-check
+
+
+def install(
+    runner: CommandRunner,
+    workspace: Path,
+    config: ResolvedRepoConfig,
+    *,
+    frozen: bool,
+    log_file: Path,
+) -> CommandResult:
+    """Install the workspace's packages and record what was installed."""
+    command = install_command(config.package_manager, frozen, config.install_flags)
+    result = runner.run(command, workspace, log_file=log_file)
+    if result.ok:
+        record_install(workspace, config.lockfile)
+    return result
+
+
+class PrecheckInput(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    workspace: Path
+    config: ResolvedRepoConfig
+    log_dir: Path
+
+
+class PrecheckResult(BaseModel):
+    status: Literal["ok", "rejected"]
+    reason: str | None = None
+    install: CommandOutcome | None = None
+    verify: VerifyResult | None = None
+
+    @property
+    def pre_existing_failures(self) -> list[Failure]:
+        return self.verify.failures if self.verify else []
+
+    @property
+    def test_totals(self) -> TestTotals | None:
+        return self.verify.test_totals if self.verify else None
+
+
+def precheck(inp: PrecheckInput, runner: CommandRunner) -> PrecheckResult:
+    """Install and verify the untouched workspace."""
+    log = inp.log_dir / "precheck-install.log"
+    result = install(runner, inp.workspace, inp.config, frozen=True, log_file=log)
+    installed = CommandOutcome(
+        name="install",
+        command=result.command,
+        exit_code=result.exit_code,
+        duration_s=result.duration_s,
+        log=log.name,
+    )
+    if not result.ok:
+        return PrecheckResult(
+            status="rejected",
+            reason=f"installing the repo's packages failed (exit {result.exit_code}); "
+            f"see {log.name}",
+            install=installed,
+        )
+    verified = verify(
+        VerifyInput(
+            workspace=inp.workspace,
+            commands=inp.config.verify,
+            runner=inp.config.runner,
+            log_dir=inp.log_dir,
+            label="precheck",
+        ),
+        runner,
+    )
+    type_errors = [f for f in verified.failures if f.source == "typecheck"]
+    if type_errors:
+        files = sorted({f.file or "(no file)" for f in type_errors})
+        return PrecheckResult(
+            status="rejected",
+            reason=(
+                f"the type-check already fails before any change ({len(type_errors)} "
+                f"failures in {', '.join(files[:5])}{'…' if len(files) > 5 else ''})"
+            ),
+            install=installed,
+            verify=verified,
+        )
+    return PrecheckResult(status="ok", install=installed, verify=verified)
