@@ -34,8 +34,11 @@ module-name = "migrator"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["slow: end-to-end runs that need Node, npm and network (deselect with -m 'not slow')"]
-addopts = "-m 'not slow'"
+markers = [
+    "slow: end-to-end runs that need Node, npm and network (run with -m slow)",
+    "docker: runs in the Docker sandbox; need a running Docker and network (run with -m docker)",
+]
+addopts = "-m 'not slow and not docker'"
 
 [tool.ruff]
 line-length = 100
