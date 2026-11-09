@@ -37,7 +37,7 @@ _Avoid_: sandbox, copy, temp dir
 ### Stages and layers
 
 **Stage**:
-One step of a run, in order: Pre-check, Rules, Verify, Repair, Review, Report.
+One step of a run, in order: Scan, Pre-check, Rules, Verify, Repair, Review, Report. Verify runs again after Review as the final check.
 _Avoid_: phase, step, pass
 
 **Pre-check**:
@@ -56,6 +56,14 @@ _Avoid_: LLM (as a layer), source, owner (except a trap's expected owner)
 The deterministic layer: the dependency map, the official codemods and any of our own rules.
 _Avoid_: codemod layer, rules pass
 
+**Rule step**:
+One entry in a migration spec's ordered list for the Rules stage: install, dependencies, codemod, format or script.
+_Avoid_: step (unqualified), action, task
+
+**Rules failure**:
+A run that stopped because a rule step failed, scored separately from the repair agent's results.
+_Avoid_: setup failure, install error
+
 **Baseline**:
 The rules-only configuration that every other configuration is compared against.
 _Avoid_: control, codemod only
@@ -68,6 +76,10 @@ _Avoid_: error, issue, problem (as the general term)
 
 **Failing file**:
 A file with at least one failure.
+
+**Regression**:
+A failure in a file that had none before, caused by a change to another file during the run.
+_Avoid_: side effect, collateral failure
 
 **Attempt**:
 One try by the repair agent to fix one failing file.
@@ -95,6 +107,18 @@ _Avoid_: cheating check, restriction
 **Cheating check**:
 A rule run on a run's final diff to catch gamed success, such as an added `.skip`.
 _Avoid_: guardrail, lint
+
+**Escape hatch**:
+Code that silences a type or lint check instead of satisfying it, such as `@ts-ignore`, `eslint-disable` or an `any` type.
+_Avoid_: suppression, workaround
+
+**Test file**:
+A file that belongs to the tests rather than the code under test: matched by the runner's test globs, named as a setup file in its config, inside `__mocks__` or `__snapshots__`, or imported only by other test files.
+_Avoid_: spec (for a file)
+
+**Codemod TODO**:
+A FIXME or TODO comment the official codemods leave in a file, marking work they could not do.
+_Avoid_: codemod warning
 
 ### Evals
 
