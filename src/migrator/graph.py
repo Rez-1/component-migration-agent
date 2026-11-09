@@ -1,0 +1,1009 @@
+"""The whole run as one checkpointed LangGraph graph (ticket #11).
+
+    Scan -> Pre-check -> Rules -> Verify -> Repair (one failing file at a time)
+         -> Review (one interrupt per hand-off) -> Verify (final) -> Report
+
+Each stage is a thin node over its plain stage function. Because every node's result
+is checkpointed before the next starts, the Rules stage runs exactly once even across
+a pause and resume (the codemods are not idempotent); a marker file also refuses to
+re-run Rules if a crash interrupted them half-way.
+
+Repair is built from a model node and a tools node with no agent wrapper, so its
+limits are edges, not prompt text: an attempt ends when the agent calls ``run_verify``
+(or at 15 tool calls, which hands the file off), a file gets at most 3 attempts, and
+the cost cap ends Repair for every remaining file (they end Unmigrated, and the run
+still goes through Review and Report, so there is always a scorecard).
+
+Review handles one hand-off per node execution and loops through an edge. The node
+does nothing before ``interrupt()``: the payload (diff, failures, file hashes) is
+computed by ``prepare_review`` and stored in state, so a resumed Review never repeats
+a change. Large artifacts (file snapshots, verify logs, conversations) are files in the
+run folder; the state holds their paths.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import shutil
+import tempfile
+import time
+from collections.abc import Callable
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, Literal, TypedDict
+
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    ToolMessage,
+    messages_to_dict,
+)
+from langgraph.graph import END, START, StateGraph
+from langgraph.types import interrupt
+
+from migrator import __version__
+from migrator.checks import (
+    CheatingReport,
+    CheckInput,
+    FileSet,
+    Layer,
+    find_test_files,
+    import_graph,
+    read_files,
+    read_test_rules,
+    run_checks,
+)
+from migrator.config import CaseConfig, ResolvedRepoConfig, TrapList
+from migrator.configuration import Configuration
+from migrator.cost import CallRecord, CostCapError, Ledger, run_cost
+from migrator.execs import CommandRunner
+from migrator.migrations import MigrationSpec
+from migrator.repair.context import local_imports, unified_diff
+from migrator.repair.guardrails import added_escape_hatches
+from migrator.repair.model import GuardedModel
+from migrator.repair.prompt import (
+    PromptTemplates,
+    describe_failure,
+    first_message,
+    system_prompt,
+)
+from migrator.repair.records import AttemptRecord, FileRepair, RepairReport, ReviewAnswer
+from migrator.repair.retriever import GuideRetriever
+from migrator.repair.tools import (
+    RepairSession,
+    RepairTools,
+    SessionState,
+    failure_key,
+)
+from migrator.report import (
+    ReportInput,
+    RunMeta,
+    build_scorecard,
+    render_scorecard,
+    write_json,
+)
+from migrator.review import ReviewPayload
+from migrator.rules import RulesInput, RulesResult, ToolsError, apply_rules, ensure_tools
+from migrator.scan import ScanInput, UsageReport, scan
+from migrator.scan.render import render_usage_report
+from migrator.verify import (
+    Failure,
+    PrecheckInput,
+    PrecheckResult,
+    VerifyInput,
+    VerifyResult,
+    precheck,
+    verify,
+)
+from migrator.workspace import create_dry_run_workspace, hash_file
+
+Mode = Literal["eval", "cli"]
+StageCallback = Callable[[str, str], None]
+MAX_TOOL_CALLS = 15
+RECURSION_LIMIT = 10_000
+NUDGE = (
+    "Your reply had no tool call. End this attempt with `run_verify` (with a one-line "
+    "note), or call `hand_off` if a human must make this fix."
+)
+
+
+class RunState(TypedDict, total=False):
+    """The run's graph state: small and structured, JSON-friendly values only."""
+
+    run_id: str
+    run_dir: str
+    workspace: str | None
+    started_at: str
+    timings: dict[str, float]
+    config: dict[str, Any]  # ResolvedRepoConfig
+    usage_path: str
+    node_version: str | None
+    npm_version: str | None
+    precheck: dict[str, Any]  # PrecheckResult
+    rules: dict[str, Any] | None  # RulesResult
+    rules_done: bool
+    verify: dict[str, Any] | None  # the Verify after Rules
+    known_failures: list[dict[str, Any]]  # latest known failures (Failure)
+    test_files: dict[str, str]
+    queue: list[str]  # failing files still to repair, in order
+    current: dict[str, Any] | None  # SessionState of the file being repaired
+    messages: list[BaseMessage]  # that file's conversation (append-only)
+    repair: dict[str, Any]  # RepairReport
+    calls: list[dict[str, Any]]  # CallRecord, one per model call
+    review_queue: list[str]
+    review: dict[str, Any] | None  # ReviewPayload of the hand-off being reviewed
+    final: dict[str, Any] | None  # the final Verify
+    final_usage_path: str | None
+    cheating: dict[str, Any] | None
+    scorecard_path: str | None
+
+
+class RunDeps:
+    """What the nodes need that is not state: tools, runners, the model, callbacks."""
+
+    def __init__(
+        self,
+        *,
+        repo: Path,
+        spec: MigrationSpec,
+        configuration: Configuration,
+        case: CaseConfig | None,
+        traps: TrapList | None,
+        config: ResolvedRepoConfig,
+        runner: CommandRunner,
+        mode: Mode,
+        keep_workspace: bool,
+        tools_cache: Path | None,
+        run_cap_usd: float,
+        month_cap_usd: float,
+        ledger: Ledger,
+        model: GuardedModel | None,
+        tools: RepairTools | None,
+        templates: PromptTemplates | None,
+        retriever: GuideRetriever | None,
+        on_stage: StageCallback | None = None,
+    ):
+        self.repo = repo
+        self.spec = spec
+        self.configuration = configuration
+        self.case = case
+        self.traps = traps
+        self.config = config
+        self.runner = runner
+        self.mode = mode
+        self.keep_workspace = keep_workspace
+        self.tools_cache = tools_cache
+        self.run_cap_usd = run_cap_usd
+        self.month_cap_usd = month_cap_usd
+        self.ledger = ledger
+        self.model = model
+        self.tools = tools
+        self.templates = templates
+        self.retriever = retriever
+        self.say = on_stage or (lambda _stage, _msg: None)
+
+    @property
+    def repair_on(self) -> bool:
+        return self.configuration.repair.enabled and self.model is not None
+
+
+# --------------------------------------------------------------------------- helpers
+
+
+def _now() -> str:
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _slug(path: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]+", "-", path).strip("-")
+
+
+def _failures(rows: list[dict[str, Any]] | None) -> list[Failure]:
+    return [Failure.model_validate(r) for r in rows or []]
+
+
+def _dump_failures(failures: list[Failure]) -> list[dict[str, Any]]:
+    return [f.model_dump(mode="json") for f in failures]
+
+
+def _save_files(path: Path, files: FileSet) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(files, ensure_ascii=False), "utf-8")
+    return str(path)
+
+
+def _load_files(path: Path) -> FileSet:
+    if not path.is_file():
+        return {}
+    data = json.loads(path.read_text("utf-8"))
+    return {str(k): str(v) for k, v in data.items()}
+
+
+def _tool_version(runner: CommandRunner, tool: str, cwd: Path) -> str | None:
+    result = runner.run([tool, "--version"], cwd, timeout_s=30)
+    return result.output.strip().removeprefix("v") if result.ok else None
+
+
+def code_hashes(workspace: Path) -> dict[str, str]:
+    """Hashes of the workspace's code files (the same set the cheating checks read)."""
+    return {p: hash_file(workspace / p) for p in sorted(read_files(workspace))}
+
+
+def repair_order(failing: list[str], files: FileSet) -> list[str]:
+    """Failing files in repair order: a file before the files that (transitively)
+    import it; otherwise non-component modules (``.ts``: themes, utilities) before
+    components (``.tsx``), then by path. A shared module such as ``theme.ts`` reaches
+    many screens through the app shell, so fixing it first stops its failures being
+    charged to (and handed off from) the screens' repairs."""
+    importers = import_graph(files)
+    reach: dict[str, set[str]] = {}
+
+    def importers_of(path: str) -> set[str]:
+        if path not in reach:
+            seen: set[str] = set()
+            stack = list(importers.get(path, ()))
+            while stack:
+                p = stack.pop()
+                if p not in seen:
+                    seen.add(p)
+                    stack.extend(importers.get(p, ()))
+            reach[path] = seen
+        return reach[path]
+
+    remaining = sorted(failing, key=lambda p: (p.endswith((".tsx", ".jsx")), p))
+    ordered: list[str] = []
+    while remaining:
+        for p in remaining:
+            # p can go now unless another remaining file is imported by p (directly or not)
+            if not any(p in importers_of(q) for q in remaining if q != p):
+                ordered.append(p)
+                remaining.remove(p)
+                break
+        else:  # an import cycle: take the first in the tie order
+            ordered.append(remaining.pop(0))
+    return ordered
+
+
+# --------------------------------------------------------------------------- the graph
+
+
+class RunGraph:
+    """Builds the run's StateGraph over the stage functions."""
+
+    def __init__(self, deps: RunDeps):
+        self.d = deps
+
+    # ------------------------------------------------------------------ plumbing
+
+    def run_dir(self, state: RunState) -> Path:
+        return Path(state["run_dir"])
+
+    def workspace(self, state: RunState) -> Path:
+        ws = state.get("workspace")
+        if not ws:
+            raise RuntimeError("the run has no workspace")
+        return Path(ws)
+
+    def logs(self, state: RunState) -> Path:
+        return self.run_dir(state) / "logs"
+
+    def snapshots(self, state: RunState) -> Path:
+        return self.run_dir(state) / "state"
+
+    def untouched(self, state: RunState) -> FileSet:
+        return _load_files(self.snapshots(state) / "untouched.json")
+
+    def after_rules(self, state: RunState) -> FileSet:
+        return _load_files(self.snapshots(state) / "after-rules.json")
+
+    def timed(self, state: RunState, stage: str, t0: float) -> dict[str, float]:
+        timings = dict(state.get("timings") or {})
+        timings[stage] = round(timings.get(stage, 0.0) + time.monotonic() - t0, 2)
+        return timings
+
+    def attempt_model(self, attempt: int) -> str:
+        models = self.d.configuration.repair.attempt_models
+        return models[min(attempt, len(models)) - 1]
+
+    def report_of(self, state: RunState) -> RepairReport:
+        return RepairReport.model_validate(
+            state.get("repair") or {"enabled": self.d.configuration.repair.enabled}
+        )
+
+    # ------------------------------------------------------------------ stages
+
+    def scan_node(self, state: RunState) -> RunState:
+        t0 = time.monotonic()
+        d = self.d
+        d.say("Scan", f"scanning {d.repo.name}")
+        usage = scan(
+            ScanInput(
+                repo=d.repo,
+                spec=d.spec,
+                source_globs=d.config.source_globs,
+                exclude=d.config.exclude,
+            )
+        )
+        run_dir = self.run_dir(state)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        write_json(usage, run_dir / "usage-report.json")
+        (run_dir / "usage-report.md").write_text(render_usage_report(usage), "utf-8")
+        d.say(
+            "Scan",
+            f"{usage.totals.affected_files} affected files, {usage.totals.old_usages} usages",
+        )
+        return {
+            "usage_path": str(run_dir / "usage-report.json"),
+            "config": d.config.model_dump(mode="json"),
+            "repair": RepairReport(enabled=d.configuration.repair.enabled).model_dump(mode="json"),
+            "calls": [],
+            "timings": self.timed(state, "scan", t0),
+        }
+
+    def precheck_node(self, state: RunState) -> RunState:
+        t0 = time.monotonic()
+        d = self.d
+        parent = Path(tempfile.mkdtemp(prefix=f"migrator-{state['run_id']}-"))
+        workspace = create_dry_run_workspace(d.repo, parent / "workspace")
+        node_version = _tool_version(d.runner, "node", workspace)
+        npm_version = _tool_version(d.runner, d.config.package_manager, workspace)
+        # What the Pre-check verifies: the untouched workspace, for the cheating checks.
+        _save_files(self.snapshots(state) / "untouched.json", read_files(workspace))
+        d.say("Pre-check", "installing and verifying the untouched workspace")
+        pre = precheck(
+            PrecheckInput(workspace=workspace, config=d.config, log_dir=self.logs(state)), d.runner
+        )
+        d.say("Pre-check", pre.status if pre.status == "ok" else f"rejected: {pre.reason}")
+        return {
+            "workspace": str(workspace),
+            "node_version": node_version,
+            "npm_version": npm_version,
+            "precheck": pre.model_dump(mode="json"),
+            "timings": self.timed(state, "precheck", t0),
+        }
+
+    def rules_node(self, state: RunState) -> RunState:
+        t0 = time.monotonic()
+        d = self.d
+        if state.get("rules_done"):
+            return {}
+        marker = self.snapshots(state) / "rules-started"
+        if marker.exists():
+            raise RuntimeError(
+                "the Rules stage was interrupted part-way in this run; the codemods are not "
+                "idempotent, so it cannot run again on this workspace. Start a new run."
+            )
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(_now(), "utf-8")
+        workspace = self.workspace(state)
+        usage = UsageReport.model_validate_json(Path(state["usage_path"]).read_text("utf-8"))
+        d.say("Rules", "running the rule steps")
+        try:
+            tools = ensure_tools(d.spec, d.runner, d.tools_cache)
+        except ToolsError as exc:
+            rules = RulesResult(status="rules_failure", reason=str(exc), steps=[], changed_files=[])
+        else:
+            rules = apply_rules(
+                RulesInput(
+                    workspace=workspace,
+                    spec=d.spec,
+                    config=d.config,
+                    affected_files=usage.affected_files(),
+                    tools_dir=tools,
+                    log_dir=self.logs(state),
+                ),
+                d.runner,
+            )
+        d.say(
+            "Rules",
+            f"{len(rules.changed_files)} files changed"
+            if rules.status == "ok"
+            else f"Rules failure: {rules.reason}",
+        )
+        _save_files(self.snapshots(state) / "after-rules.json", read_files(workspace))
+        return {
+            "rules": rules.model_dump(mode="json"),
+            "rules_done": True,
+            "timings": self.timed(state, "rules", t0),
+        }
+
+    def verify_node(self, state: RunState) -> RunState:
+        t0 = time.monotonic()
+        d = self.d
+        pre = PrecheckResult.model_validate(state["precheck"])
+        d.say("Verify", "type-check, lint, tests")
+        result = verify(
+            VerifyInput(
+                workspace=self.workspace(state),
+                commands=d.config.verify,
+                runner=d.config.runner,
+                log_dir=self.logs(state),
+                label="verify",
+                pre_existing=pre.pre_existing_failures,
+            ),
+            d.runner,
+        )
+        d.say("Verify", f"{len(result.failures)} failures in {len(result.failing_files())} files")
+        return {
+            "verify": result.model_dump(mode="json"),
+            "known_failures": _dump_failures(result.failures),
+            "timings": self.timed(state, "verify", t0),
+        }
+
+    # ------------------------------------------------------------------ repair
+
+    def plan_repair_node(self, state: RunState) -> RunState:
+        d = self.d
+        result = VerifyResult.model_validate(state["verify"])
+        untouched = self.untouched(state)
+        after = self.after_rules(state)
+        tests = find_test_files(untouched, after.keys(), read_test_rules(self.workspace(state)))
+        failing = [p for p in result.failing_files() if p in after]
+        if not d.repair_on:
+            return {"test_files": tests, "queue": [], "review_queue": []}
+        order = repair_order(failing, after)
+        d.say("Repair", f"{len(order)} failing files to repair: {', '.join(order) or 'none'}")
+        return {"test_files": tests, "queue": order, "review_queue": [], "messages": []}
+
+    def next_file_node(self, state: RunState) -> RunState:
+        report = self.report_of(state)
+        queue = list(state.get("queue") or [])
+        if report.stopped_by_cost_cap and queue:
+            for path in queue:
+                report.files.append(
+                    FileRepair(path=path, outcome="Unmigrated", reason="cost cap: not attempted")
+                )
+            self.d.say("Repair", f"cost cap: {len(queue)} files not attempted")
+            return {"queue": [], "repair": report.model_dump(mode="json")}
+        return {}
+
+    def route_next_file(self, state: RunState) -> str:
+        return "start_file" if state.get("queue") else "prepare_review"
+
+    def start_file_node(self, state: RunState) -> RunState:
+        d = self.d
+        assert d.templates is not None and d.retriever is not None
+        queue = list(state.get("queue") or [])
+        path = queue.pop(0)
+        workspace = self.workspace(state)
+        after = self.after_rules(state)
+        tests = state.get("test_files") or {}
+        known = _failures(state.get("known_failures"))
+        mine = [f for f in known if f.file == path]
+        first_model = d.configuration.repair.attempt_models[0]
+        record = FileRepair(path=path, attempts=[AttemptRecord(number=1, model=first_model)])
+        session = SessionState(
+            path=path,
+            max_attempts=d.configuration.repair.max_attempts,
+            allowed_imports=[p for p in local_imports(path, after) if p not in tests],
+            baseline_keys=[failure_key(f) for f in known],
+            record=record,
+        )
+        d.say("Repair", f"{path}: {len(mine)} failures")
+        if path in tests:
+            session.ended = "handed_off"
+            record.outcome = "Handed off"
+            record.reason = (
+                f"the failure is in a Test file ({tests[path]}), which only a human may change"
+            )
+            record.attempts = []
+            return {"queue": queue, "current": session.model_dump(mode="json"), "messages": []}
+        usage = UsageReport.model_validate_json(Path(state["usage_path"]).read_text("utf-8"))
+        file_usages = usage.file(path)
+        symbols = [u.symbol.split(".")[0] for u in file_usages.old_usages] if file_usages else []
+        text = first_message(
+            d.templates,
+            d.spec,
+            d.retriever,
+            path=path,
+            max_attempts=session.max_attempts,
+            failures=mine,
+            untouched=self.untouched(state).get(path),
+            after_rules=(workspace / path).read_text("utf-8"),
+            files={
+                **after,
+                **{
+                    p: (workspace / p).read_text("utf-8")
+                    for p in after
+                    if (workspace / p).is_file()
+                },
+            },
+            test_files=tests,
+            symbols=list(dict.fromkeys(s for s in symbols if s != "*")),
+        )
+        return {
+            "queue": queue,
+            "current": session.model_dump(mode="json"),
+            "messages": [HumanMessage(content=text)],
+        }
+
+    def route_start_file(self, state: RunState) -> str:
+        current = state.get("current") or {}
+        return "file_end" if current.get("ended") else "agent"
+
+    def agent_node(self, state: RunState) -> RunState:
+        t0 = time.monotonic()
+        d = self.d
+        assert d.model is not None and d.templates is not None
+        session = SessionState.model_validate(state["current"])
+        report = self.report_of(state)
+        calls = [CallRecord.model_validate(c) for c in state.get("calls") or []]
+        spent = sum(c.cost_usd for c in calls)
+        model = self.attempt_model(session.attempt)
+        record = session.record
+        if not record.attempts or record.attempts[-1].number != session.attempt:
+            record.attempts.append(AttemptRecord(number=session.attempt, model=model))
+        system = system_prompt(d.templates, d.spec, max_attempts=session.max_attempts)
+        messages = list(state.get("messages") or [])
+        try:
+            message, call = d.model.call(
+                model,
+                system,
+                messages,
+                run_spent_usd=spent,
+                file=session.path,
+                attempt=session.attempt,
+            )
+        except CostCapError as exc:
+            session.ended = "cost_cap"
+            record.outcome = "Unmigrated"
+            record.reason = f"cost cap: {exc}"
+            record.attempts[-1].result = "cost_cap"
+            report.stopped_by_cost_cap = True
+            report.cost_cap_reason = str(exc)
+            d.say("Repair", f"cost cap reached: {exc}")
+            return {
+                "current": session.model_dump(mode="json"),
+                "repair": report.model_dump(mode="json"),
+                "timings": self.timed(state, "repair", t0),
+            }
+        record.attempts[-1].stop_reason = call.stop_reason
+        if call.stop_reason == "refusal":
+            session.ended = "handed_off"
+            record.outcome = "Handed off"
+            record.reason = "the model declined the request (refusal)"
+            record.attempts[-1].result = "handed_off"
+        return {
+            "current": session.model_dump(mode="json"),
+            "messages": [*messages, message],
+            "calls": [*[c.model_dump(mode="json") for c in calls], call.model_dump(mode="json")],
+            "timings": self.timed(state, "repair", t0),
+        }
+
+    def route_agent(self, state: RunState) -> str:
+        current = state.get("current") or {}
+        return "file_end" if current.get("ended") else "tools"
+
+    def tools_node(self, state: RunState) -> RunState:
+        t0 = time.monotonic()
+        d = self.d
+        assert d.tools is not None and d.templates is not None and d.retriever is not None
+        session_state = SessionState.model_validate(state["current"])
+        messages = list(state.get("messages") or [])
+        last = messages[-1] if messages else None
+        known = _failures(state.get("known_failures"))
+        pre = PrecheckResult.model_validate(state["precheck"])
+        session = RepairSession(
+            session_state,
+            workspace=self.workspace(state),
+            after_rules=self.after_rules(state),
+            test_files=state.get("test_files") or {},
+            known_failures=known,
+            pre_existing=pre.pre_existing_failures,
+            config=d.config,
+            runner=d.runner,
+            log_dir=self.logs(state),
+            templates=d.templates,
+            retriever=d.retriever,
+            link_base=d.spec.guide.link_base,
+        )
+        d.tools.session = session
+        new: list[BaseMessage] = []
+        try:
+            calls = last.tool_calls if isinstance(last, AIMessage) else []
+            if not calls:
+                # No tool call (text only, or cut off): nudge, and count it against the budget.
+                session_state.tool_calls += 1
+                session.current_attempt.tool_calls += 1
+                new.append(HumanMessage(content=NUDGE))
+            for call in calls:
+                if session_state.ended is not None:
+                    new.append(
+                        ToolMessage(
+                            content="Not run: this file's repair has ended.",
+                            tool_call_id=call["id"] or "",
+                            name=call["name"],
+                            status="error",
+                        )
+                    )
+                    continue
+                attempt_before = session_state.attempt
+                session_state.tool_calls += 1
+                session.current_attempt.tool_calls += 1
+                new.append(d.tools.invoke(call))
+                if session_state.ended is None and session_state.attempt != attempt_before:
+                    # run_verify failed and a new attempt starts: later calls are its own
+                    session.record.attempts.append(
+                        AttemptRecord(
+                            number=session_state.attempt,
+                            model=self.attempt_model(session_state.attempt),
+                        )
+                    )
+            if session_state.ended is None and session_state.tool_calls >= MAX_TOOL_CALLS:
+                session.hand_off(
+                    f"tool-call budget used: {MAX_TOOL_CALLS} calls in attempt "
+                    f"{session_state.attempt} without passing run_verify"
+                )
+        finally:
+            d.tools.session = None
+        return {
+            "current": session_state.model_dump(mode="json"),
+            "messages": [*messages, *new],
+            "known_failures": _dump_failures(session.known_failures),
+            "timings": self.timed(state, "repair", t0),
+        }
+
+    def route_tools(self, state: RunState) -> str:
+        current = state.get("current") or {}
+        return "file_end" if current.get("ended") else "agent"
+
+    def file_end_node(self, state: RunState) -> RunState:
+        d = self.d
+        session = SessionState.model_validate(state["current"])
+        record = session.record
+        report = self.report_of(state)
+        workspace = self.workspace(state)
+        review_queue = list(state.get("review_queue") or [])
+        if session.ended == "cost_cap":
+            # No half-done patch lands: put the file back as this repair found it.
+            for rel, text in session.originals.items():
+                (workspace / rel).write_text(text, "utf-8")
+            record.touched = []
+            record.patch_lines = {}
+        elif session.ended == "passed" and d.mode == "cli":
+            after = self.after_rules(state)
+            hits = [
+                f"{rel}: {', '.join(found)}"
+                for rel in record.touched
+                if (
+                    found := added_escape_hatches(
+                        rel, after.get(rel, ""), (workspace / rel).read_text("utf-8")
+                    )
+                )
+            ]
+            if hits:  # in real use a cheating-check hit is a hand-off, not a migrated file
+                record.outcome = "Handed off"
+                record.reason = "cheating check: " + "; ".join(hits)
+        if record.outcome == "Handed off":
+            review_queue.append(record.path)
+            report.review_list.append(record.path)
+        messages = list(state.get("messages") or [])
+        if messages:
+            conv = self.run_dir(state) / "repair" / f"{_slug(record.path)}.json"
+            conv.parent.mkdir(parents=True, exist_ok=True)
+            conv.write_text(
+                json.dumps(messages_to_dict(messages), indent=2, ensure_ascii=False), "utf-8"
+            )
+            record.conversation = str(conv.relative_to(self.run_dir(state)))
+        report.files.append(record)
+        d.say(
+            "Repair",
+            f"{record.path}: {record.outcome}" + (f" ({record.reason})" if record.reason else ""),
+        )
+        return {
+            "current": None,
+            "messages": [],
+            "repair": report.model_dump(mode="json"),
+            "review_queue": review_queue,
+        }
+
+    # ------------------------------------------------------------------ review
+
+    def prepare_review_node(self, state: RunState) -> RunState:
+        queue = list(state.get("review_queue") or [])
+        if not queue:
+            return {"review": None}
+        path = queue[0]
+        report = self.report_of(state)
+        record = report.record(path) or FileRepair(path=path)
+        workspace = self.workspace(state)
+        after = self.after_rules(state)
+        diff = "".join(
+            unified_diff(rel, after.get(rel), (workspace / rel).read_text("utf-8"))
+            for rel in record.touched
+            if (workspace / rel).is_file()
+        )
+        known = _failures(state.get("known_failures"))
+        attempts = [
+            f"attempt {a.number} ({a.model}, {a.tool_calls} tool calls): {a.result or '—'}"
+            + (f", {a.failures_left} failures left" if a.failures_left is not None else "")
+            + (f' — "{a.note}"' if a.note else "")
+            for a in record.attempts
+        ]
+        payload = ReviewPayload(
+            path=path,
+            reason=record.reason or "handed off",
+            attempts=attempts,
+            failures=[describe_failure(f, path) for f in known if f.file == path],
+            diff=diff,
+            workspace=str(workspace),
+            hashes=code_hashes(workspace),
+            remaining=len(queue) - 1,
+        )
+        return {"review": payload.model_dump(mode="json")}
+
+    def route_prepare_review(self, state: RunState) -> str:
+        return "review" if state.get("review") else "final_verify"
+
+    def review_node(self, state: RunState) -> RunState:
+        # Nothing before interrupt(): on resume this node starts again from here.
+        payload = ReviewPayload.model_validate(state["review"])
+        answer = interrupt(payload.model_dump(mode="json"), response_schema=ReviewAnswer)
+        if isinstance(answer, dict):
+            answer = ReviewAnswer.model_validate(answer)
+        d = self.d
+        workspace = self.workspace(state)
+        report = self.report_of(state)
+        record = report.record(payload.path)
+        if record is None:
+            raise RuntimeError(f"no repair record for {payload.path}")
+        now = code_hashes(workspace)
+        changed = sorted(
+            p for p in now.keys() | payload.hashes.keys() if now.get(p) != payload.hashes.get(p)
+        )
+        for rel in changed:
+            if rel not in report.human_changed:
+                report.human_changed.append(rel)
+        known = _failures(state.get("known_failures"))
+        queue = list(state.get("review_queue") or [])
+        record.review = answer.choice
+        updates: RunState = {}
+        if answer.choice == "revert":
+            after = self.after_rules(state)
+            for rel in record.touched:
+                if rel in changed:
+                    continue  # a human changed it while paused: theirs wins
+                if rel in after:
+                    (workspace / rel).write_text(after[rel], "utf-8")
+            record.touched = [rel for rel in record.touched if rel in changed]
+            queue.pop(0)
+        elif answer.choice == "keep":
+            queue.pop(0)
+        else:  # edit: the human changed files; check the file again with the narrow verify
+            assert d.templates is not None and d.retriever is not None
+            pre = PrecheckResult.model_validate(state["precheck"])
+            session = RepairSession(
+                SessionState(
+                    path=payload.path,
+                    baseline_keys=[failure_key(f) for f in known if f.file != payload.path],
+                    record=record.model_copy(
+                        update={"touched": sorted({*record.touched, *changed})}
+                    ),
+                ),
+                workspace=workspace,
+                after_rules=self.after_rules(state),
+                test_files=state.get("test_files") or {},
+                known_failures=known,
+                pre_existing=pre.pre_existing_failures,
+                config=d.config,
+                runner=d.runner,
+                log_dir=self.logs(state),
+                templates=d.templates,
+                retriever=d.retriever,
+                link_base=d.spec.guide.link_base,
+            )
+            left, elsewhere, _ran = session.narrow_verify(f"review-{_slug(payload.path)}")
+            known = session.known_failures
+            if not left and not elsewhere:
+                record.migrated_by_human = True
+                queue.pop(0)
+                d.say("Review", f"{payload.path}: fixed by a human")
+            else:
+                d.say(
+                    "Review",
+                    f"{payload.path}: still {len(left) + len(elsewhere)} failures after the edit",
+                )
+        updates.update(
+            {
+                "repair": report.model_dump(mode="json"),
+                "review_queue": queue,
+                "known_failures": _dump_failures(known),
+                "review": None,
+            }
+        )
+        return updates
+
+    # ------------------------------------------------------------------ final verify, report
+
+    def final_verify_node(self, state: RunState) -> RunState:
+        t0 = time.monotonic()
+        d = self.d
+        pre = PrecheckResult.model_validate(state["precheck"])
+        workspace = self.workspace(state)
+        report = self.report_of(state)
+        repaired = any(f.touched for f in report.files) or bool(report.human_changed)
+        if state.get("verify") and not repaired:
+            # Nothing changed since the Verify after Rules: it is the final verify.
+            final = VerifyResult.model_validate(state["verify"])
+        else:
+            d.say("Verify", "final: type-check, lint, tests")
+            final = verify(
+                VerifyInput(
+                    workspace=workspace,
+                    commands=d.config.verify,
+                    runner=d.config.runner,
+                    log_dir=self.logs(state),
+                    label="final",
+                    pre_existing=pre.pre_existing_failures,
+                ),
+                d.runner,
+            )
+        final_usage = scan(
+            ScanInput(
+                repo=workspace,
+                spec=d.spec,
+                source_globs=d.config.source_globs,
+                exclude=d.config.exclude,
+            )
+        )
+        final_usage_path = self.run_dir(state) / "state" / "final-usage.json"
+        write_json(final_usage, final_usage_path)
+        final_files = read_files(workspace)
+        after = self.after_rules(state)
+        cheating = run_checks(
+            CheckInput(
+                before=self.untouched(state),
+                after_rules=after,
+                final=final_files,
+                later_layers=final_layers(after, final_files, report),
+                test_rules=read_test_rules(workspace),
+                precheck_totals=pre.test_totals,
+                final_totals=final.test_totals,
+            )
+        )
+        d.say("Checks", f"{len(cheating.hits)} cheating-check hits, {len(cheating.notes)} notes")
+        d.say("Verify", f"{len(final.failures)} failures in {len(final.failing_files())} files")
+        return {
+            "final": final.model_dump(mode="json"),
+            "final_usage_path": str(final_usage_path),
+            "cheating": cheating.model_dump(mode="json"),
+            "timings": self.timed(state, "final_verify", t0),
+        }
+
+    def report_node(self, state: RunState) -> RunState:
+        d = self.d
+        run_dir = self.run_dir(state)
+        usage = UsageReport.model_validate_json(Path(state["usage_path"]).read_text("utf-8"))
+        pre = PrecheckResult.model_validate(state["precheck"])
+        rules = RulesResult.model_validate(state["rules"]) if state.get("rules") else None
+        post_rules = VerifyResult.model_validate(state["verify"]) if state.get("verify") else None
+        final = VerifyResult.model_validate(state["final"]) if state.get("final") else None
+        final_usage = (
+            UsageReport.model_validate_json(Path(fp).read_text("utf-8"))
+            if (fp := state.get("final_usage_path"))
+            else None
+        )
+        report = self.report_of(state)
+        calls = [CallRecord.model_validate(c) for c in state.get("calls") or []]
+        timings = dict(state.get("timings") or {})
+        if calls:
+            timings["model"] = round(sum(c.duration_s for c in calls), 2)
+        started = datetime.strptime(state["started_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+        finished = datetime.now(UTC)
+        meta = RunMeta(
+            run_id=state["run_id"],
+            started_at=state["started_at"],
+            finished_at=finished.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            duration_s=round((finished - started).total_seconds(), 1),
+            migrator_version=__version__,
+            node_version=state.get("node_version"),
+            npm_version=state.get("npm_version"),
+            timings_s=timings,
+        )
+        layers: dict[str, Layer] | None = None
+        if (
+            state.get("workspace")
+            and rules is not None
+            and rules.status == "ok"
+            and final is not None
+        ):
+            layers = final_layers(
+                self.after_rules(state), read_files(self.workspace(state)), report
+            )
+        cost = run_cost(
+            calls,
+            d.run_cap_usd,
+            d.month_cap_usd,
+            month_spent_usd=d.ledger.month_spent() if calls else None,
+            stopped_by_cap=report.stopped_by_cost_cap,
+        )
+        card = build_scorecard(
+            ReportInput(
+                usage=usage,
+                precheck=pre,
+                rules=rules,
+                rules_verify=post_rules,
+                verify=final,
+                final_usage=final_usage,
+                traps=d.traps,
+                configuration=d.configuration.name,
+                configuration_digest=d.configuration.digest(),
+                cheating=CheatingReport.model_validate(state["cheating"])
+                if state.get("cheating")
+                else None,
+                cost=cost,
+                repair=report if d.configuration.repair.enabled else None,
+                later_layers=layers,
+                case=d.case.id if d.case else (d.traps.case if d.traps else None),
+                meta=meta,
+            )
+        )
+        write_json(card, run_dir / "scorecard.json")
+        (run_dir / "scorecard.md").write_text(render_scorecard(card), "utf-8")
+        d.say("Report", f"written to {run_dir}")
+        ws = state.get("workspace")
+        if ws and not d.keep_workspace:
+            shutil.rmtree(Path(ws).parent, ignore_errors=True)
+        return {"scorecard_path": str(run_dir / "scorecard.json")}
+
+    # ------------------------------------------------------------------ wiring
+
+    def route_precheck(self, state: RunState) -> str:
+        pre = state.get("precheck") or {}
+        return "rules" if pre.get("status") == "ok" else "report"
+
+    def route_rules(self, state: RunState) -> str:
+        rules = state.get("rules") or {}
+        return "verify" if rules.get("status") == "ok" else "report"
+
+    def build(self) -> StateGraph[RunState]:
+        g: StateGraph[RunState] = StateGraph(RunState)
+        g.add_node("scan", self.scan_node)
+        g.add_node("precheck", self.precheck_node)
+        g.add_node("rules", self.rules_node)
+        g.add_node("verify", self.verify_node)
+        g.add_node("plan_repair", self.plan_repair_node)
+        g.add_node("next_file", self.next_file_node)
+        g.add_node("start_file", self.start_file_node)
+        g.add_node("agent", self.agent_node)
+        g.add_node("tools", self.tools_node)
+        g.add_node("file_end", self.file_end_node)
+        g.add_node("prepare_review", self.prepare_review_node)
+        g.add_node("review", self.review_node)
+        g.add_node("final_verify", self.final_verify_node)
+        g.add_node("report", self.report_node)
+
+        g.add_edge(START, "scan")
+        g.add_edge("scan", "precheck")
+        g.add_conditional_edges("precheck", self.route_precheck, ["rules", "report"])
+        g.add_conditional_edges("rules", self.route_rules, ["verify", "report"])
+        g.add_edge("verify", "plan_repair")
+        g.add_edge("plan_repair", "next_file")
+        g.add_conditional_edges("next_file", self.route_next_file, ["start_file", "prepare_review"])
+        g.add_conditional_edges("start_file", self.route_start_file, ["agent", "file_end"])
+        g.add_conditional_edges("agent", self.route_agent, ["tools", "file_end"])
+        g.add_conditional_edges("tools", self.route_tools, ["agent", "file_end"])
+        g.add_edge("file_end", "next_file")
+        g.add_conditional_edges(
+            "prepare_review", self.route_prepare_review, ["review", "final_verify"]
+        )
+        g.add_edge("review", "prepare_review")
+        g.add_edge("final_verify", "report")
+        g.add_edge("report", END)
+        return g
+
+
+def final_layers(after_rules: FileSet, final: FileSet, report: RepairReport) -> dict[str, Layer]:
+    """Who changed each file after the Rules stage: the human (at Review) or the agent."""
+    human = set(report.human_changed)
+    layers: dict[str, Layer] = {}
+    for path in after_rules.keys() | final.keys():
+        if after_rules.get(path) != final.get(path):
+            layers[path] = "human" if path in human else "agent"
+    return layers
+
+
+def initial_state(run_id: str, run_dir: Path) -> RunState:
+    return {"run_id": run_id, "run_dir": str(run_dir), "started_at": _now(), "timings": {}}

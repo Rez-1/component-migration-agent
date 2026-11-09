@@ -12,7 +12,7 @@ from typer.testing import CliRunner
 from migrator.checks import CheatingReport, Finding
 from migrator.cli import app
 from migrator.config import load_case
-from migrator.configuration import BASELINE, Configuration, NeedsRepairLoopError
+from migrator.configuration import BASELINE, Configuration
 from migrator.cost import RunCost, Usage
 from migrator.evals import (
     METRICS,
@@ -170,15 +170,14 @@ def test_a_second_experiment_is_the_next_variant(
     assert (first.experiment, second.experiment) == ("dev/baseline", "dev/v1")
 
 
-def test_repair_configuration_fails_before_anything_runs(
+def test_a_repair_configuration_without_max_cost_fails_before_anything_runs(
     tmp_path: Path,
     card_input: ReportInput,  # noqa: F811
 ) -> None:
     runs = FakeRuns(card_input, [])
-    with pytest.raises(NeedsRepairLoopError):
+    with pytest.raises(EvalError, match="--max-cost"):
         run_experiment(_plan(tmp_path, OPUS), run=runs)
     assert runs.calls == []
-    assert not (tmp_path / "evals").exists()
 
 
 def test_failed_runs_go_to_the_errors_sidecar_and_resume_reruns_them(
@@ -338,7 +337,7 @@ def test_committed_experiment_summary_renders_from_its_json() -> None:
 cli = CliRunner()
 
 
-def test_cli_eval_run_refuses_a_repair_configuration(tmp_path: Path) -> None:
+def test_cli_eval_run_refuses_a_repair_configuration_without_max_cost(tmp_path: Path) -> None:
     result = cli.invoke(
         app,
         [
@@ -353,8 +352,7 @@ def test_cli_eval_run_refuses_a_repair_configuration(tmp_path: Path) -> None:
         ],
     )
     assert result.exit_code == 2
-    assert "needs the repair loop (M3)" in result.output
-    assert list(tmp_path.iterdir()) == []
+    assert "--max-cost" in result.output
 
 
 def test_cli_eval_summary_unknown_experiment(tmp_path: Path) -> None:

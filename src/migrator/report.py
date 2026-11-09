@@ -18,12 +18,15 @@ from migrator.checks import CheatingReport, Finding, Layer
 from migrator.config import Trap, TrapList
 from migrator.configuration import DEFAULT_MAX_MONTH_USD, DEFAULT_MAX_RUN_USD
 from migrator.cost import RunCost
+from migrator.repair.records import RepairReport
 from migrator.rules import CodemodTodo, RulesResult
 from migrator.scan import UsageReport
 from migrator.verify import Failure, PrecheckResult, TestTotals, VerifyResult
 
 # 2: cheating checks, cost block, configuration digest (M2).
-SCHEMA_VERSION = 2
+# 3: the repair block, Regressions against the Verify after Rules, a clean run ignores
+#    handed-off files, cost warnings and the cost-cap flag (M3).
+SCHEMA_VERSION = 3
 
 Outcome = Literal[
     "Migrated by rules", "Migrated by agent", "Migrated by human", "Handed off", "Unmigrated"
@@ -129,6 +132,41 @@ class TrapResult(BaseModel):
     evidence: list[str]
 
 
+class AttemptSummary(BaseModel):
+    number: int
+    model: str
+    tool_calls: int
+    result: str | None
+    failures_left: int | None
+    new_failures_elsewhere: int
+    note: str | None
+
+
+class FileRepairSummary(BaseModel):
+    path: str
+    outcome: Outcome
+    reason: str | None
+    attempts: list[AttemptSummary]
+    tool_calls: int
+    touched: list[str]
+    patch_lines: dict[str, int]
+    edits_applied: int
+    edits_rejected: dict[str, int]
+    review: str | None
+    conversation: str | None
+
+
+class RepairSummary(BaseModel):
+    files: list[FileRepairSummary]
+    review_list: list[str]
+    attempts: int
+    tool_calls: int
+    edits_rejected: dict[str, int]
+    stopped_by_cost_cap: bool
+    cost_cap_reason: str | None
+    human_changed: list[str]
+
+
 class RunMeta(BaseModel):
     run_id: str
     started_at: str
@@ -157,6 +195,8 @@ class Scorecard(BaseModel):
     verify: VerifySummary | None
     traps: list[TrapResult] | None
     cheating: CheatingReport | None  # None when the run stopped before Verify
+    repair: RepairSummary | None  # None when repair is off (the Baseline)
+    regressions: list[str]
     cost: RunCost
     meta: RunMeta
 
@@ -165,7 +205,10 @@ class ReportInput(BaseModel):
     usage: UsageReport
     precheck: PrecheckResult
     rules: RulesResult | None
-    verify: VerifyResult | None
+    verify: VerifyResult | None  # the final Verify
+    # The Verify right after Rules; Regressions are counted against it. None means the
+    # run changed nothing after Rules, so the final Verify is that Verify.
+    rules_verify: VerifyResult | None = None
     final_usage: UsageReport | None  # rescan of the workspace after the run
     traps: TrapList | None
     configuration: str = "baseline"
@@ -173,6 +216,9 @@ class ReportInput(BaseModel):
     case: str | None = None
     cheating: CheatingReport | None = None
     cost: RunCost = RunCost.no_llm(DEFAULT_MAX_RUN_USD, DEFAULT_MAX_MONTH_USD)
+    repair: RepairReport | None = None
+    # Who changed each file after Rules ("agent" or "human"); None: nobody did.
+    later_layers: dict[str, Layer] | None = None
     meta: RunMeta
 
 
@@ -216,8 +262,18 @@ def score_trap(
     layers: dict[str, Layer],
     handed_off: set[str],
     rules_ok: bool,
+    rules_changed: set[str] | None = None,
 ) -> TrapResult:
+    """One trap's result. A rules trap counts as handled when the Rules stage changed its
+    file and its check stays quiet (a later agent edit to the same file doesn't undo
+    that); a human trap is Expected when its file was handed off, even though its check
+    still fires at the final verify."""
     file = trap.location.file
+    by_rules = (
+        rules_changed
+        if rules_changed is not None
+        else {p for p, layer in layers.items() if layer == "rules"}
+    )
     checks: list[TrapCheck] = []
     evidence: list[str] = []
     for check in trap.checks():
@@ -229,8 +285,10 @@ def score_trap(
     if trap.expected_layer == "visual-only":
         result = "Not scored"
     elif trap.expected_layer == "rules":
-        handled = rules_ok and layers.get(file) == "rules" and not caught
+        handled = rules_ok and file in by_rules and not caught
         result = "Expected" if handled else "Missed"
+    elif trap.expected_layer == "human" and file in handed_off:
+        result = "Expected"
     elif caught:
         result = "Missed"
     elif layers.get(file) is None and file not in handed_off:
@@ -266,16 +324,40 @@ def _commands(outcomes: list[Any]) -> list[CommandSummary]:
     ]
 
 
+def _repair_outcome(record: Any, file_failures: list[Failure]) -> tuple[Outcome, str]:
+    """A repaired file's outcome: the repair's own result, checked by the final verify."""
+    if record.migrated_by_human:
+        if file_failures:
+            return "Unmigrated", f"edited at Review, still {len(file_failures)} failures"
+        return "Migrated by human", "fixed at Review"
+    if record.outcome == "Handed off":
+        choice = f"; {record.review}" if record.review else ""
+        return "Handed off", f"{record.reason or 'handed off'}{choice}"
+    if record.outcome == "Migrated by agent":
+        if file_failures:
+            return (
+                "Unmigrated",
+                f"repaired, but the final verify found {len(file_failures)} failures",
+            )
+        return "Migrated by agent", f"{len(record.attempts)} attempt(s)"
+    return "Unmigrated", record.reason or "not repaired"
+
+
 def build_scorecard(inp: ReportInput) -> Scorecard:
     affected = inp.usage.affected_files()
     rules_ok = inp.rules is not None and inp.rules.status == "ok"
     failures = inp.verify.failures if inp.verify else []
     rules_changed = set(inp.rules.changed_files) if inp.rules else set()
     layers: dict[str, Layer] = {p: "rules" for p in rules_changed}
-    handed_off: set[str] = set()  # the repair agent arrives in M3
+    layers.update(inp.later_layers or {})
+    repair = inp.repair
+    records = {f.path: f for f in repair.files} if repair else {}
+    handed_off: set[str] = set(repair.review_list) if repair else set()
     cheating = inp.cheating
     hit_files = cheating.hit_files() if cheating else set()
     hits = cheating.hits if cheating else []
+    before = inp.rules_verify or inp.verify
+    failing_after_rules = {f.file for f in before.failures if f.file} if before else set()
 
     if inp.precheck.status == "rejected":
         status: RunStatus = "rejected"
@@ -284,6 +366,10 @@ def build_scorecard(inp: ReportInput) -> Scorecard:
         status, reason = "rules_failure", inp.rules.reason if inp.rules else "Rules did not run"
     else:
         status, reason = "completed", None
+
+    failing_files = sorted({f.file for f in failures if f.file})
+    # A Regression: a file with no failures after Rules that fails at the final verify.
+    regressions = sorted(p for p in failing_files if p not in failing_after_rules)
 
     files: list[FileResult] = []
     for path in affected:
@@ -299,9 +385,15 @@ def build_scorecard(inp: ReportInput) -> Scorecard:
         elif path in hit_files:
             checks = sorted({h.check for h in hits if h.file == path})
             outcome, note = "Unmigrated", "cheating check: " + ", ".join(checks)
+        elif path in records:
+            outcome, note = _repair_outcome(records[path], file_failures)
+            if outcome != "Handed off" and left:
+                outcome, note = "Unmigrated", f"{left} old usages left"
         elif file_failures:
             kinds = Counter(f.source for f in file_failures)
             note = ", ".join(f"{n} {k}" for k, n in sorted(kinds.items()))
+            if path in regressions:
+                note = "regression: " + note
             outcome = "Unmigrated"
         elif left:
             outcome, note = "Unmigrated", f"{left} old usages left"
@@ -325,14 +417,21 @@ def build_scorecard(inp: ReportInput) -> Scorecard:
 
     counts = Counter(f.outcome for f in files)
     without_human = counts["Migrated by rules"] + counts["Migrated by agent"]
-    failing_files = sorted({f.file for f in failures if f.file})
-    regressions = [p for p in failing_files if p not in rules_changed and p not in affected]
+    # A clean run: no failures outside handed-off files (and no cheating-check hit).
+    outside = [f for f in failures if f.file not in handed_off or f.file is None]
 
     trap_results: list[TrapResult] | None = None
     trap_counts: TrapCounts | None = None
     if inp.traps is not None:
         trap_results = [
-            score_trap(t, failures, layers, handed_off, rules_ok and status == "completed")
+            score_trap(
+                t,
+                failures,
+                layers,
+                handed_off,
+                rules_ok and status == "completed",
+                rules_changed,
+            )
             for t in inp.traps.traps
         ]
         tc = Counter(t.result for t in trap_results)
@@ -345,7 +444,7 @@ def build_scorecard(inp: ReportInput) -> Scorecard:
 
     headline = Headline(
         # A cheating-check hit fails the run however clean the final verify is.
-        clean_run=status == "completed" and not failures and not hits,
+        clean_run=status == "completed" and not outside and not hits,
         failures=len(failures),
         failing_files=len({f.file for f in failures}),
         migrated_without_human=Share(
@@ -413,8 +512,57 @@ def build_scorecard(inp: ReportInput) -> Scorecard:
         else None,
         traps=trap_results,
         cheating=cheating,
+        repair=_repair_summary(repair, files) if repair else None,
+        regressions=regressions,
         cost=inp.cost,
         meta=inp.meta,
+    )
+
+
+def _repair_summary(repair: RepairReport, files: list[FileResult]) -> RepairSummary:
+    outcomes = {f.path: f.outcome for f in files}
+    rejected: Counter[str] = Counter()
+    rows: list[FileRepairSummary] = []
+    for r in repair.files:
+        rejected.update(r.edits_rejected)
+        outcome: Outcome = outcomes.get(r.path) or (
+            "Migrated by human" if r.migrated_by_human else (r.outcome or "Unmigrated")
+        )
+        rows.append(
+            FileRepairSummary(
+                path=r.path,
+                outcome=outcome,
+                reason=r.reason,
+                attempts=[
+                    AttemptSummary(
+                        number=a.number,
+                        model=a.model,
+                        tool_calls=a.tool_calls,
+                        result=a.result,
+                        failures_left=a.failures_left,
+                        new_failures_elsewhere=len(a.new_failures_elsewhere),
+                        note=a.note,
+                    )
+                    for a in r.attempts
+                ],
+                tool_calls=r.tool_calls,
+                touched=r.touched,
+                patch_lines=r.patch_lines,
+                edits_applied=r.edits_applied,
+                edits_rejected=r.edits_rejected,
+                review=r.review,
+                conversation=r.conversation,
+            )
+        )
+    return RepairSummary(
+        files=rows,
+        review_list=repair.review_list,
+        attempts=repair.attempts,
+        tool_calls=repair.tool_calls,
+        edits_rejected=dict(sorted(rejected.items())),
+        stopped_by_cost_cap=repair.stopped_by_cost_cap,
+        cost_cap_reason=repair.cost_cap_reason,
+        human_changed=repair.human_changed,
     )
 
 
@@ -479,8 +627,10 @@ def _cost_line(cost: RunCost) -> str:
         if cost.month_spent_usd is not None
         else ""
     )
+    warnings = "".join(f" **Warning:** {w}." for w in cost.warnings)
+    stopped = " Repair stopped at the cost cap." if cost.stopped_by_cap else ""
     if cost.model_calls == 0:
-        return f"$0: this run made no model calls. {caps}{month}."
+        return f"$0: this run made no model calls. {caps}{month}.{stopped}"
     share = (
         f" Cache reads covered {round(cost.cache_read_share * 100)}% of input tokens."
         if cost.cache_read_share is not None
@@ -491,6 +641,7 @@ def _cost_line(cost: RunCost) -> str:
         f" + {usd(cost.cache_read_usd + cost.cache_write_usd)} cache (reads "
         f"{usd(cost.cache_read_usd)}, writes {usd(cost.cache_write_usd)}), "
         f"{', '.join(cost.models)}, {cost.model_calls} calls.{share} {caps}{month}."
+        f"{stopped}{warnings}"
     )
 
 
@@ -528,6 +679,44 @@ def _cheating_section(card: Scorecard) -> list[str]:
         ]
         lines += [_finding_row(f) for f in report.notes]
     lines += ["", f"{len(report.test_files)} test files checked."]
+    return lines
+
+
+def _repair_section(card: Scorecard) -> list[str]:
+    r = card.repair
+    if r is None:
+        return []
+    lines = [
+        "",
+        "## Repair",
+        "",
+        f"{len(r.files)} failing files, {r.attempts} attempts, {r.tool_calls} tool calls."
+        + (f" **Stopped by the cost cap:** {r.cost_cap_reason}." if r.stopped_by_cost_cap else ""),
+    ]
+    if r.edits_rejected:
+        lines.append(
+            "Edits refused by the guardrails: "
+            + ", ".join(f"{k} {v}" for k, v in r.edits_rejected.items())
+            + "."
+        )
+    if r.files:
+        lines += [
+            "",
+            "| File | Outcome | Attempts | Tool calls | Patch | Why |",
+            "|---|---|---|---|---|---|",
+        ]
+        for f in r.files:
+            patch = ", ".join(f"{Path(p).name} {n}" for p, n in f.patch_lines.items()) or "—"
+            why = (f.reason or "").replace("|", "\\|")
+            if f.review:
+                why += f" (Review: {f.review})"
+            lines.append(
+                f"| {f.path} | {f.outcome} | {len(f.attempts)} | {f.tool_calls} | {patch} | {why} |"
+            )
+    if r.review_list:
+        lines += ["", "Review list: " + ", ".join(f"`{p}`" for p in r.review_list) + "."]
+    if card.regressions:
+        lines += ["", "Regressions: " + ", ".join(f"`{p}`" for p in card.regressions) + "."]
     return lines
 
 
@@ -637,6 +826,7 @@ def render_scorecard(card: Scorecard) -> str:
             else f"Not caught by verify: {', '.join(uncaught)}.",
         ]
 
+    lines += _repair_section(card)
     lines += _cheating_section(card)
 
     if card.rules:

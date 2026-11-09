@@ -44,3 +44,31 @@ def test_unknown_migration() -> None:
     )
     assert result.exit_code == 2
     assert "no migration from mui@5 to mui@6" in result.output
+
+
+MIGRATE = ["migrate", str(FIXTURE), "--from", "mui@4", "--to", "mui@5", "--dry-run"]
+
+
+def test_migrate_with_a_model_needs_max_cost_outside_a_terminal() -> None:
+    result = runner.invoke(
+        app,
+        [*MIGRATE, "--config", "opus-low"],
+    )
+    assert result.exit_code == 2
+    assert "pass --max-cost" in result.output
+
+
+def test_max_cost_can_never_be_unlimited() -> None:
+    for value in ("0", "-1", "inf", "nan"):
+        result = runner.invoke(
+            app,
+            [*MIGRATE, "--config", "opus-low", "--max-cost", value],
+        )
+        assert result.exit_code == 2, value
+        assert "no unlimited" in result.output
+
+
+def test_resume_an_unknown_run(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["resume", str(tmp_path / "nope")])
+    assert result.exit_code == 2
+    assert "no run" in result.output

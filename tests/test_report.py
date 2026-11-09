@@ -213,7 +213,7 @@ def test_cheating_checks_and_cost_in_the_scorecard(card_input: ReportInput) -> N
     )
     report = CheatingReport(hits=[], warnings=[], notes=[note], test_files={"a.test.tsx": "x"})
     card = build_scorecard(card_input.model_copy(update={"cheating": report}))
-    assert card.schema_version == 2
+    assert card.schema_version == 3
     assert (card.headline.cheating_check_hits, card.headline.cheating_check_warnings) == (0, 0)
     assert card.cost.total_usd == 0.0 and card.cost.run_cap_usd == 5.0
     md = render_scorecard(card)

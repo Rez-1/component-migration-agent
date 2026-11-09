@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -10,7 +12,13 @@ from rich.console import Console
 from rich.table import Table
 
 from migrator.config import ConfigError, load_case
-from migrator.configuration import ConfigurationError, ensure_runnable, find_configuration
+from migrator.configuration import (
+    Configuration,
+    ConfigurationError,
+    ensure_runnable,
+    find_configuration,
+)
+from migrator.cost import Ledger, LedgerPreflight, PlannedExperiment, default_ledger_path
 from migrator.evals import (
     DEFAULT_CEILING_S,
     DEFAULT_REPEATS,
@@ -27,16 +35,21 @@ from migrator.evals import (
 from migrator.evals.summary import build_summary, write_summary
 from migrator.migrations import UnknownMigrationError, find_spec
 from migrator.pipeline import (
+    PausedRun,
     RunError,
     RunOptions,
+    RunResult,
     check_detection,
-    dry_run,
+    find_run_dir,
     new_run_id,
     resolve_config,
+    resume_run,
     run_scan,
+    start_run,
     write_usage_report,
 )
 from migrator.report import Scorecard, usd
+from migrator.review import AutoReviewer, Reviewer, RichReviewer
 
 app = typer.Typer(
     help="The Migrator: moves a target repo from one component-library version to the next.",
@@ -146,6 +159,62 @@ def _print_scorecard(card: Scorecard, run_dir: Path) -> None:
     console.print(f"Scorecard: {run_dir / 'scorecard.md'}")
 
 
+def _on_stage(stage: str, message: str) -> None:
+    console.log(f"[bold]{stage}[/] {message}")
+
+
+def _caps_confirmed_marker() -> Path:
+    return default_ledger_path().parent / "caps-confirmed"
+
+
+def confirm_caps_once(configuration: Configuration, run_cap: float) -> None:
+    """The first LLM-using command on a machine shows the caps and asks once (#12).
+
+    Non-interactive use must pass --max-cost (checked by the caller)."""
+    marker = _caps_confirmed_marker()
+    if marker.exists():
+        return
+    console.print(
+        f"[bold]{configuration.name}[/] calls a model. Cost caps (USD, Anthropic's prices): "
+        f"{usd(run_cap)} per run, {usd(configuration.cost.max_month_usd)} per month on this "
+        f"machine (ledger: {default_ledger_path()}). The ledger only sees this machine: set a "
+        "monthly spend limit in the Anthropic Console to cover every machine."
+    )
+    if not typer.confirm("Run with these caps?", default=False):
+        raise typer.Exit(code=1)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(now(), "utf-8")
+
+
+def _check_max_cost(max_cost: float | None) -> None:
+    if max_cost is not None and not (math.isfinite(max_cost) and max_cost > 0):
+        raise _fail("--max-cost must be a positive number of USD (there is no unlimited)")
+
+
+def _finish_run(result: RunResult | PausedRun) -> None:
+    if isinstance(result, PausedRun):
+        console.print(
+            f"Paused at the hand-off of [bold]{result.payload.path}[/]. Continue with: "
+            f"[bold]migrator resume {result.run_id}[/]"
+        )
+        return
+    if result.workspace:
+        console.print(f"Workspace kept at {result.workspace}")
+    _print_scorecard(result.scorecard, result.run_dir)
+    if result.scorecard.status != "completed":
+        raise typer.Exit(code=1)
+
+
+MaxCostOpt = Annotated[
+    float | None,
+    typer.Option(
+        "--max-cost",
+        help="USD cap for this run, replacing the configuration's run cap (never unlimited). "
+        "Required when not run from a terminal.",
+    ),
+]
+
+
 @app.command("migrate")
 def migrate_command(
     repo: RepoArg,
@@ -157,6 +226,17 @@ def migrate_command(
             "--dry-run", help="Run everything in a throwaway copy; the repo is untouched."
         ),
     ] = False,
+    config: Annotated[
+        str,
+        typer.Option(
+            help="A configuration name in evals/configs/ or a .toml path. The default, "
+            "baseline, is rules only and calls no model."
+        ),
+    ] = "baseline",
+    max_cost: MaxCostOpt = None,
+    no_review: Annotated[
+        bool, typer.Option("--no-review", help="Revert every hand-off instead of asking.")
+    ] = False,
     case: CaseOpt = None,
     traps: Annotated[
         Path | None, typer.Option(exists=True, dir_okay=False, help="A traps.yaml to score.")
@@ -167,18 +247,30 @@ def migrate_command(
     keep_workspace: Annotated[
         bool, typer.Option(help="Keep the throwaway workspace for inspection.")
     ] = False,
+    root: Annotated[
+        Path | None, typer.Option(help="The folder holding evals/configs (default: here).")
+    ] = None,
 ) -> None:
-    """Migrate a target repo: Scan, Pre-check, Rules, Verify, Report (Repair from M3)."""
+    """Migrate a target repo: Scan, Pre-check, Rules, Verify, Repair, Review, Report."""
     if not dry_run_:
         raise _fail(
-            "only --dry-run is implemented in M1. Real runs (a git worktree on "
+            "only --dry-run is implemented. Real runs (a git worktree on "
             "migrate/mui-v5 with one commit per stage) arrive with PR creation in M4."
         )
+    _check_max_cost(max_cost)
     try:
         spec = find_spec(from_, to)
         case_config = load_case(case) if case else None
-    except (UnknownMigrationError, ConfigError) as exc:
+        configuration = find_configuration(config, _repo_root(root) / "evals" / "configs")
+        ensure_runnable(configuration)
+    except (UnknownMigrationError, ConfigError, ConfigurationError) as exc:
         raise _fail(str(exc)) from exc
+    if configuration.uses_llm:
+        if max_cost is None and not sys.stdin.isatty():
+            raise _fail(
+                f"{configuration.name} calls a model: pass --max-cost when not in a terminal"
+            )
+        confirm_caps_once(configuration, max_cost or configuration.cost.max_run_usd)
     run_id = new_run_id()
     target = (run_dir or _default_run_dir(run_id)).resolve()
     opts = RunOptions(
@@ -188,28 +280,66 @@ def migrate_command(
         case=case_config,
         traps=traps,
         keep_workspace=keep_workspace,
+        configuration=configuration,
+        run_id=run_id,
+        max_run_usd=max_cost,
+        mode="cli",
     )
-    with console.status("Starting", spinner="dots") as status:
-
-        def on_stage(stage: str, message: str) -> None:
-            status.update(f"[bold]{stage}[/] {message}")
-            console.log(f"[bold]{stage}[/] {message}")
-
-        try:
-            result = dry_run(opts, on_stage=on_stage)
-        except (RunError, ConfigError) as exc:
-            raise _fail(str(exc)) from exc
-    if result.workspace:
-        console.print(f"Workspace kept at {result.workspace}")
-    _print_scorecard(result.scorecard, result.run_dir)
-    if result.scorecard.status != "completed":
-        raise typer.Exit(code=1)
+    console.print(
+        f"Run [bold]{run_id}[/] · configuration [bold]{configuration.name}[/]"
+        + (
+            f" · cost cap {usd(max_cost or configuration.cost.max_run_usd)} per run, "
+            f"{usd(configuration.cost.max_month_usd)} per month"
+            if configuration.uses_llm
+            else " · rules only, no model calls"
+        )
+    )
+    reviewer: Reviewer = AutoReviewer() if no_review else RichReviewer(console)
+    try:
+        result = start_run(opts, on_stage=_on_stage, reviewer=reviewer)
+    except (RunError, ConfigError) as exc:
+        raise _fail(str(exc)) from exc
+    finally:
+        _flush_traces()
+    _finish_run(result)
 
 
 @app.command("resume")
-def resume_command(run_id: Annotated[str, typer.Argument(help="The run to continue.")]) -> None:
-    """Continue a run paused for review (M3)."""
-    raise _fail("resume is not implemented yet: runs pause for review from M3")
+def resume_command(
+    run_id: Annotated[str, typer.Argument(help="The run to continue (or its run folder).")],
+    accept_changes: Annotated[
+        bool,
+        typer.Option(
+            "--accept-changes",
+            help="Continue although files changed while paused (they count as the human's).",
+        ),
+    ] = False,
+    no_review: Annotated[
+        bool, typer.Option("--no-review", help="Revert the remaining hand-offs.")
+    ] = False,
+) -> None:
+    """Continue a run paused for review, from its checkpoint."""
+    reviewer: Reviewer = AutoReviewer() if no_review else RichReviewer(console)
+    try:
+        run_folder = find_run_dir(run_id)
+        result = resume_run(
+            run_folder, reviewer=reviewer, accept_changes=accept_changes, on_stage=_on_stage
+        )
+    except RunError as exc:
+        raise _fail(str(exc)) from exc
+    finally:
+        _flush_traces()
+    _finish_run(result)
+
+
+def _flush_traces() -> None:
+    """A short-lived CLI must flush LangSmith traces before it exits (when tracing is on)."""
+    try:
+        from langchain_core.tracers.langchain import wait_for_all_tracers
+
+        wait_for_all_tracers()
+    except Exception:  # tracing is optional; never fail a run over it
+        pass
 
 
 def _repo_root(root: Path | None) -> Path:
@@ -282,11 +412,28 @@ def eval_run(
         )
     except (ConfigurationError, ConfigError, EvalError) as exc:
         raise _fail(str(exc)) from exc
+    _check_max_cost(max_cost)
     console.print(
         f"[bold]{configuration.name}[/] on {len(cases)} {split} case(s) × {repeats} runs "
         f"· run cap {usd(configuration.cost.max_run_usd)}, month cap "
         f"{usd(configuration.cost.max_month_usd)}"
+        + (f", experiment cap {usd(max_cost)}" if max_cost is not None else "")
     )
+    if configuration.uses_llm:
+        ledger = Ledger()
+        _estimate, how = LedgerPreflight(ledger).estimate(
+            PlannedExperiment(
+                configuration=configuration.name,
+                uses_llm=True,
+                runs=len(cases) * repeats,
+                max_cost_usd=max_cost,
+                attempt_models=configuration.repair.attempt_models,
+            )
+        )
+        console.print(
+            f"Estimated {how}. Spent this month on this machine: "
+            f"{usd(ledger.month_spent())} (ledger {ledger.path})."
+        )
 
     def on_event(event: RunEvent) -> None:
         label = f"{event.case} run {event.rep + 1}"
@@ -303,6 +450,8 @@ def eval_run(
         outcome = run_experiment(plan, on_event=on_event)
     except (ConfigurationError, EvalError) as exc:
         raise _fail(str(exc)) from exc
+    finally:
+        _flush_traces()
     console.print(
         f"Experiment [bold]{outcome.experiment}[/]: {outcome.scored} runs scored, "
         f"{outcome.errors} not scored, {outcome.skipped} already done. "

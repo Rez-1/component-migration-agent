@@ -37,7 +37,7 @@ from pydantic import BaseModel, ConfigDict
 from migrator import __version__
 from migrator.config import CaseConfig, load_case
 from migrator.configuration import Configuration, ensure_runnable
-from migrator.cost import CostPreflight, NoLedgerPreflight, PlannedExperiment, Usage
+from migrator.cost import CostPreflight, Ledger, LedgerPreflight, PlannedExperiment, Usage
 from migrator.execs import CommandRunner, RunTimeoutError
 from migrator.migrations import MigrationSpec, available_specs
 from migrator.pipeline import RunError, RunOptions, RunResult, dry_run, new_run_id
@@ -176,8 +176,27 @@ def grade(card: Scorecard) -> dict[str, float]:
     return out
 
 
+def _stop_reason(card: Scorecard, run_dir: Path | None) -> str | None:
+    """The repair agent's last stop reason, from the last file's saved conversation."""
+    if card.repair is None or run_dir is None:
+        return None
+    for f in reversed(card.repair.files):
+        if f.conversation and (run_dir / f.conversation).is_file():
+            messages = json.loads((run_dir / f.conversation).read_text("utf-8"))
+            for m in reversed(messages):
+                reason = m.get("data", {}).get("response_metadata", {}).get("stop_reason")
+                if m.get("type") == "ai" and reason:
+                    return str(reason)
+    return None
+
+
 def result_row(
-    case: CaseConfig, spec: MigrationSpec, rep: int, card: Scorecard, scorecard_path: str
+    case: CaseConfig,
+    spec: MigrationSpec,
+    rep: int,
+    card: Scorecard,
+    scorecard_path: str,
+    run_dir: Path | None = None,
 ) -> ResultRow:
     cost = card.cost
     return ResultRow(
@@ -186,19 +205,23 @@ def result_row(
         tags=["fixture" if case.traps else "repo", case.split],
         rep=rep,
         status="ok",
-        stop_reason=None,
+        stop_reason=_stop_reason(card, run_dir),
         grade=grade(card),
         model=(cost.models[0] if len(cost.models) == 1 else None) if cost.models else None,
         usage=cost.usage,
         cost_usd=cost.total_usd,
         latency_s=card.meta.duration_s,
-        tool_calls=0,  # repair-agent tool calls (M3); the Baseline makes none
+        tool_calls=card.repair.tool_calls if card.repair else 0,
         meta={
             "run_id": card.meta.run_id,
             "configuration": card.configuration,
             "configuration_digest": card.configuration_digest,
             "scorecard": scorecard_path,
             "models": cost.models,
+            "attempts": card.repair.attempts if card.repair else 0,
+            "hand_offs": card.headline.hand_offs,
+            "stopped_by_cost_cap": cost.stopped_by_cap,
+            "cost_warnings": cost.warnings,
         },
     )
 
@@ -252,6 +275,20 @@ def trace_turns(card: Scorecard, config: Configuration, prompt: str) -> list[dic
                 else None,
             },
         )
+    if card.repair:
+        for f in card.repair.files:
+            step(
+                f"repair {f.path}",
+                {"attempts": len(f.attempts), "conversation": f.conversation},
+                {
+                    "outcome": f.outcome,
+                    "reason": f.reason,
+                    "attempts": [a.model_dump() for a in f.attempts],
+                    "patch_lines": f.patch_lines,
+                    "edits_rejected": f.edits_rejected,
+                    "review": f.review,
+                },
+            )
     if card.cheating:
         step(
             "cheating checks",
@@ -453,18 +490,30 @@ def run_experiment(
         _write_state(flow)
         _write_variant_header(variant, config, plan.baseline_configuration)
 
-    done = {(r.prompt_id, r.rep) for r in read_rows(variant)}
+    done_rows = read_rows(variant)
+    done = {(r.prompt_id, r.rep) for r in done_rows}
     todo = [(c, rep) for c in cases for rep in range(repeats) if (c.id, rep) not in done]
-    pre = (preflight or NoLedgerPreflight()).check(
+    pre = (preflight or LedgerPreflight(Ledger())).check(
         PlannedExperiment(
             configuration=config.name,
             uses_llm=config.uses_llm,
             runs=len(todo),
             max_cost_usd=plan.max_cost_usd,
+            attempt_models=config.repair.attempt_models,
+            month_cap_usd=config.cost.max_month_usd,
         )
     )
     if not pre.ok:
         raise EvalError(f"cost pre-flight refused the experiment: {pre.reason}")
+    # --max-cost is the experiment's budget: each run's cap is what is left of it
+    # (never more than the configuration's own run cap).
+    # Spend is read back from the ledger, so a run that failed after paying counts too.
+    ledger = Ledger()
+    done_spent = sum(r.cost_usd for r in done_rows)
+    run_ids: set[str] = set()
+
+    def spent() -> float:
+        return done_spent + sum(r.cost_usd for r in ledger.rows() if r.run_id in run_ids)
 
     (variant / "traces").mkdir(exist_ok=True)
     scored = errors = 0
@@ -474,8 +523,24 @@ def run_experiment(
             continue
         key = f"{case.id}_rep{rep}"
         run_dir = variant / "runs" / key
+        run_cap: float | None = None
+        if config.uses_llm and plan.max_cost_usd is not None:
+            left = round(plan.max_cost_usd - spent(), 6)
+            if left <= 0:
+                emit(
+                    RunEvent(
+                        case=case.id,
+                        rep=rep,
+                        kind="skipped",
+                        message=f"the experiment's ${plan.max_cost_usd:.2f} budget is used",
+                    )
+                )
+                continue
+            run_cap = min(config.cost.max_run_usd, left)
         emit(RunEvent(case=case.id, rep=rep, kind="start"))
         spec = spec_for(case)
+        run_id = new_run_id()
+        run_ids.add(run_id)
         opts = RunOptions(
             repo=(plan.root / case.source).resolve(),
             spec=spec,
@@ -484,7 +549,9 @@ def run_experiment(
             configuration=config,
             ceiling_s=plan.ceiling_s,
             tools_cache=plan.tools_cache,
-            run_id=new_run_id(),
+            run_id=run_id,
+            max_run_usd=run_cap,
+            mode="eval",
         )
         started = time.monotonic()
         failure: tuple[FailureClass, str] | None = None
@@ -534,7 +601,10 @@ def run_experiment(
             json.dumps(trace_turns(card, config, prompt), indent=2, ensure_ascii=False) + "\n",
             "utf-8",
         )
-        _append(variant / "results.jsonl", result_row(case, spec, rep, card, scorecard_path))
+        _append(
+            variant / "results.jsonl",
+            result_row(case, spec, rep, card, scorecard_path, run_dir),
+        )
         scored += 1
         h = card.headline
         emit(

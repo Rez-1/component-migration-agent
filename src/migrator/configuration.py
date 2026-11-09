@@ -5,9 +5,8 @@ mode, max attempts, cost caps and which rules are on. The Baseline is the
 configuration with repair turned off. Configurations live in ``evals/configs/`` and are
 also what a normal run is configured by (its caps and models).
 
-M2 runs rules-only configurations. A configuration with repair on is valid and can be
-loaded, but running it needs the repair loop (M3) and fails with
-``NeedsRepairLoopError`` instead of silently running the Baseline.
+From M3 a configuration with repair on runs the repair agent with the models it
+names, one per attempt. ``ensure_runnable`` still guards the M2 refusal path.
 """
 
 from __future__ import annotations
@@ -72,7 +71,7 @@ class RepairSettings(_Model):
 
 
 class CostCaps(_Model):
-    """Hard caps in USD (Anthropic's prices); the ledger that enforces them is M3."""
+    """Hard caps in USD (Anthropic's prices), enforced per call by ``cost.CostGuard``."""
 
     max_run_usd: float = Field(default=DEFAULT_MAX_RUN_USD, gt=0)
     max_month_usd: float = Field(default=DEFAULT_MAX_MONTH_USD, gt=0)
@@ -131,8 +130,8 @@ class NeedsRepairLoopError(ConfigurationError):
     """The configuration turns repair on, which needs the repair loop (M3)."""
 
 
-# M3 flips this when the repair loop lands.
-REPAIR_LOOP_AVAILABLE = False
+# The repair loop exists from M3.
+REPAIR_LOOP_AVAILABLE = True
 
 
 def ensure_runnable(config: Configuration) -> None:

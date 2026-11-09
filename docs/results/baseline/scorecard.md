@@ -1,6 +1,6 @@
 # Scorecard: mui4-fixture-app · run baseline-a
 
-`mui@4->mui@5` · configuration `baseline` · case `fixture-mui4` · 26 s · $0 (no LLM) of $5.00 cap
+`mui@4->mui@5` · configuration `baseline` · case `fixture-mui4` · 31 s · $0 (no LLM) of $5.00 cap
 
 **Clean run: no. Final verify found 15 failures in 9 files.** **3 of 12 affected files migrated without a human (25%)**: 3 by rules, 0 by the repair agent. 0 handed off, 9 unmigrated.
 
@@ -13,7 +13,7 @@
 | Cheating-check hits | 0 (0 warnings); 1 Rules-layer notes |
 | Codemod TODOs left | 0 |
 | Traps | 12 expected · 0 other layer · 9 missed · 1 not scored |
-| Cost / time | $0 · 26 s |
+| Cost / time | $0 · 31 s |
 
 ## Files
 
