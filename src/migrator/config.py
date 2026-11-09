@@ -1,0 +1,237 @@
+"""Per-repo and per-case configuration.
+
+``RepoConfig`` is one schema shared by a target repo's ``migrate.toml`` (top level) and
+a case's ``case.toml`` (its ``[repo]`` table). Fields left unset fall through: the case
+overrides the repo's ``migrate.toml``, which overrides detection and the migration
+spec's defaults.
+"""
+
+from __future__ import annotations
+
+import json
+import tomllib
+from pathlib import Path
+from typing import Literal
+
+import yaml
+from pydantic import BaseModel, ConfigDict, Field
+
+Runner = Literal["jest", "vitest"]
+VerifyName = Literal["typecheck", "lint", "test"]
+VERIFY_ORDER: tuple[VerifyName, ...] = ("typecheck", "lint", "test")
+
+
+class _Model(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class VerifyCommands(_Model):
+    typecheck: str | None = None
+    lint: str | None = None
+    test: str | None = None
+
+
+class RepoConfig(_Model):
+    """Everything about a target repo that detection may get wrong."""
+
+    node: str | None = None
+    install_flags: list[str] | None = None
+    source_globs: list[str] | None = None
+    exclude: list[str] | None = None
+    runner: Runner | None = None
+    verify: VerifyCommands | None = None
+
+    def merged_over(self, base: RepoConfig) -> RepoConfig:
+        """This config's set fields on top of ``base``; verify commands merge per command."""
+        data = base.model_dump(exclude_none=True)
+        mine = self.model_dump(exclude_none=True)
+        verify = {**data.get("verify", {}), **mine.pop("verify", {})}
+        data.update(mine)
+        if verify:
+            data["verify"] = verify
+        return RepoConfig.model_validate(data)
+
+
+class CaseConfig(_Model):
+    id: str
+    migration: str
+    source: str
+    split: Literal["dev", "held-out"]
+    runner: Runner
+    reference: str
+    traps: str | None = None
+    repo: RepoConfig = RepoConfig()
+
+    # Set by the loader: the case's folder. Not part of the TOML.
+    folder: Path = Field(default=Path(), exclude=True)
+
+    def traps_path(self) -> Path | None:
+        return self.folder / self.traps if self.traps else None
+
+
+def load_repo_config(repo: Path) -> RepoConfig:
+    """The target repo's own ``migrate.toml``, or an empty config."""
+    path = repo / "migrate.toml"
+    if not path.exists():
+        return RepoConfig()
+    with path.open("rb") as fh:
+        return RepoConfig.model_validate(tomllib.load(fh))
+
+
+def load_case(path: Path) -> CaseConfig:
+    with path.open("rb") as fh:
+        case = CaseConfig.model_validate(tomllib.load(fh))
+    return case.model_copy(update={"folder": path.parent.resolve()})
+
+
+# --------------------------------------------------------------------------- detection
+
+PackageManager = Literal["npm", "yarn", "pnpm"]
+LOCKFILES: dict[str, PackageManager] = {
+    "package-lock.json": "npm",
+    "npm-shrinkwrap.json": "npm",
+    "yarn.lock": "yarn",
+    "pnpm-lock.yaml": "pnpm",
+}
+
+
+class ConfigError(ValueError):
+    pass
+
+
+def detect_package_manager(repo: Path) -> tuple[PackageManager, str]:
+    """The package manager and lockfile name; a repo without a lockfile is refused."""
+    for name, manager in LOCKFILES.items():
+        if (repo / name).exists():
+            return manager, name
+    raise ConfigError(
+        f"{repo} has no lockfile ({', '.join(LOCKFILES)}); the Migrator needs one to "
+        "install the same packages the repo uses"
+    )
+
+
+def read_package_json(repo: Path) -> dict[str, object]:
+    path = repo / "package.json"
+    if not path.exists():
+        raise ConfigError(f"{repo} has no package.json")
+    data = json.loads(path.read_text("utf-8"))
+    if not isinstance(data, dict):
+        raise ConfigError(f"{path} is not a JSON object")
+    return data
+
+
+def _scripts(package: dict[str, object]) -> dict[str, str]:
+    scripts = package.get("scripts")
+    return {str(k): str(v) for k, v in scripts.items()} if isinstance(scripts, dict) else {}
+
+
+def all_dependencies(package: dict[str, object]) -> dict[str, str]:
+    deps: dict[str, str] = {}
+    for section in ("dependencies", "devDependencies", "peerDependencies"):
+        value = package.get(section)
+        if isinstance(value, dict):
+            deps.update({str(k): str(v) for k, v in value.items()})
+    return deps
+
+
+def run_script_command(manager: PackageManager, script: str) -> str:
+    if manager == "npm":
+        return "npm test" if script == "test" else f"npm run {script}"
+    return f"{manager} {script}" if manager == "yarn" else f"pnpm run {script}"
+
+
+def detect_verify_commands(repo: Path, manager: PackageManager) -> VerifyCommands:
+    """Verify commands from package.json scripts, when the config does not name them."""
+    scripts = _scripts(read_package_json(repo))
+    typecheck = next((s for s in ("typecheck", "type-check", "tsc") if s in scripts), None)
+    return VerifyCommands(
+        typecheck=run_script_command(manager, typecheck)
+        if typecheck
+        else ("npx tsc --noEmit" if (repo / "tsconfig.json").exists() else None),
+        lint=run_script_command(manager, "lint") if "lint" in scripts else None,
+        test=run_script_command(manager, "test") if "test" in scripts else None,
+    )
+
+
+def detect_runner(repo: Path) -> Runner | None:
+    deps = all_dependencies(read_package_json(repo))
+    if "vitest" in deps:
+        return "vitest"
+    if "jest" in deps:
+        return "jest"
+    return None
+
+
+class ResolvedRepoConfig(_Model):
+    """A RepoConfig with every value decided."""
+
+    package_manager: PackageManager
+    lockfile: str
+    node: str | None
+    install_flags: list[str]
+    source_globs: list[str]
+    exclude: list[str]
+    runner: Runner | None
+    verify: VerifyCommands
+
+
+def resolve_repo_config(
+    repo: Path,
+    override: RepoConfig | None,
+    default_globs: list[str],
+    default_exclude: list[str],
+) -> ResolvedRepoConfig:
+    config = load_repo_config(repo)
+    if override is not None:
+        config = override.merged_over(config)
+    manager, lockfile = detect_package_manager(repo)
+    detected = detect_verify_commands(repo, manager)
+    given = config.verify or VerifyCommands()
+    verify = VerifyCommands(
+        typecheck=given.typecheck or detected.typecheck,
+        lint=given.lint or detected.lint,
+        test=given.test or detected.test,
+    )
+    return ResolvedRepoConfig(
+        package_manager=manager,
+        lockfile=lockfile,
+        node=config.node,
+        install_flags=config.install_flags or [],
+        source_globs=config.source_globs or default_globs,
+        exclude=config.exclude or default_exclude,
+        runner=config.runner or detect_runner(repo),
+        verify=verify,
+    )
+
+
+# --------------------------------------------------------------------------- traps
+
+
+class TrapLocation(_Model):
+    model_config = ConfigDict(extra="allow", frozen=True)
+    file: str
+    line: int | None = None
+    symbol: str | None = None
+
+
+class Trap(_Model):
+    model_config = ConfigDict(extra="allow", frozen=True)
+    id: str
+    title: str
+    expected_layer: Literal["rules", "agent", "human", "visual-only"]
+    location: TrapLocation
+    caught_by: list[str] | Literal["none"] = "none"
+
+    def checks(self) -> list[str]:
+        return [] if self.caught_by == "none" else list(self.caught_by)
+
+
+class TrapList(_Model):
+    model_config = ConfigDict(extra="allow", frozen=True)
+    schema_version: int
+    case: str
+    traps: list[Trap]
+
+
+def load_traps(path: Path) -> TrapList:
+    return TrapList.model_validate(yaml.safe_load(path.read_text("utf-8")))
