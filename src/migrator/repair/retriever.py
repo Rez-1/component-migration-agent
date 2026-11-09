@@ -83,6 +83,10 @@ class GuideRetriever(BaseRetriever):
 
     documents: list[Document]
     k: int = 3
+    # The configuration's ``retrieval``: "keyword", or "keyword-imports", which also
+    # weighs the failing file's own components when the first message ranks sections
+    # (``prompt.rank_sections``). ``search_guide`` is the same in both.
+    mode: str = "keyword"
     _tf: list[Counter[str]] = PrivateAttr(default_factory=list)
     _df: Counter[str] = PrivateAttr(default_factory=Counter)
     _avg_len: float = PrivateAttr(default=1.0)
@@ -97,9 +101,9 @@ class GuideRetriever(BaseRetriever):
         self._avg_len = (sum(lengths) / len(lengths)) if lengths else 1.0
 
     @classmethod
-    def from_spec(cls, spec: MigrationSpec, k: int = 3) -> GuideRetriever:
+    def from_spec(cls, spec: MigrationSpec, k: int = 3, mode: str = "keyword") -> GuideRetriever:
         changes = load_guide(spec.guide_dir(), spec.guide)
-        return cls(documents=[to_document(c) for c in changes], k=k)
+        return cls(documents=[to_document(c) for c in changes], k=k, mode=mode)
 
     def scores(self, query: str) -> list[float]:
         q = tokens(query)

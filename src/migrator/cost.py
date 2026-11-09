@@ -32,7 +32,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, SerializerFunctionWrapHandler, model_serializer
 
 # Checked against the claude-api skill's model table (cached 2026-10-06) on 2026-11-09,
 # and again for M3 on 2026-11-09: Opus 5.5 $4 / $20 (cache reads $0.20), Sonnet 5.5
@@ -187,10 +187,64 @@ def usage_from_langchain(usage_metadata: Mapping[str, Any] | None) -> Usage:
     )
 
 
+def usage_from_iteration(entry: Mapping[str, Any]) -> Usage:
+    """One entry of the raw ``usage.iterations`` list (Anthropic's own field names)."""
+    creation = dict(entry.get("cache_creation") or {})
+    write_5m = int(creation.get("ephemeral_5m_input_tokens") or 0)
+    write_1h = int(creation.get("ephemeral_1h_input_tokens") or 0)
+    if not (write_5m or write_1h):
+        write_5m = int(entry.get("cache_creation_input_tokens") or 0)
+    return Usage(
+        input_tokens=int(entry.get("input_tokens") or 0),
+        output_tokens=int(entry.get("output_tokens") or 0),
+        cache_read_input_tokens=int(entry.get("cache_read_input_tokens") or 0),
+        cache_creation_input_tokens=write_5m,
+        cache_creation_1h_input_tokens=write_1h,
+    )
+
+
+class Iterations(BaseModel):
+    """A response's ``usage.iterations`` split into the executor's and the advisor's part."""
+
+    executor: Usage | None  # None when the response listed no ``message`` iterations
+    advisor: list[tuple[str, Usage]]  # (advisor model, usage), one per consultation
+
+
+def split_iterations(response_metadata: Mapping[str, Any] | None) -> Iterations | None:
+    """The advisor's consultations, from the raw usage langchain-anthropic copies into
+    ``response_metadata["usage"]`` (it is not in ``usage_metadata``). None when the
+    response has no advisor iterations, so ordinary calls keep the M3 accounting.
+
+    Each iteration is priced at its own model: an advisor's tokens bill at the advisor's
+    rates, and the executor's own tokens are the ``message`` iterations."""
+    usage = (response_metadata or {}).get("usage")
+    if not isinstance(usage, Mapping):
+        return None
+    entries = [e for e in usage.get("iterations") or [] if isinstance(e, Mapping)]
+    advisor = [
+        (str(e.get("model") or ""), usage_from_iteration(e))
+        for e in entries
+        if e.get("type") == "advisor_message"
+    ]
+    if not advisor:
+        return None
+    messages = [usage_from_iteration(e) for e in entries if e.get("type") == "message"]
+    executor = sum(messages, Usage()) if messages else None
+    return Iterations(executor=executor, advisor=advisor)
+
+
 # --------------------------------------------------------------------------- run cost
 
 # A run whose cache reads stay at 0 after this many calls gets a scorecard warning.
 CACHE_WARNING_AFTER_CALLS = 3
+
+
+class ModelCost(BaseModel):
+    """One model's share of a run: its calls (for an advisor, its consultations) and cost."""
+
+    model: str
+    calls: int
+    cost_usd: float
 
 
 class RunCost(BaseModel):
@@ -211,6 +265,16 @@ class RunCost(BaseModel):
     month_spent_usd: float | None = None
     stopped_by_cap: bool = False  # Repair stopped because the next call could pass a cap
     warnings: list[str] = []
+    # Cost per model (M5: cascades and the advisor mix models). Left out of the JSON when
+    # empty, so a run with no model calls serialises exactly as before.
+    by_model: list[ModelCost] = []
+
+    @model_serializer(mode="wrap")
+    def _drop_empty_by_model(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if not data.get("by_model"):
+            data.pop("by_model", None)
+        return data
 
     @classmethod
     def no_llm(cls, run_cap_usd: float, month_cap_usd: float) -> RunCost:
@@ -241,6 +305,12 @@ class CallRecord(BaseModel):
     attempt: int | None = None
     stop_reason: str | None = None
     duration_s: float = 0.0
+    # The advisor's consultations inside this call (M5), priced at the advisor's rates
+    # and included in ``cost_usd``.
+    advisor_model: str | None = None
+    advisor_usage: Usage | None = None
+    advisor_calls: int = 0
+    advisor_cost_usd: float = 0.0
 
 
 def run_cost(
@@ -258,11 +328,22 @@ def run_cost(
         return cost.model_copy(update={"stopped_by_cap": stopped_by_cap})
     split: dict[str, float] = defaultdict(float)
     usage = Usage()
+    per_model: dict[str, list[float]] = {}
     for row in rows:
         usage = usage + row.usage
         priced = row.model if row.model in PRICES else row.requested_model
         for kind, value in _split_cost(priced, row.usage).items():
             split[kind] += value
+        mine = per_model.setdefault(row.model, [0, 0.0])
+        mine[0] += 1
+        mine[1] += row.cost_usd - row.advisor_cost_usd
+        if row.advisor_model and row.advisor_usage is not None:
+            usage = usage + row.advisor_usage
+            for kind, value in _split_cost(row.advisor_model, row.advisor_usage).items():
+                split[kind] += value
+            theirs = per_model.setdefault(row.advisor_model, [0, 0.0])
+            theirs[0] += row.advisor_calls
+            theirs[1] += row.advisor_cost_usd
     warnings: list[str] = []
     if len(rows) >= CACHE_WARNING_AFTER_CALLS and usage.cache_read_input_tokens == 0:
         warnings.append(
@@ -284,13 +365,17 @@ def run_cost(
         if usage.prompt_tokens
         else None,
         model_calls=len(rows),
-        models=sorted({r.model for r in rows}),
+        models=sorted(per_model),
         usage=usage,
         run_cap_usd=run_cap_usd,
         month_cap_usd=month_cap_usd,
         month_spent_usd=month_spent_usd,
         stopped_by_cap=stopped_by_cap,
         warnings=warnings,
+        by_model=[
+            ModelCost(model=m, calls=int(v[0]), cost_usd=round(v[1], 6))
+            for m, v in sorted(per_model.items())
+        ],
     )
 
 
@@ -403,9 +488,20 @@ class CostGuard:
         self.month_cap_usd = month_cap_usd
         self.ledger = ledger
 
-    def check(self, model: str, input_tokens: int, max_tokens: int, run_spent_usd: float) -> float:
-        """Raise ``CostCapError`` if the call could pass a cap; else return its worst case."""
-        worst = worst_case_usd(model, input_tokens, max_tokens)
+    def check(
+        self,
+        model: str,
+        input_tokens: int,
+        max_tokens: int,
+        run_spent_usd: float,
+        *,
+        extra_worst_usd: float = 0.0,
+    ) -> float:
+        """Raise ``CostCapError`` if the call could pass a cap; else return its worst case.
+
+        ``extra_worst_usd`` is spend the call can cause on another model (the advisor's
+        consultations), added to the call's own worst case."""
+        worst = round(worst_case_usd(model, input_tokens, max_tokens) + extra_worst_usd, 6)
         if run_spent_usd + worst > self.run_cap_usd:
             raise CostCapError(
                 f"the next call ({model}, worst case ${worst:.2f}) could take this run past "
@@ -434,6 +530,7 @@ class PlannedExperiment(BaseModel):
     max_cost_usd: float | None  # --max-cost, required for LLM configurations
     attempt_models: list[str] = []
     month_cap_usd: float | None = None
+    advisor_model: str | None = None  # the advisor tool's model, if the configuration has one
 
 
 class PreflightResult(BaseModel):
@@ -473,6 +570,12 @@ class NoLedgerPreflight:
 PRIOR_OPUS_ATTEMPT_USD = 0.20
 PRIOR_ATTEMPTS_PER_RUN = 14
 MIN_ATTEMPTS_FOR_AVERAGE = 5
+# The advisor's consultations, until the ledger has some: tokens one consultation reads
+# (about a fixture conversation) and writes (advice is short; max_tokens bounds it).
+ADVISOR_PRIOR_INPUT = 12_000
+ADVISOR_PRIOR_OUTPUT = 1_500
+# Without ledger data, a guess at how a run's attempts fall on attempt 1, 2 and 3.
+PRIOR_POSITION_SHARE = (0.7, 0.2, 0.1)
 
 
 def prior_attempt_usd(model: str) -> float:
@@ -488,6 +591,8 @@ class LedgerPreflight:
         self.ledger = ledger
 
     def estimate(self, plan: PlannedExperiment) -> tuple[float, str]:
+        if len(set(plan.attempt_models)) > 1:
+            return self.estimate_mixed(plan)
         model = plan.attempt_models[0] if plan.attempt_models else "claude-opus-5-5"
         attempts = self.ledger.attempts(model)
         if len(attempts) >= MIN_ATTEMPTS_FOR_AVERAGE:
@@ -496,13 +601,96 @@ class LedgerPreflight:
             per_run = len(attempts) / len(runs_seen)
             basis = f"ledger: {len(attempts)} attempts on {model}"
         else:
-            per_attempt = prior_attempt_usd(model)
-            per_run = PRIOR_ATTEMPTS_PER_RUN
-            basis = f"prior (ledger has {len(attempts)} attempts on {model})"
+            per_attempt, scaled = self.scaled_prior(model)
+            counts, how = self.attempts_per_run()
+            per_run = sum(counts) if scaled else PRIOR_ATTEMPTS_PER_RUN
+            basis = (
+                f"{scaled}; attempts per run from the {how}"
+                if scaled
+                else f"prior (ledger has {len(attempts)} attempts on {model})"
+            )
         estimate = round(plan.runs * per_run * per_attempt, 4)
         return estimate, (
             f"{plan.runs} runs x {per_run:.1f} attempts x ${per_attempt:.3f} per attempt "
             f"= ${estimate:.2f} ({basis})"
+        )
+
+    def scaled_prior(self, model: str) -> tuple[float, str | None]:
+        """Cost per attempt for a model the ledger has too few attempts on: the measured
+        average of the model with the most attempts, scaled by the output price ratio
+        (output dominates an attempt's cost), else ticket #12's prior. Returns the cost
+        and how it was derived (None for the plain prior)."""
+        best: tuple[int, str, float] | None = None
+        for other in {r.requested_model for r in self.ledger.rows()} - {model}:
+            if other not in PRICES:
+                continue
+            attempts = self.ledger.attempts(other)
+            if len(attempts) >= MIN_ATTEMPTS_FOR_AVERAGE and (
+                best is None or len(attempts) > best[0]
+            ):
+                best = (len(attempts), other, sum(attempts.values()) / len(attempts))
+        if best is None:
+            return prior_attempt_usd(model), None
+        n, other, each = best
+        ratio = price_for(model).output / price_for(other).output
+        return round(each * ratio, 6), (
+            f"scaled from {n} attempts on {other} by the output price ratio {ratio:.2f}"
+        )
+
+    def attempts_per_run(self) -> tuple[list[float], str]:
+        """Mean attempts per run at each attempt number (1, 2, 3, ...), over every run in
+        the ledger whatever its model; the prior split of ticket #12's guess without one."""
+        per: dict[tuple[str, str | None, int | None], None] = {}
+        for r in self.ledger.rows():
+            per.setdefault((r.run_id, r.file, r.attempt), None)
+        runs = {k[0] for k in per}
+        if len(per) < MIN_ATTEMPTS_FOR_AVERAGE or not runs:
+            return [PRIOR_ATTEMPTS_PER_RUN * s for s in PRIOR_POSITION_SHARE], "prior"
+        top = max((k[2] or 1) for k in per)
+        counts = [0.0] * top
+        for _run, _file, attempt in per:
+            counts[(attempt or 1) - 1] += 1
+        return [c / len(runs) for c in counts], f"ledger: {len(runs)} runs"
+
+    def estimate_mixed(self, plan: PlannedExperiment) -> tuple[float, str]:
+        """A configuration whose attempts use different models (a cascade): attempts at
+        position k are priced at attempt k's model. Each model's cost per attempt is its
+        ledger average (or the prior); escalated attempts start with a cold cache, which
+        the average of mostly-first attempts already includes."""
+        per_run, basis = self.attempts_per_run()
+        parts: list[str] = []
+        total = 0.0
+        for k, model in enumerate(plan.attempt_models, 1):
+            n = per_run[k - 1] if k <= len(per_run) else 0.0
+            attempts = self.ledger.attempts(model)
+            if len(attempts) >= MIN_ATTEMPTS_FOR_AVERAGE:
+                each = sum(attempts.values()) / len(attempts)
+            else:
+                each, _ = self.scaled_prior(model)
+            total += n * each
+            parts.append(f"attempt {k} {model}: {n:.1f} x ${each:.3f}")
+        estimate = round(plan.runs * total, 4)
+        return estimate, (
+            f"{plan.runs} runs x ({'; '.join(parts)}) = ${estimate:.2f} "
+            f"(attempts per run from the {basis})"
+        )
+
+    def estimate_with_advisor(self, plan: PlannedExperiment) -> tuple[float, str]:
+        """``estimate`` plus, with an advisor, one consultation per attempt priced as a
+        guess (``ADVISOR_PRIOR_INPUT`` tokens read, ``ADVISOR_PRIOR_OUTPUT`` written, no
+        cache). Replace the guess with measured rows after the first advisor run."""
+        estimate, how = self.estimate(plan)
+        if plan.advisor_model is None:
+            return estimate, how
+        counts, _ = self.attempts_per_run()
+        attempts = sum(counts[: len(plan.attempt_models)])
+        p = price_for(plan.advisor_model)
+        each = (ADVISOR_PRIOR_INPUT * p.input + ADVISOR_PRIOR_OUTPUT * p.output) / PER_MILLION
+        extra = round(plan.runs * attempts * each, 4)
+        return round(estimate + extra, 4), (
+            f"{how}; advisor {plan.advisor_model} +${extra:.2f} (a guess: one consultation "
+            "per attempt, "
+            f"{ADVISOR_PRIOR_INPUT} tokens in, {ADVISOR_PRIOR_OUTPUT} out, ${each:.3f} each)"
         )
 
     def check(self, plan: PlannedExperiment) -> PreflightResult:
@@ -514,7 +702,7 @@ class LedgerPreflight:
                 estimated_usd=None,
                 reason="an experiment that calls a model must pass --max-cost",
             )
-        estimate, how = self.estimate(plan)
+        estimate, how = self.estimate_with_advisor(plan)
         if estimate > plan.max_cost_usd:
             return PreflightResult(
                 ok=False,

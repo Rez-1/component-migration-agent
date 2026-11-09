@@ -24,7 +24,17 @@ from migrator.migrations import CodemodStep, MigrationSpec, ScriptStep
 SCHEMA_VERSION = 1
 
 Effort = Literal["low", "medium", "high", "xhigh", "max"]
-Retrieval = Literal["keyword", "embeddings"]
+# keyword: BM25 over the guide (M3). keyword-imports: the same, plus a boost for the
+# guide sections of the components the failing file uses, and less weight on sections
+# about components it doesn't (M5). keyword-context: keyword-imports, plus the JSX props
+# around the failing lines in the query (M5). embeddings: reserved for a later
+# experiment; refused at run time (see experiments.md).
+Retrieval = Literal["keyword", "keyword-imports", "keyword-context", "embeddings"]
+
+# Fields added after configurations were first digested (M5). They are left out of the
+# digest while they hold their "off" value, so every configuration written before them
+# keeps its digest and its experiments stay resumable and comparable.
+_DIGEST_OPTIONAL = {"attempt_efforts": None, "advisor": None}
 
 # Rule steps a configuration may switch off. Install, dependencies and format are not
 # optional: without the dependency bump a run is not a migration at all (and would
@@ -40,6 +50,17 @@ class _Model(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+class AdvisorSettings(_Model):
+    """The advisor tool (``advisor_20260301``): the attempt's model may consult ``model``.
+
+    ``max_uses`` and ``max_tokens`` bound each request's consultations, so the cost cap
+    can price a call's worst case including its advice."""
+
+    model: str
+    max_uses: int = Field(default=2, ge=1, le=10)
+    max_tokens: int = Field(default=4000, ge=256, le=32000)
+
+
 class RepairSettings(_Model):
     enabled: bool = False
     # One model id per attempt, e.g. ["claude-opus-5-5"] * 3; its length is max_attempts.
@@ -48,13 +69,31 @@ class RepairSettings(_Model):
     prompt_version: str | None = None
     retrieval: Retrieval | None = None
     max_attempts: int = Field(default=3, ge=1, le=10)
+    # One effort per attempt, e.g. ["high", "low", "low"] for a Haiku -> Opus cascade;
+    # None means ``effort`` for every attempt.
+    attempt_efforts: list[Effort] | None = None
+    # The advisor tool (a stronger model the attempt's model may consult), or None.
+    advisor: AdvisorSettings | None = None
+
+    def effort_for(self, attempt: int) -> Effort | None:
+        """The effort of attempt ``attempt`` (1-based; past the list, the last one)."""
+        if self.attempt_efforts:
+            return self.attempt_efforts[min(attempt, len(self.attempt_efforts)) - 1]
+        return self.effort
 
     @model_validator(mode="after")
     def _complete_when_on(self) -> RepairSettings:
         if not self.enabled:
             if self.attempt_models:
                 raise ValueError("repair is off, so attempt_models must be empty")
+            if self.attempt_efforts or self.advisor:
+                raise ValueError("repair is off, so attempt_efforts and advisor must be unset")
             return self
+        if self.attempt_efforts is not None and len(self.attempt_efforts) != self.max_attempts:
+            raise ValueError(
+                f"attempt_efforts has {len(self.attempt_efforts)} entries; it needs one "
+                f"effort per attempt ({self.max_attempts})"
+            )
         missing = [
             name
             for name in ("effort", "prompt_version", "retrieval")
@@ -100,6 +139,10 @@ class Configuration(_Model):
     def digest(self) -> str:
         """A short hash of everything the configuration varies (not its description)."""
         data = self.model_dump(mode="json", exclude={"description"})
+        repair = data["repair"]
+        for key, off in _DIGEST_OPTIONAL.items():
+            if repair.get(key) == off:
+                repair.pop(key)
         blob = json.dumps(data, sort_keys=True).encode()
         return hashlib.sha256(blob).hexdigest()[:12]
 
@@ -135,7 +178,26 @@ REPAIR_LOOP_AVAILABLE = True
 
 
 def ensure_runnable(config: Configuration) -> None:
-    """Refuse a configuration this version of the Migrator cannot run faithfully."""
+    """Refuse a configuration this version of the Migrator cannot run faithfully, before
+    anything runs (an experiment would otherwise fail run by run)."""
+    repair = config.repair
+    if repair.enabled:
+        from migrator.repair.prompt import UnknownPromptVersionError, load_templates
+
+        if repair.retrieval == "embeddings":
+            raise ConfigurationError(
+                f"configuration {config.name!r}: retrieval 'embeddings' is not built (it "
+                "needs a local embedding model or a paid API; see experiments.md)"
+            )
+        try:
+            templates = load_templates(repair.prompt_version or "v1")
+        except UnknownPromptVersionError as exc:
+            raise ConfigurationError(f"configuration {config.name!r}: {exc}") from exc
+        if bool(repair.advisor) != templates.options.get("advisor_note", False):
+            raise ConfigurationError(
+                f"configuration {config.name!r}: an advisor needs prompt 'v1-advisor', and "
+                "that prompt needs [repair.advisor]"
+            )
     if config.repair.enabled and not REPAIR_LOOP_AVAILABLE:
         models = ", ".join(dict.fromkeys(config.repair.attempt_models))
         raise NeedsRepairLoopError(

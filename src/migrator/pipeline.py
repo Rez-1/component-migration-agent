@@ -47,7 +47,7 @@ from migrator.config import (
     resolve_repo_config,
 )
 from migrator.configuration import BASELINE, Configuration, ensure_runnable
-from migrator.cost import CostGuard, Ledger
+from migrator.cost import CostGuard, Ledger, UnknownModelPriceError, price_for
 from migrator.execs import (
     CommandRunner,
     DeadlineRunner,
@@ -281,12 +281,14 @@ def build_deps(
     if configuration.repair.enabled:
         repair = configuration.repair
         templates = load_templates(repair.prompt_version or "v1")
+        # ensure_runnable has refused an advisor without its prompt, and embeddings.
+        if repair.advisor is not None:
+            try:
+                price_for(repair.advisor.model)  # an unpriced advisor can't be capped
+            except UnknownModelPriceError as exc:
+                raise RunError(str(exc)) from exc
         tools = RepairTools(tool_text(templates, spec))
-        if repair.retrieval != "keyword":
-            raise RunError(
-                f"retrieval {repair.retrieval!r} is an M5 experiment; only keyword exists"
-            )
-        retriever = GuideRetriever.from_spec(spec)
+        retriever = GuideRetriever.from_spec(spec, mode=repair.retrieval or "keyword")
         model = GuardedModel(
             model_factory or anthropic_model,
             CostGuard(run_cap, month_cap, ledger),
@@ -296,6 +298,7 @@ def build_deps(
             case=opts.case.id if opts.case else None,
             tags=[f"config:{configuration.name}", *([f"case:{opts.case.id}"] if opts.case else [])],
             configuration=configuration.name,
+            advisor=repair.advisor,
         )
     return RunDeps(
         repo=opts.repo.resolve(),

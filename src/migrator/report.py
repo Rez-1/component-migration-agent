@@ -156,6 +156,7 @@ class FileRepairSummary(BaseModel):
     edits_rejected: dict[str, int]
     review: str | None
     conversation: str | None
+    parse_warnings: int = 0  # prompt v2's apply_edit warnings (M5)
 
 
 class RepairSummary(BaseModel):
@@ -559,6 +560,7 @@ def _repair_summary(repair: RepairReport, files: list[FileResult]) -> RepairSumm
                 patch_lines=r.patch_lines,
                 edits_applied=r.edits_applied,
                 edits_rejected=r.edits_rejected,
+                parse_warnings=r.parse_warnings,
                 review=r.review,
                 conversation=r.conversation,
             )
@@ -629,6 +631,16 @@ def _cost_head(cost: RunCost) -> str:
     return f"**{usd(cost.total_usd)}** of {usd(cost.run_cap_usd)} cap"
 
 
+def _models_part(cost: RunCost) -> str:
+    """The models with their share when there is more than one (a cascade, an advisor)."""
+    if len(cost.by_model) < 2:
+        return ", ".join(cost.models)
+    return "; ".join(
+        f"{m.model} {usd(m.cost_usd)} ({m.calls} {'call' if m.calls == 1 else 'calls'})"
+        for m in cost.by_model
+    )
+
+
 def _cost_line(cost: RunCost) -> str:
     caps = f"Run cap {usd(cost.run_cap_usd)}; month cap {usd(cost.month_cap_usd)}"
     month = (
@@ -649,7 +661,7 @@ def _cost_line(cost: RunCost) -> str:
         f"{usd(cost.total_usd)} = {usd(cost.output_usd)} output + {usd(cost.input_usd)} input"
         f" + {usd(cost.cache_read_usd + cost.cache_write_usd)} cache (reads "
         f"{usd(cost.cache_read_usd)}, writes {usd(cost.cache_write_usd)}), "
-        f"{', '.join(cost.models)}, {cost.model_calls} calls.{share} {caps}{month}."
+        f"{_models_part(cost)}, {cost.model_calls} calls.{share} {caps}{month}."
         f"{stopped}{warnings}"
     )
 

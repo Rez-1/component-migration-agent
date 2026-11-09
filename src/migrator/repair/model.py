@@ -19,6 +19,17 @@
   inherits its metadata and is named ``repair <file> · attempt <n>``. (A plain model
   called with its own ``callbacks`` list leaves the trace; the tool-bound model happens
   to merge configs itself, and the explicit merge does not rely on that.)
+- Per-attempt effort (M5): ``call`` takes the attempt's effort, and one bound model is
+  kept per (model, effort), so a cascade such as Haiku at high then Opus at low is a
+  configuration. Effort never changes inside a file's conversation unless the model
+  changes with it (an escalation starts a cold cache anyway).
+- The advisor tool (M5, optional): ``advisor_20260301`` is bound next to our tools as
+  a server tool (langchain-anthropic passes it through and adds its beta header). Its
+  consultations bill at the advisor's rates; they are read from the raw
+  ``usage.iterations`` and priced per iteration, written to the ledger as their own
+  row, and the worst case of a call includes ``max_uses`` consultations of at most
+  ``max_tokens`` each over the whole conversation. Advice from Opus 5.5 comes back
+  encrypted, so it can be replayed but not logged.
 - Server-side refusal fallbacks are deliberately not enabled: a fallback model is
   priced differently (and may not be in the pinned table), which would break the
   worst-case check. A refusal ends the attempt and hands the file off.
@@ -40,17 +51,22 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import ensure_config, merge_configs
 from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
+from pydantic import BaseModel
 
+from migrator.configuration import AdvisorSettings
 from migrator.cost import (
     PRICES,
     CallRecord,
     CostGuard,
     Ledger,
     LedgerRow,
+    Usage,
     cost_usd,
     estimate_tokens,
     now_utc,
+    split_iterations,
     usage_from_langchain,
+    worst_case_usd,
 )
 
 MAX_TOKENS = 16_000  # per call: the skill's non-streaming default; part of the worst case
@@ -79,6 +95,57 @@ def served_model(message: AIMessage, requested: str) -> str:
 def system_message(text: str) -> SystemMessage:
     """The system prompt as one block carrying the explicit cache breakpoint."""
     return SystemMessage(content=[{"type": "text", "text": text, "cache_control": CACHE_CONTROL}])
+
+
+class Priced(BaseModel):
+    """What one response cost: the executor's part and the advisor's consultations."""
+
+    served: str
+    usage: Usage
+    cost_usd: float  # everything, advisor included
+    advisor_model: str | None = None
+    advisor_usage: Usage | None = None
+    advisor_calls: int = 0
+    advisor_cost_usd: float = 0.0
+
+
+def price_message(message: AIMessage, requested_model: str) -> Priced:
+    """Tokens and USD for a response, each part at the model that produced it."""
+    served = served_model(message, requested_model)
+    priced = served if served in PRICES else requested_model
+    usage = usage_from_langchain(message.usage_metadata)
+    split = split_iterations(message.response_metadata)
+    if split is None:
+        return Priced(served=served, usage=usage, cost_usd=cost_usd(priced, usage))
+    if split.executor is not None:
+        usage = split.executor
+    advisor_usage = Usage()
+    advisor_cost = 0.0
+    for model, part in split.advisor:
+        advisor_usage = advisor_usage + part
+        advisor_cost += cost_usd(model, part)
+    own = cost_usd(priced, usage)
+    return Priced(
+        served=served,
+        usage=usage,
+        cost_usd=round(own + advisor_cost, 6),
+        advisor_model=split.advisor[0][0],
+        advisor_usage=advisor_usage,
+        advisor_calls=len(split.advisor),
+        advisor_cost_usd=round(advisor_cost, 6),
+    )
+
+
+def advisor_tool(advisor: AdvisorSettings) -> dict[str, Any]:
+    """The server tool definition (bound after our own tools, in a fixed position)."""
+    return {
+        "type": "advisor_20260301",
+        "name": "advisor",
+        "model": advisor.model,
+        "max_uses": advisor.max_uses,
+        "max_tokens": advisor.max_tokens,
+        "caching": dict(CACHE_CONTROL),
+    }
 
 
 class LedgerCallback(BaseCallbackHandler):
@@ -111,19 +178,31 @@ class LedgerCallback(BaseCallbackHandler):
         message = getattr(generation, "message", None)
         if not isinstance(message, AIMessage):
             return
-        usage = usage_from_langchain(message.usage_metadata)
-        served = served_model(message, self.requested_model)
-        priced = served if served in PRICES else self.requested_model
-        row = LedgerRow(
-            at=now_utc(),
-            model=served,
-            requested_model=self.requested_model,
-            usage=usage,
-            cost_usd=cost_usd(priced, usage),
-            **self.context,
-        )
-        self.ledger.append(row)
-        self.rows.append(row)
+        p = price_message(message, self.requested_model)
+        rows = [
+            LedgerRow(
+                at=now_utc(),
+                model=p.served,
+                requested_model=self.requested_model,
+                usage=p.usage,
+                cost_usd=round(p.cost_usd - p.advisor_cost_usd, 6),
+                **self.context,
+            )
+        ]
+        if p.advisor_model and p.advisor_usage is not None:
+            rows.append(
+                LedgerRow(
+                    at=now_utc(),
+                    model=p.advisor_model,
+                    requested_model=p.advisor_model,
+                    usage=p.advisor_usage,
+                    cost_usd=p.advisor_cost_usd,
+                    **self.context,
+                )
+            )
+        for row in rows:
+            self.ledger.append(row)
+            self.rows.append(row)
 
 
 class GuardedModel:
@@ -141,6 +220,7 @@ class GuardedModel:
         max_tokens: int = MAX_TOKENS,
         tags: Sequence[str] = (),
         configuration: str | None = None,
+        advisor: AdvisorSettings | None = None,
     ):
         self.factory = factory
         self.guard = guard
@@ -151,17 +231,32 @@ class GuardedModel:
         self.max_tokens = max_tokens
         self.tags = list(tags)
         self.configuration = configuration
-        self._models: dict[str, Any] = {}
+        self.advisor = advisor
+        self._models: dict[tuple[str, str | None], Any] = {}
         # The tool definitions as sent, for the input estimate (fixed order).
-        self._tool_json = json.dumps([convert_to_openai_tool(t, strict=True) for t in self.tools])
+        self._bind: list[Any] = [*self.tools, *([advisor_tool(advisor)] if advisor else [])]
+        self._tool_json = json.dumps(
+            [convert_to_openai_tool(t, strict=True) for t in self.tools]
+            + ([advisor_tool(advisor)] if advisor else [])
+        )
 
-    def _bound(self, model: str) -> Any:
-        if model not in self._models:
-            llm = self.factory(model, self.effort, self.max_tokens)
-            self._models[model] = llm.bind_tools(self.tools, strict=True).bind(
+    def _bound(self, model: str, effort: str | None) -> Any:
+        key = (model, effort)
+        if key not in self._models:
+            llm = self.factory(model, effort, self.max_tokens)
+            self._models[key] = llm.bind_tools(self._bind, strict=True).bind(
                 cache_control=CACHE_CONTROL
             )
-        return self._models[model]
+        return self._models[key]
+
+    def advisor_worst_usd(self, input_tokens: int) -> float:
+        """The most the advisor can add to one call: ``max_uses`` consultations, each
+        reading the whole conversation plus the executor's output so far."""
+        if self.advisor is None:
+            return 0.0
+        a = self.advisor
+        each = worst_case_usd(a.model, input_tokens + self.max_tokens, a.max_tokens)
+        return round(a.max_uses * each, 6)
 
     def estimate_input(self, system: str, messages: Sequence[BaseMessage]) -> int:
         payload = [system, self._tool_json, *[m.model_dump(mode="json") for m in messages]]
@@ -176,10 +271,18 @@ class GuardedModel:
         run_spent_usd: float,
         file: str | None,
         attempt: int | None,
+        effort: str | None = None,
     ) -> tuple[AIMessage, CallRecord]:
-        """Send one call, or raise ``CostCapError`` without sending it."""
+        """Send one call, or raise ``CostCapError`` without sending it. ``effort``
+        defaults to the model's configured one (the attempt's, from the graph)."""
+        effort = effort if effort is not None else self.effort
+        estimate = self.estimate_input(system, messages)
         self.guard.check(
-            model, self.estimate_input(system, messages), self.max_tokens, run_spent_usd
+            model,
+            estimate,
+            self.max_tokens,
+            run_spent_usd,
+            extra_worst_usd=self.advisor_worst_usd(estimate),
         )
         callback = LedgerCallback(
             self.guard.ledger,
@@ -201,27 +304,30 @@ class GuardedModel:
                 "file": file,
                 "attempt": attempt,
                 "requested_model": model,
+                "effort": effort,
             },
             "run_name": f"repair {file or '?'} · attempt {attempt}",
         }
         # Merged into the graph node's config: the call stays inside the run's trace.
-        message = self._bound(model).invoke(
+        message = self._bound(model, effort).invoke(
             [system_message(system), *messages], config=merge_configs(ensure_config(), ours)
         )
         if not isinstance(message, AIMessage):
             raise TypeError(f"the model returned {type(message).__name__}, not an AIMessage")
-        usage = usage_from_langchain(message.usage_metadata)
-        served = served_model(message, model)
-        priced = served if served in PRICES else model
+        p = price_message(message, model)
         meta = message.response_metadata or {}
         record = CallRecord(
-            model=served,
+            model=p.served,
             requested_model=model,
-            usage=usage,
-            cost_usd=cost_usd(priced, usage),
+            usage=p.usage,
+            cost_usd=p.cost_usd,
             file=file,
             attempt=attempt,
             stop_reason=meta.get("stop_reason"),
             duration_s=round(time.monotonic() - started, 2),
+            advisor_model=p.advisor_model,
+            advisor_usage=p.advisor_usage,
+            advisor_calls=p.advisor_calls,
+            advisor_cost_usd=p.advisor_cost_usd,
         )
         return message, record

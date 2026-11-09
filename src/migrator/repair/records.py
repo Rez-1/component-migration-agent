@@ -35,6 +35,7 @@ class FileRepair(BaseModel):
     touched: list[str] = []  # files the patch changed (the failing file and local imports)
     patch_lines: dict[str, int] = {}  # changed lines per touched file, against after-Rules
     edits_applied: int = 0
+    parse_warnings: int = 0  # prompt v2: applied edits after which the file did not parse
     edits_rejected: dict[str, int] = {}  # guardrail -> count
     escape_hatches_rejected: dict[str, int] = {}  # file -> edits refused for an escape hatch
     review: ReviewChoice | None = None  # the human's (or the eval's) answer at Review

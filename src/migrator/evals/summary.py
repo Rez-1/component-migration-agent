@@ -17,8 +17,9 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, SerializerFunctionWrapHandler, model_serializer
 
+from migrator.cost import ModelCost
 from migrator.evals import (
     EvalError,
     Manifest,
@@ -65,6 +66,16 @@ class CostSummary(BaseModel):
     per_run_usd: float | None
     per_clean_run_usd: float | None  # None when no run was clean: never divide by zero
     clean_runs: int
+    # Cost per model over the scored runs (M5: cascades, the advisor); left out of the
+    # JSON when no run called a model, so a rules-only summary is unchanged.
+    by_model: list[ModelCost] = []
+
+    @model_serializer(mode="wrap")
+    def _drop_empty_by_model(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if not data.get("by_model"):
+            data.pop("by_model", None)
+        return data
 
 
 class Comparison(BaseModel):
@@ -160,6 +171,19 @@ def _load(variant: Path) -> tuple[Manifest, list[ResultRow], list[Scorecard]]:
     return manifest, rows, cards
 
 
+def _by_model(cards: list[Scorecard]) -> list[ModelCost]:
+    totals: dict[str, list[float]] = {}
+    for card in cards:
+        for m in card.cost.by_model:
+            t = totals.setdefault(m.model, [0, 0.0])
+            t[0] += m.calls
+            t[1] += m.cost_usd
+    return [
+        ModelCost(model=m, calls=int(v[0]), cost_usd=round(v[1], 6))
+        for m, v in sorted(totals.items())
+    ]
+
+
 def build_summary(
     variant: Path, against: Path | None = None, created_at: str = ""
 ) -> ExperimentSummary:
@@ -237,6 +261,7 @@ def build_summary(
             per_run_usd=round(total / len(rows), 6),
             per_clean_run_usd=round(total / clean, 6) if clean else None,
             clean_runs=clean,
+            by_model=_by_model(cards),
         ),
         traps=traps,
         against=Comparison(
@@ -355,6 +380,11 @@ def render_summary(s: ExperimentSummary, *, stable: bool = False) -> str:
         f"(cost per run: {usd(s.cost.per_run_usd)}).",
         "",
     ]
+    if len(s.cost.by_model) > 1:
+        parts = "; ".join(
+            f"{m.model} {usd(m.cost_usd)} over {m.calls} calls" for m in s.cost.by_model
+        )
+        lines += [f"Cost by model: {parts}.", ""]
     if s.runs_planned != s.runs_scored:
         not_scored = ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in s.runs_not_scored.items())
         lines += [

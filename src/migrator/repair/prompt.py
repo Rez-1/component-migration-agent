@@ -50,6 +50,8 @@ class PromptTemplates(BaseModel):
     first_message: str
     attempt_result: str
     tools: dict[str, dict[str, str]]
+    # Behaviour switches from ``options.toml`` (absent in v1): apply_edit_parse_warning.
+    options: dict[str, bool] = {}
 
 
 @cache
@@ -60,8 +62,13 @@ def load_templates(version: str) -> PromptTemplates:
         raise UnknownPromptVersionError(f"no repair prompt {version!r} (known: {known})")
     with (folder / "tools.toml").open("rb") as fh:
         tools = tomllib.load(fh)
+    options: dict[str, bool] = {}
+    if (folder / "options.toml").is_file():
+        with (folder / "options.toml").open("rb") as fh:
+            options = {k: bool(v) for k, v in tomllib.load(fh).items()}
     return PromptTemplates(
         version=version,
+        options=options,
         system=(folder / "system.md").read_text("utf-8"),
         first_message=(folder / "first_message.md").read_text("utf-8"),
         attempt_result=(folder / "attempt_result.md").read_text("utf-8"),
@@ -175,28 +182,130 @@ def guide_query(
     return " ".join(parts), shown
 
 
-def guide_sections(
+_IMPORT = re.compile(
+    r"import\s+(?:type\s+)?(?P<clause>[^;]*?)\s+from\s+['\"](?P<module>[^'\"]+)['\"]", re.S
+)
+_PASCAL = re.compile(r"^[A-Z][A-Za-z0-9]*$")
+IMPORT_BOOST = 2.0  # keyword-imports: a section about a component the file imports
+FOREIGN_FACTOR = 0.25  # ... and the score left to a section about a component it doesn't
+
+
+def library_imports(text: str, modules: Sequence[str]) -> list[str]:
+    """Names a file imports from the library's packages (``modules`` are prefixes such
+    as ``@mui/``): ``import { Autocomplete } from '@mui/material'`` and
+    ``import Autocomplete from '@mui/material/Autocomplete'`` both give ``Autocomplete``."""
+    out: list[str] = []
+    for m in _IMPORT.finditer(text):
+        module = m.group("module")
+        if not any(module == prefix or module.startswith(prefix + "/") for prefix in modules):
+            continue
+        clause = m.group("clause")
+        bare = clause.replace("{", " ").replace("}", " ")
+        names = re.findall(r"[A-Za-z_$][\w$]*(?:\s+as\s+[A-Za-z_$][\w$]*)?", bare)
+        for name in names:
+            original = name.split()[0]
+            if original not in ("type", "as", "default") and original not in out:
+                out.append(original)
+        last = module.rsplit("/", 1)[-1]
+        if _PASCAL.match(last) and last not in out:
+            out.append(last)
+    return out
+
+
+def enclosing_props(text: str, path: str, lines: Sequence[int]) -> list[str]:
+    """The JSX props a failing line sits inside (``renderOption`` for a line in
+    ``renderOption={(o) => <span>{o.label}</span>}``), innermost first. The failing
+    line's own words often name only the markup, while the prop names the API."""
+    from migrator.scan.parser import parse_tree
+
+    if not path.endswith((".tsx", ".jsx", ".ts", ".js")):
+        return []
+    data = text.encode("utf-8")
+    root = parse_tree(data, path).root_node
+    out: list[str] = []
+    for line in lines:
+        row = line - 1
+        if row < 0:
+            continue
+        line_text = data.splitlines()[row] if row < len(data.splitlines()) else b""
+        col = len(line_text) - len(line_text.lstrip())
+        node = root.descendant_for_point_range((row, col), (row, max(col, len(line_text) - 1)))
+        while node is not None:
+            if node.type == "jsx_attribute" and node.named_children:
+                name = (node.named_children[0].text or b"").decode("utf-8", "replace")
+                if name and name not in out:
+                    out.append(name)
+            node = node.parent
+    return out
+
+
+IMPORT_MODES = ("keyword-imports", "keyword-context")
+
+
+def section_query(
+    spec: MigrationSpec,
+    retriever: GuideRetriever,
+    *,
+    path: str,
+    symbols: Sequence[str],
+    failures: Sequence[Failure],
+    text: str,
+) -> tuple[str, list[str], list[str]]:
+    """The first message's guide query for a file under the retriever's mode:
+    (query, names to show, the file's imports from the new packages). With
+    ``keyword-context`` the JSX props around the failing lines join the query."""
+    query, shown = guide_query(symbols, failures, text)
+    imports = library_imports(text, spec.import_prefixes())
+    if retriever.mode == "keyword-context":
+        lines = [f.line for f in failures if f.line and f.source != "test"]
+        props = enclosing_props(text, path, lines)
+        if props:
+            query = f"{query} {' '.join(props)}"
+            shown = list(dict.fromkeys([*props, *shown]))[:6]
+    return query, shown, imports
+
+
+def rank_sections(
     spec: MigrationSpec,
     retriever: GuideRetriever,
     symbols: Sequence[str],
     query: str,
-) -> str:
-    """Top 3 sections in full (codemod-marked ones included and labelled), the rest as
-    titles. Candidates: the changes about the file's own symbols (which get a small
-    bonus) and a keyword search over the whole guide, ranked by the failures' query."""
+    imports: Sequence[str] = (),
+) -> list[Document]:
+    """The guide sections for a file's first message, best first. Candidates: the
+    changes about the file's own symbols (which get a small bonus) and a keyword search
+    over the whole guide, ranked by the failures' query.
+
+    With ``retrieval = "keyword-imports"`` (M5) the file's own components weigh more: a
+    section named after a component the file uses (its old-library symbols and what it
+    imports from the new packages) gets ``IMPORT_BOOST``, and a section named after a
+    component it does not use keeps ``FOREIGN_FACTOR`` of its score. Failure text such
+    as "label" or "span" matches every component's "span and label" change, while only
+    the components in the file can be the cause."""
     changes = load_guide(spec.guide_dir(), spec.guide)
     by_symbol = unique(to_document(c) for s in symbols for c in changes_for_symbol(s, changes))
     searched = retriever.rank(query, k=GUIDE_FULL + GUIDE_TITLES)
     candidates = unique([*searched, *by_symbol])
     if not candidates:
-        return "No section matched; `search_guide` looks up a component or API by name."
+        return []
     ids = [str(d.metadata["id"]) for d in retriever.documents]
     scores = dict(zip(ids, retriever.scores(query), strict=True))
     own = {str(d.metadata["id"]) for d in by_symbol}
+    by_imports = retriever.mode in IMPORT_MODES
+    used = {*symbols, *imports}
+    components = {str(d.metadata["section"]) for d in retriever.documents}
+    components = {c for c in components if _PASCAL.match(c)}
 
     def score(d: Document) -> float:
         key = str(d.metadata["id"])
-        return scores.get(key, 0.0) + (SYMBOL_BONUS if key in own else 0.0)
+        value = scores.get(key, 0.0) + (SYMBOL_BONUS if key in own else 0.0)
+        if by_imports:
+            section = str(d.metadata["section"])
+            if section in used:
+                value += IMPORT_BOOST
+            elif section in components:
+                value *= FOREIGN_FACTOR
+        return value
 
     ranked = sorted(candidates, key=lambda d: -score(d))
     # The file's own components get the first slot: a failure's code words ("label",
@@ -208,6 +317,21 @@ def guide_sections(
     if best_own is not None:
         ranked.remove(best_own)
         ranked.insert(0, best_own)
+    return ranked
+
+
+def guide_sections(
+    spec: MigrationSpec,
+    retriever: GuideRetriever,
+    symbols: Sequence[str],
+    query: str,
+    imports: Sequence[str] = (),
+) -> str:
+    """Top 3 sections in full (codemod-marked ones included and labelled), the rest as
+    titles (``rank_sections`` orders them)."""
+    ranked = rank_sections(spec, retriever, symbols, query, imports)
+    if not ranked:
+        return "No section matched; `search_guide` looks up a component or API by name."
     full = [render_section(d, spec.guide.link_base) for d in ranked[:GUIDE_FULL]]
     titles = [f"- {heading(d)}" for d in ranked[GUIDE_FULL : GUIDE_FULL + GUIDE_TITLES]]
     out = "\n\n".join(full)
@@ -251,8 +375,10 @@ def first_message(
     ]
     used = {k: v for k, v in importers(path, files).items() if k not in test_files}
     used_lines = [f"- `{k}` imports `{imported_names(v)}` from this file." for k, v in used.items()]
-    query, shown = guide_query(symbols, failures, after_rules)
-    guide = guide_sections(spec, retriever, symbols, query)
+    query, shown, imports = section_query(
+        spec, retriever, path=path, symbols=symbols, failures=failures, text=after_rules
+    )
+    guide = guide_sections(spec, retriever, symbols, query, imports)
     return templates.first_message.format_map(
         {
             "path": path,

@@ -29,7 +29,18 @@ CONFIGS = REPO_ROOT / "evals" / "configs"
 
 def test_shipped_configurations_load() -> None:
     names = sorted(p.stem for p in CONFIGS.glob("*.toml"))
-    assert names == ["baseline", "haiku-debug", "opus-low"]
+    assert names == [
+        "baseline",
+        "cascade-haiku-opus",
+        "haiku-advisor-opus",
+        "haiku-debug",
+        "haiku-high",
+        "opus-low",
+        "opus-low-context",
+        "opus-low-imports",
+        "opus-low-tools-v2",
+        "sonnet-medium",
+    ]
     baseline = find_configuration("baseline", CONFIGS)
     assert not baseline.uses_llm
     assert (baseline.cost.max_run_usd, baseline.cost.max_month_usd) == (5.0, 20.0)

@@ -141,6 +141,10 @@ class MigrationSpec(_Model):
     def guide_dir(self) -> Path:
         return self.folder / self.guide.dir
 
+    def import_prefixes(self) -> list[str]:
+        """The new version's packages (from the dependency map), as import prefixes."""
+        return sorted({name for entry in self.dependency_map for name in entry.new})
+
     def tools_dir(self) -> Path:
         return self.folder / self.tools.workspace
 

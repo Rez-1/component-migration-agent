@@ -32,9 +32,22 @@ from migrator.evals import (
     read_manifest,
     run_experiment,
 )
+from migrator.evals.hillclimb import (
+    ClimbError,
+    check_harness,
+    keep_verdict,
+    matching_baseline,
+    read_state,
+    record_round,
+    sync_cases,
+    write_state,
+)
+from migrator.evals.retrieval import RetrievalError
+from migrator.evals.retrieval import measure as measure_retrieval
+from migrator.evals.retrieval import render as render_retrieval
 from migrator.evals.summary import build_summary, write_summary
 from migrator.execs import LocalRunner, Sandbox, docker_available
-from migrator.migrations import UnknownMigrationError, find_spec
+from migrator.migrations import UnknownMigrationError, available_specs, find_spec
 from migrator.pipeline import (
     PausedRun,
     RunError,
@@ -533,13 +546,16 @@ def eval_run(
     )
     if configuration.uses_llm:
         ledger = Ledger()
-        _estimate, how = LedgerPreflight(ledger).estimate(
+        _estimate, how = LedgerPreflight(ledger).estimate_with_advisor(
             PlannedExperiment(
                 configuration=configuration.name,
                 uses_llm=True,
                 runs=len(cases) * repeats,
                 max_cost_usd=max_cost,
                 attempt_models=configuration.repair.attempt_models,
+                advisor_model=(
+                    configuration.repair.advisor.model if configuration.repair.advisor else None
+                ),
             )
         )
         console.print(
@@ -621,3 +637,194 @@ def eval_summary(
         + "."
     )
     console.print(f"Experiment summary: {path}")
+
+
+DEFAULT_FLOW = Path(".claude") / "hillclimb" / "dev"
+
+
+@eval_app.command("climb")
+def eval_climb(
+    config: Annotated[
+        str, typer.Option(help="The round's configuration: a name in evals/configs/ or a path.")
+    ],
+    max_cost: Annotated[
+        float | None,
+        typer.Option("--max-cost", help="USD cap for the round (required to call a model)."),
+    ] = None,
+    repeats: Annotated[int, typer.Option(min=1, help="Runs per dev case.")] = DEFAULT_REPEATS,
+    approved: Annotated[
+        bool,
+        typer.Option(
+            "--approved",
+            help="The user approved this round (needed while approve_each_round is on).",
+        ),
+    ] = False,
+    approve_harness: Annotated[
+        bool,
+        typer.Option(
+            "--approve-harness",
+            help="Record the current harness digest (the user's step after reviewing it).",
+        ),
+    ] = False,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Check the gates and print the scope; run nothing.")
+    ] = False,
+    resume: Annotated[
+        str | None, typer.Option(help="Continue a round's experiment, e.g. dev/v4.")
+    ] = None,
+    sandbox: Annotated[str, typer.Option("--sandbox", help="docker (default) or local.")] = (
+        "docker"
+    ),
+    timeout_s: Annotated[
+        float, typer.Option(help="Hard wall-clock ceiling per run, in seconds.")
+    ] = DEFAULT_CEILING_S,
+    flow: Annotated[
+        Path | None, typer.Option(help="The hillclimb flow folder (default .claude/hillclimb/dev).")
+    ] = None,
+    root: RootOpt = None,
+) -> None:
+    """One hill-climbing round on the dev split: the gates, the experiment, its summary
+    and the keep-rule verdict against the best round (directional, n = the dev cases)."""
+    base = _repo_root(root)
+    flow_dir = (flow or base / DEFAULT_FLOW).resolve()
+    configs = base / "evals" / "configs"
+    try:
+        state = read_state(flow_dir)
+        note = check_harness(base, state, approve=approve_harness)
+        if note:
+            write_state(flow_dir, state)
+            console.print(note)
+        cases = load_cases(base / "evals" / "cases", "dev")
+        changed = sync_cases(state, cases)
+        configuration = find_configuration(config, configs)
+        ensure_runnable(configuration)
+    except (ClimbError, ConfigurationError, ConfigError, EvalError) as exc:
+        raise _fail(str(exc)) from exc
+    if changed:
+        console.print(f"[bold yellow]{changed}[/]")
+    runs = len(cases) * repeats
+    scope = (
+        f"[bold]{configuration.name}[/] ({configuration.digest()}) on {len(cases)} dev "
+        f"case(s) ({', '.join(c.id for c in cases)}) × {repeats} runs = {runs} runs"
+    )
+    if configuration.uses_llm:
+        estimate, how = LedgerPreflight(Ledger()).estimate_with_advisor(
+            PlannedExperiment(
+                configuration=configuration.name,
+                uses_llm=True,
+                runs=runs,
+                max_cost_usd=max_cost,
+                attempt_models=configuration.repair.attempt_models,
+                advisor_model=(
+                    configuration.repair.advisor.model if configuration.repair.advisor else None
+                ),
+            )
+        )
+        scope += f" · estimated {usd(estimate)} ({how})"
+    console.print(scope + " · results are directional (dev only, no test split)")
+    if state.get("approve_each_round") and not approved and not dry_run:
+        raise _fail(
+            "approve_each_round is on: show the user this round's change and cost, and "
+            "re-run with --approved once they say yes"
+        )
+    if dry_run:
+        write_state(flow_dir, state)
+        console.print("Dry run: gates passed, nothing was run.")
+        return
+    _check_max_cost(max_cost)
+    baseline = (
+        find_configuration("baseline", configs) if (configs / "baseline.toml").is_file() else None
+    )
+    plan = ExperimentPlan(
+        root=base,
+        results_dir=flow_dir.parent,
+        split="dev",
+        configuration=configuration,
+        cases=cases,
+        repeats=repeats,
+        resume=resume,
+        baseline_configuration=baseline,
+        max_cost_usd=max_cost,
+        ceiling_s=timeout_s,
+        sandbox=_resolve_sandbox(sandbox, allow_auto=False),
+    )
+    _print_tracing()
+    try:
+        outcome = run_experiment(plan)
+    except (ConfigurationError, EvalError) as exc:
+        raise _fail(str(exc)) from exc
+    finally:
+        flush()
+    variant = outcome.path.name
+    verdict = None
+    try:
+        against = matching_baseline(flow_dir, [c.id for c in cases])
+        if against is None:
+            console.print(
+                "[yellow]No Baseline experiment on this dev set yet[/]: run "
+                "`migrator eval climb --config baseline` (free) to compare against it."
+            )
+        summary = build_summary(outcome.path, against, now())
+        write_summary(summary, outcome.path)
+        best = (state.get("best") or {}).get("variant")
+        if best and best != variant and (flow_dir / best / "experiment.json").is_file():
+            verdict = keep_verdict(summary, build_summary(flow_dir / best))
+    except EvalError as exc:
+        console.print(f"[yellow]No summary yet:[/] {exc}")
+    state = read_state(flow_dir)  # the runner rewrote metrics; keep its keys
+    state["train_ids"], state["test_ids"] = [c.id for c in cases], []
+    record_round(
+        state,
+        variant=variant,
+        configuration=configuration.name,
+        digest=configuration.digest(),
+        cases=[c.id for c in cases],
+        verdict=verdict,
+    )
+    write_state(flow_dir, state)
+    console.print(
+        f"Round [bold]dev/{variant}[/]: {outcome.scored} runs scored, {outcome.errors} not "
+        f"scored. Summary: {outcome.path / 'experiment-summary.md'}"
+    )
+    if verdict is not None:
+        word = {True: "keep", False: "revert", None: "not comparable"}[verdict.keep]
+        console.print(
+            f"Keep rule vs {state['best']['variant']} (directional): {word}: {verdict.reason}"
+        )
+    if outcome.errors:
+        raise typer.Exit(code=1)
+
+
+@eval_app.command("retrieval")
+def eval_retrieval(
+    run: Annotated[
+        Path,
+        typer.Argument(help="A finished run folder (a Baseline run: the files after Rules)."),
+    ],
+    case: Annotated[str, typer.Option(help="The fixture case whose traps score it.")] = (
+        "fixture-mui4"
+    ),
+    mode: Annotated[
+        list[str] | None,
+        typer.Option(help="Retrieval modes to compare (default: every built one)."),
+    ] = None,
+    root: RootOpt = None,
+) -> None:
+    """Offline, free: is each repair trap's guide section in its file's top 3?"""
+    base = _repo_root(root)
+    try:
+        case_config = load_case(base / "evals" / "cases" / case / "case.toml")
+        if case_config.split != "dev":
+            raise RetrievalError(f"{case} is a {case_config.split} case; measure dev cases only")
+        traps_path = case_config.traps_path()
+        if traps_path is None:
+            raise RetrievalError(f"{case} has no traps to score retrieval with")
+        from migrator.config import load_traps
+
+        traps = load_traps(traps_path)
+        spec = next(s for s in available_specs() if s.id == case_config.migration)
+        modes = mode or ["keyword", "keyword-imports", "keyword-context"]
+        reports = [measure_retrieval(run, traps, spec, m) for m in modes]
+    except (ConfigError, RetrievalError, StopIteration) as exc:
+        raise _fail(str(exc)) from exc
+    console.print(render_retrieval(reports), markup=False)

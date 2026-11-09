@@ -503,6 +503,7 @@ def run_experiment(
             max_cost_usd=plan.max_cost_usd,
             attempt_models=config.repair.attempt_models,
             month_cap_usd=config.cost.max_month_usd,
+            advisor_model=config.repair.advisor.model if config.repair.advisor else None,
         )
     )
     if not pre.ok:
