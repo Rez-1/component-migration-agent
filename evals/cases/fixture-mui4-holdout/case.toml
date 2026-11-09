@@ -1,0 +1,47 @@
+# Case: the held-out fixture, a second purpose-built app (see README.md next to this file).
+# Parsed by the eval runner from M1/M2. Two parts, per the package-layout decision:
+#   - top level: the case's own data (what to migrate, how it is scored);
+#   - [repo]: a RepoConfig, the same schema as a target repo's migrate.toml.
+#     Values here override the target repo's migrate.toml.
+
+id = "fixture-mui4-holdout"
+migration = "mui@4->mui@5"
+
+# Target repo snapshot. A path relative to the repository root; the run
+# copies it into a fresh workspace and never edits it in place.
+source = "fixtures/mui4-app-holdout"
+
+# "dev" (climbed on) or "held-out" (run only at milestones).
+split = "held-out"
+
+# Test runner whose output the Verify stage parses: "jest" or "vitest".
+runner = "jest"
+
+# Diff of the real migration PR. The fixture has none: it is scored per trap
+# (traps.yaml, next to this file) instead of against a reference.
+reference = "none"
+
+# Planted traps for per-trap scoring. Only fixture cases have this file.
+traps = "traps.yaml"
+
+[repo]
+# Node version for the workspace and for CI's actions/setup-node.
+# The fixture was built and checked locally on Node 24.14.0 (npm 11.9.0);
+# Node 20 is the declared target and has not been run yet.
+node = "20"
+
+# Package manager is detected from the lockfile (package-lock.json -> npm).
+# Extra flags for its install command; none needed.
+install_flags = []
+
+# Files the scanner and the Rules stage look at.
+source_globs = ["src/**/*.ts", "src/**/*.tsx"]
+exclude = ["node_modules/**"]
+
+# Verify commands, run in this order from the workspace root. They match the
+# fixture's package.json scripts; listing them here makes the case explicit
+# instead of relying on detection.
+[repo.verify]
+typecheck = "npm run typecheck"   # tsc --noEmit
+lint = "npm run lint"             # eslint src --ext .ts,.tsx --max-warnings 0
+test = "npm test"                 # jest

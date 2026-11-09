@@ -118,13 +118,16 @@ def _plan(tmp_path: Path, config: Configuration = BASELINE, **kw: object) -> Exp
     )
 
 
-def test_load_cases() -> None:
+def test_load_cases(tmp_path: Path) -> None:
     cases_dir = REPO_ROOT / "evals" / "cases"
     assert [c.id for c in load_cases(cases_dir, "dev")] == ["fixture-mui4"]
+    assert [c.id for c in load_cases(cases_dir, "held-out")] == ["fixture-mui4-holdout"]
     with pytest.raises(EvalError, match="no held-out cases"):
-        load_cases(cases_dir, "held-out")
+        load_cases(tmp_path, "held-out")
     with pytest.raises(EvalError, match="in the dev split"):
         load_cases(cases_dir, "held-out", "fixture-mui4")
+    with pytest.raises(EvalError, match="in the held-out split"):
+        load_cases(cases_dir, "dev", "fixture-mui4-holdout")
 
 
 def test_experiment_writes_the_build_eval_layout(

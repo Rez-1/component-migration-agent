@@ -1,0 +1,107 @@
+# Known-good fixes for the 6 agent traps of the held-out fixture (revision 1), as the
+# repair agent would make them.
+#
+# Each entry is one failing file and the find-and-replace edits that fix it, applied to
+# the workspace as the Rules stage left it (the four codemods, then the dependency bump).
+# Every edit stays inside the failing file, adds no escape hatch and is far below the
+# hand-off size limit, so replaying them through apply_edit trips no guardrail.
+#
+# The human trap (stepper-state-classes) is not here: its file,
+# src/screens/ShipmentTracker.tsx, is handed off. Its fix, in a Test file, is in
+# human-fix.yaml.
+#
+# Used by tests/test_oracle_slow.py, which replays these with a scripted model through
+# the whole graph and checks the scorecard: all 6 agent traps Expected.
+schema_version: 2
+case: fixture-mui4-holdout
+
+files:
+  - path: src/screens/Inventory.tsx
+    traps: [mixins-gutters]
+    note: theme.mixins.gutters() is gone in v5; spell out the padding it added, as the guide shows.
+    edits:
+      - path: src/screens/Inventory.tsx
+        old: "    ...theme.mixins.gutters(),"
+        new: |2-
+              paddingLeft: theme.spacing(2),
+              paddingRight: theme.spacing(2),
+              [theme.breakpoints.up('sm')]: {
+                paddingLeft: theme.spacing(3),
+                paddingRight: theme.spacing(3),
+              },
+
+  - path: src/screens/OrderDialog.tsx
+    traps: [with-mobile-dialog]
+    note: >-
+      withMobileDialog is gone and the codemod's stand-in never goes full screen. Use
+      useMediaQuery, as the guide shows. v4's default breakpoint was sm and isWidthDown
+      was inclusive (below 960px); in v5 down() is exclusive and md is 900px, so
+      down('md') is the closest query.
+    edits:
+      - path: src/screens/OrderDialog.tsx
+        old: "  Typography,\n} from '@mui/material';"
+        new: "  Typography,\n  useMediaQuery,\n} from '@mui/material';\nimport { useTheme } from '@mui/material/styles';"
+      - path: src/screens/OrderDialog.tsx
+        old: "// FIXME checkout https://mui.com/components/use-media-query/#using-material-uis-breakpoint-helpers\nconst withMobileDialog = () => (WrappedComponent) => (props) => <WrappedComponent {...props} width=\"lg\" fullScreen={false} />;\n\n"
+        new: ""
+      - path: src/screens/OrderDialog.tsx
+        old: "  onClose: () => void;\n  fullScreen?: boolean;\n"
+        new: "  onClose: () => void;\n"
+      - path: src/screens/OrderDialog.tsx
+        old: |-
+          function OrderDialogBase({ order, open, onClose, fullScreen }: OrderDialogProps) {
+            return (
+        new: |-
+          export function OrderDialog({ order, open, onClose }: OrderDialogProps) {
+            const theme = useTheme();
+            const fullScreen = useMediaQuery(theme.breakpoints.down('md'));
+            return (
+      - path: src/screens/OrderDialog.tsx
+        old: "\n\nexport const OrderDialog = withMobileDialog<OrderDialogProps>()(OrderDialogBase);"
+        new: ""
+
+  - path: src/screens/OrdersTable.tsx
+    traps: [pagination-item-aria-label]
+    note: backIconButtonText and nextIconButtonText are gone; label the actions with getItemAriaLabel.
+    edits:
+      - path: src/screens/OrdersTable.tsx
+        old: "                backIconButtonText=\"Previous page\"\n                nextIconButtonText=\"Next page\""
+        new: "                getItemAriaLabel={(type) => PAGE_LABELS[type]}"
+      - path: src/screens/OrdersTable.tsx
+        old: "const money = (value: number) =>"
+        new: |-
+          const PAGE_LABELS = {
+            first: 'First page',
+            last: 'Last page',
+            next: 'Next page',
+            previous: 'Previous page',
+          } as const;
+
+          const money = (value: number) =>
+
+  - path: src/screens/ProductTags.tsx
+    traps: [autocomplete-reason-names]
+    note: Autocomplete's onChange reasons are camelCase in v5.
+    edits:
+      - path: src/screens/ProductTags.tsx
+        old: "if (reason === 'create-option') {"
+        new: "if (reason === 'createOption') {"
+      - path: src/screens/ProductTags.tsx
+        old: "if (reason === 'remove-option') {"
+        new: "if (reason === 'removeOption') {"
+
+  - path: src/screens/ReturnForm.tsx
+    traps: [palette-augment-color]
+    note: augmentColor takes { color, name? } in v5.
+    edits:
+      - path: src/screens/ReturnForm.tsx
+        old: "theme.palette.augmentColor({ main: '#b45309' })"
+        new: "theme.palette.augmentColor({ color: { main: '#b45309' } })"
+
+  - path: src/screens/StockSummary.tsx
+    traps: [spacing-arithmetic-half]
+    note: theme.spacing() returns a px string in v5; ask spacing() for the half unit.
+    edits:
+      - path: src/screens/StockSummary.tsx
+        old: "marginTop: theme.spacing(1) / 2,"
+        new: "marginTop: theme.spacing(0.5),"

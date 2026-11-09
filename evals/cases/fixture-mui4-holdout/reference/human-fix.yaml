@@ -1,0 +1,22 @@
+# The known-good fix for the human trap of the held-out fixture (stepper-state-classes),
+# revision 1.
+#
+# ShipmentTracker's test counts finished and current stages by the step icons' v4 class
+# names (.MuiStepIcon-completed, .MuiStepIcon-active): the icons expose no accessible
+# state for it. v5 marks those states with the global state classes (.Mui-completed,
+# .Mui-active), so the counts are 0 although the component behaves the same. No honest
+# source change brings the v4 class names back, and the test is a Test file the repair
+# agent may not edit, so the agent's expected result is a hand-off and this is the
+# human's answer at Review (Edit): query the v5 state classes.
+#
+# Used by tests/test_oracle_slow.py: a scripted reviewer applies it at the hand-off.
+schema_version: 2
+case: fixture-mui4-holdout
+handed_off: src/screens/ShipmentTracker.tsx
+edits:
+  - path: src/screens/__tests__/ShipmentTracker.test.tsx
+    old: "container.querySelectorAll('.MuiStepIcon-completed')"
+    new: "container.querySelectorAll('.MuiStepIcon-root.Mui-completed')"
+  - path: src/screens/__tests__/ShipmentTracker.test.tsx
+    old: "container.querySelectorAll('.MuiStepIcon-active')"
+    new: "container.querySelectorAll('.MuiStepIcon-root.Mui-active')"

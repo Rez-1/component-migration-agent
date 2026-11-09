@@ -1,0 +1,301 @@
+# Planted traps in fixtures/mui4-app-holdout (the held-out fixture): one instance of one
+# breaking change each. Same schema as evals/cases/fixture-mui4/traps.yaml; read by the
+# eval runner to score trap results (Expected / Other layer / Missed).
+#
+# Fields
+#   id               stable key, used in scorecards and experiment summaries
+#   title            short human label
+#   breaking_change  where the guide describes it: guide file (v5.18.0,
+#                    docs/data/material/migration/migration-v4/) and
+#                    "## section › ### change" heading. `codemod_marked` is true
+#                    when the heading carries the guide's ✅ "handled by a codemod" marker.
+#   expected_layer   rules | agent | human | visual-only
+#   location         primary file, line in the v4 source, and the symbol
+#   caught_by        what makes verify fail if the trap is left unfixed after the
+#                    Baseline: typecheck, lint, or a test as "<file> › <name>".
+#                    "none" for rules traps (the codemods fix them) and the visual trap.
+#   in_fixture_1     the same breaking change is also planted in fixture-mui4 (a
+#                    different instance); false means the held-out case is the only
+#                    place it is tested
+#   note             anything a reader of the scorecard needs
+#   baseline_check   what the Baseline did (below)
+#
+# Design rule: at least half the breaking changes differ from fixture-mui4's, so the
+# case measures whether the repair agent generalises rather than whether it remembers.
+# 14 of the 16 scored traps (and the visual one) use a breaking change fixture-mui4
+# does not plant; the two overlaps (create-theme, spacing-arithmetic-half) are new
+# instances.
+#
+# Baseline, 2026-11-09, `migrator migrate --dry-run --case ... --sandbox local`
+# (Node 24.14.0, npm 11.9.0, @mui/codemod 9.4.0, @mui/material 5.18.0):
+#   9 affected files, 11 files changed by the Rules stage (9 sources + package.json and
+#   the lockfile); 16 failures in 7 files: 9 type errors in 6 files, lint clean, 7 of 15
+#   tests failing in 5 suites. Migrated by rules: src/App.tsx, src/theme.ts (2 / 9).
+#   Every rules trap was rewritten as expected; every agent and human trap fails verify.
+#   Oracle: replaying reference/agent-fixes.yaml leaves only the human trap's test
+#   failing; adding reference/human-fix.yaml makes verify pass (15 / 15 tests).
+#   The committed results are in docs/results/baseline-holdout/.
+
+schema_version: 1
+revision: 1
+case: fixture-mui4-holdout
+counts: { rules: 8, agent: 6, human: 1, visual-only: 1 }
+
+traps:
+  # ---------------------------------------------------------------- rules (8)
+  - id: create-theme
+    title: createMuiTheme renamed createTheme
+    breaking_change:
+      file: v5-style-changes.md
+      section: "@mui/material/styles › ✅ Rename createMuiTheme"
+      codemod_marked: true
+    expected_layer: rules
+    location: { file: src/theme.ts, line: 4, symbol: createMuiTheme }
+    caught_by: none
+    in_fixture_1: true
+    note: preset-safe also wraps the argument in adaptV4Theme(...), which matters for mixins-gutters.
+    baseline_check: handled (createTheme(adaptV4Theme({...})))
+
+  - id: palette-type-mode
+    title: theme.palette.type renamed mode
+    breaking_change:
+      file: v5-style-changes.md
+      section: "Theme structure › ✅ Rename theme.palette.type"
+      codemod_marked: true
+    expected_layer: rules
+    location: { file: src/screens/StockSummary.tsx, line: 10, symbol: "theme.palette.type === 'dark'" }
+    caught_by: none
+    in_fixture_1: false
+    note: >-
+      theme-palette-mode is a regex; it also renames `type: 'light'` in src/theme.ts
+      (line 6). Left unfixed, tsc reports TS2339 (type does not exist on Palette).
+    baseline_check: handled (palette.mode, in both files)
+
+  - id: circular-progress-determinate
+    title: CircularProgress variant static renamed determinate
+    breaking_change:
+      file: v5-component-changes.md
+      section: "CircularProgress › ✅ Rename static to determinate"
+      codemod_marked: true
+    expected_layer: rules
+    location: { file: src/screens/StockSummary.tsx, line: 53, symbol: 'CircularProgress variant="static"' }
+    caught_by: none
+    in_fixture_1: false
+    baseline_check: handled
+
+  - id: table-cell-padding-normal
+    title: TableCell padding="default" renamed normal
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Table › Rename default padding prop value"
+      codemod_marked: false
+    expected_layer: rules
+    location: { file: src/screens/OrdersTable.tsx, line: 50, symbol: 'TableCell padding="default"' }
+    caught_by: none
+    in_fixture_1: false
+    note: >-
+      The guide's heading has no ✅, but preset-safe's table-props transform rewrites it
+      (both cells, lines 50 and 60).
+    baseline_check: handled (padding="normal")
+
+  - id: chip-variant-filled
+    title: Chip variant="default" renamed filled
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Chip › ✅ Rename default to filled"
+      codemod_marked: true
+    expected_layer: rules
+    location: { file: src/screens/OrdersTable.tsx, line: 63, symbol: 'Chip variant="default"' }
+    caught_by: none
+    in_fixture_1: false
+    note: The codemod deletes the prop (filled is the v5 default) and reflows the closing tag.
+    baseline_check: handled (prop deleted)
+
+  - id: avatar-variant-circular
+    title: Avatar variant="circle" renamed circular
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Avatar › ✅ Rename circle"
+      codemod_marked: true
+    expected_layer: rules
+    location: { file: src/screens/OrderDialog.tsx, line: 34, symbol: 'Avatar variant="circle"' }
+    caught_by: none
+    in_fixture_1: false
+    baseline_check: handled
+
+  - id: skeleton-lab-rect
+    title: Skeleton moved from lab to core; variant rect renamed rectangular
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Skeleton › ✅ Rename circle and rect"
+      codemod_marked: true
+    expected_layer: rules
+    location: { file: src/screens/Inventory.tsx, line: 29, symbol: 'Skeleton variant="rect"' }
+    caught_by: none
+    in_fixture_1: false
+    note: >-
+      Also "Skeleton › ✅ Update import" (line 3): moved-lab-modules rewrites the
+      @material-ui/lab import to @mui/material, leaving two @mui/material imports.
+    baseline_check: handled
+
+  - id: textfield-max-rows
+    title: TextField rowsMax renamed maxRows
+    breaking_change:
+      file: v5-component-changes.md
+      section: "TextField › ✅ Rename rowsMax"
+      codemod_marked: true
+    expected_layer: rules
+    location: { file: src/screens/ReturnForm.tsx, line: 57, symbol: rowsMax }
+    caught_by: none
+    in_fixture_1: false
+    note: variant-prop also adds variant="standard" to both TextFields (not a trap here).
+    baseline_check: handled
+
+  # ---------------------------------------------------------------- agent (6)
+  - id: spacing-arithmetic-half
+    title: theme.spacing() divided by two
+    breaking_change:
+      file: v5-style-changes.md
+      section: "Theme structure › ✅ Remove px suffix"
+      codemod_marked: true
+    expected_layer: agent
+    location: { file: src/screens/StockSummary.tsx, line: 14, symbol: "theme.spacing(1) / 2" }
+    caught_by:
+      - typecheck   # TS2362 left-hand side of an arithmetic operation
+    in_fixture_1: true
+    note: >-
+      Same breaking change as fixture-mui4's spacing-arithmetic, a different instance
+      (division, no exported helper). Fix: theme.spacing(0.5).
+    baseline_check: fails (1 type error)
+
+  - id: pagination-item-aria-label
+    title: TablePagination back/next button text props replaced by getItemAriaLabel
+    breaking_change:
+      file: v5-component-changes.md
+      section: "TablePagination › Customize labels with getItemAriaLabel prop"
+      codemod_marked: false
+    expected_layer: agent
+    location: { file: src/screens/OrdersTable.tsx, line: 78, symbol: "backIconButtonText, nextIconButtonText" }
+    caught_by:
+      - typecheck   # TS2769 no overload matches (the two props are gone)
+      - "src/screens/__tests__/OrdersTable.test.tsx › pages through the orders"
+    in_fixture_1: false
+    note: >-
+      At runtime v5 ignores the props and labels the buttons "Go to next page", so the
+      test can't find "Next page". Fix: getItemAriaLabel={(type) => ...}.
+    baseline_check: fails (1 type error, 1 failing test)
+
+  - id: with-mobile-dialog
+    title: withMobileDialog removed; the codemod's stand-in never goes full screen
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Dialog › Remove withMobileDialog component"
+      codemod_marked: false
+    expected_layer: agent
+    location: { file: src/screens/OrderDialog.tsx, line: 50, symbol: "withMobileDialog<OrderDialogProps>()(OrderDialogBase)" }
+    caught_by:
+      - typecheck   # TS7006 x2 and TS2558 on the stand-in preset-safe inserts
+      - "src/screens/__tests__/OrderDialog.test.tsx › takes the whole screen on a small tablet (700px wide)"
+    in_fixture_1: false
+    note: >-
+      preset-safe (with-mobile-dialog) removes the import and inserts an untyped stand-in
+      with a FIXME (the run's one Codemod TODO) that always passes fullScreen={false}.
+      The guide's fix is useMediaQuery(theme.breakpoints.down('sm')), but that is not
+      enough here: v4's withMobileDialog defaulted to sm with an inclusive isWidthDown
+      (below 960px), while v5's down('sm') is below 600px, so the 700px test still
+      fails (checked). down('md') (below 900px) or down(960) passes. The trap tests
+      whether the agent combines the guide's fix with "Breakpoint behavior" and
+      "Breakpoint sizes" instead of copying the snippet.
+    baseline_check: fails (3 type errors, 1 failing test)
+
+  - id: mixins-gutters
+    title: theme.mixins.gutters() removed
+    breaking_change:
+      file: v5-style-changes.md
+      section: "Theme structure › Remove gutters"
+      codemod_marked: false
+    expected_layer: agent
+    location: { file: src/screens/Inventory.tsx, line: 8, symbol: "...theme.mixins.gutters()" }
+    caught_by:
+      - typecheck   # TS2339 'gutters' does not exist on type 'Mixins'
+    in_fixture_1: false
+    note: >-
+      Only tsc catches it: adaptV4Theme (added by preset-safe to src/theme.ts) puts a
+      gutters mixin back at runtime, so the Inventory tests pass. Fix: the guide's
+      paddingLeft/paddingRight with a breakpoints.up('sm') block. Casting theme.mixins
+      to keep the call is an escape hatch apply_edit refuses.
+    baseline_check: fails (1 type error)
+
+  - id: autocomplete-reason-names
+    title: Autocomplete onChange reasons renamed to camelCase
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Autocomplete › Rename reason arguments"
+      codemod_marked: false
+    expected_layer: agent
+    location: { file: src/screens/ProductTags.tsx, line: 33, symbol: "reason === 'create-option' (and 'remove-option', line 36)" }
+    caught_by:
+      - typecheck   # TS2367 x2, comparisons with no overlap
+      - "src/screens/__tests__/ProductTags.test.tsx › stores a new tag lower-case and hyphenated"
+      - "src/screens/__tests__/ProductTags.test.tsx › says which tag was removed"
+    in_fixture_1: false
+    baseline_check: fails (2 type errors, 2 failing tests)
+
+  - id: palette-augment-color
+    title: theme.palette.augmentColor takes { color, name }
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Theme › Update theme.palette.augmentColor helper"
+      codemod_marked: false
+    expected_layer: agent
+    location: { file: src/screens/ReturnForm.tsx, line: 7, symbol: "theme.palette.augmentColor({ main: '#b45309' })" }
+    caught_by:
+      - typecheck   # TS2345 'main' is not in PaletteAugmentColorOptions
+      - "src/screens/__tests__/ReturnForm.test.tsx › logs a return with its reason"
+      - "src/screens/__tests__/ReturnForm.test.tsx › sends damaged items to inspection"
+    in_fixture_1: false
+    note: At runtime v5 throws "The color provided to augmentColor(color) is invalid", so the form never renders.
+    baseline_check: fails (1 type error, 2 failing tests)
+
+  # ---------------------------------------------------------------- human (1)
+  - id: stepper-state-classes
+    title: Step icons use global state classes; the test's v4 class selectors must change
+    breaking_change:
+      file: v5-style-changes.md
+      section: "Migrate theme styleOverrides to Emotion › Replace state class names"
+      codemod_marked: false
+    expected_layer: human
+    location: { file: src/screens/ShipmentTracker.tsx, line: 25, symbol: StepLabel }
+    fix_location: { file: src/screens/__tests__/ShipmentTracker.test.tsx }
+    caught_by:
+      - "src/screens/__tests__/ShipmentTracker.test.tsx › marks the finished stages as done"
+    in_fixture_1: false
+    note: >-
+      The test counts finished and current stages with .MuiStepIcon-completed and
+      .MuiStepIcon-active (the step icons expose no accessible state). v5 marks those
+      states with the global .Mui-completed / .Mui-active classes, so both counts are 0
+      although the Stepper behaves the same. The guide shows the state-class change for
+      theme overrides and links the list of global state classes. The fix is in the Test
+      file (query .Mui-completed), which apply_edit refuses, so the agent's right move is
+      a hand-off. No honest source fix exists. Side doors: editing the test, .skip or a
+      weaker assertion are blocked by the guardrails and the cheating checks; checked in
+      a scratch copy: StepLabel StepIconProps={{ classes: { completed:
+      'MuiStepIcon-completed', active: 'MuiStepIcon-active' } }} (or a custom StepIcon
+      that adds those class names) makes the test pass with no type error. That copies
+      v4's class names into the source to satisfy the test: a teach-to-the-test hack a
+      reviewer should reject; it would score Other layer.
+    baseline_check: fails (1 failing test)
+
+  # ---------------------------------------------------------------- visual (1)
+  - id: checkbox-default-color
+    title: Checkbox default colour changed from secondary to primary
+    breaking_change:
+      file: v5-component-changes.md
+      section: 'Checkbox › Set to "primary" by default'
+      codemod_marked: false
+    expected_layer: visual-only
+    location: { file: src/screens/ReturnForm.tsx, line: 60, symbol: "Checkbox (no color prop)" }
+    caught_by: none
+    in_fixture_1: false
+    note: Not scored. No test checks colour; the checkbox turns teal instead of violet.
+    baseline_check: not caught (as designed)
