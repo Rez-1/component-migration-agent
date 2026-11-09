@@ -1,0 +1,74 @@
+# CI tests the Migrator, never the fixture (ticket #13). No secrets and no API keys:
+# LLM evals run locally only, with the cost cap, and their summaries land through PRs.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fast:
+    name: Fast checks (ruff, mypy, unit tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install the package and dev tools
+        run: uv sync --locked
+      - name: Lint
+        run: uv run ruff check .
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Type-check (mypy strict)
+        run: uv run mypy
+      - name: Unit tests (no Node, no network, no LLM)
+        run: uv run pytest -q
+
+  baseline:
+    name: Baseline on the fixture vs the expected scorecard
+    # PRs, pushes to main and manual runs; not every push to a feature branch.
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install the package
+        run: uv sync --locked
+      - name: Read the case's Node version
+        id: case
+        run: |
+          node=$(uv run python - <<'PY'
+          from pathlib import Path
+          from migrator.config import load_case
+          print(load_case(Path("evals/cases/fixture-mui4/case.toml")).repo.node)
+          PY
+          )
+          echo "node=$node" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.case.outputs.node }}
+          cache: npm
+          cache-dependency-path: |
+            fixtures/mui4-app/package-lock.json
+            src/migrator/migrations/mui-4-to-5/tools/package-lock.json
+      - name: Cache the pinned codemod tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/migrator/tools
+          key: migrator-tools-${{ runner.os }}-node${{ steps.case.outputs.node }}-${{ hashFiles('src/migrator/migrations/mui-4-to-5/tools/package-lock.json') }}
+      - name: Baseline dry run, compared with docs/results/baseline/scorecard.json (meta excluded)
+        run: uv run pytest -m slow -q
