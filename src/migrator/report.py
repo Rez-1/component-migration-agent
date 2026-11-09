@@ -550,9 +550,7 @@ def render_scorecard(card: Scorecard) -> str:
         ]
         for i, s in enumerate(card.rules.steps, start=1):
             label = s.kind if s.name == s.kind else f"{s.kind} {s.name}"
-            lines.append(
-                f"| {i} | {label} | {s.status} | {len(s.changed_files)} | {s.detail} |"
-            )
+            lines.append(f"| {i} | {label} | {s.status} | {len(s.changed_files)} | {s.detail} |")
     pre = card.precheck
     totals = card.verify.test_totals if card.verify else None
     lines += [
