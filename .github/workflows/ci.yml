@@ -72,3 +72,20 @@ jobs:
           key: migrator-tools-${{ runner.os }}-node${{ steps.case.outputs.node }}-${{ hashFiles('src/migrator/migrations/mui-4-to-5/tools/package-lock.json') }}
       - name: Baseline dry run, compared with docs/results/baseline/scorecard.json (meta excluded)
         run: uv run pytest -m slow -q
+
+  docker:
+    name: Baseline in the Docker sandbox (Node 20) vs the expected scorecard
+    # Same triggers as the Baseline job. GitHub's Ubuntu runners have Docker; no
+    # secrets are needed (the pinned node image and npm packages are public).
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install the package
+        run: uv sync --locked
+      - name: Docker sandbox tests (pinned image, no network during Verify)
+        run: uv run pytest -m docker -q
