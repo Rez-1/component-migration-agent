@@ -8,7 +8,6 @@ from migrator.configuration import (
     BASELINE,
     Configuration,
     ConfigurationError,
-    NeedsRepairLoopError,
     ensure_runnable,
     find_configuration,
     load_configuration,
@@ -46,11 +45,9 @@ def test_the_baseline_file_matches_the_built_in_baseline() -> None:
     assert find_configuration("baseline", CONFIGS).digest() == BASELINE.digest()
 
 
-def test_repair_configurations_fail_clearly_in_m2() -> None:
-    ensure_runnable(find_configuration("baseline", CONFIGS))
-    for name in ("opus-low", "haiku-debug"):
-        with pytest.raises(NeedsRepairLoopError, match="needs the repair loop"):
-            ensure_runnable(find_configuration(name, CONFIGS))
+def test_repair_configurations_are_runnable_from_m3() -> None:
+    for name in ("baseline", "opus-low", "haiku-debug"):
+        ensure_runnable(find_configuration(name, CONFIGS))
 
 
 def test_repair_on_needs_one_model_per_attempt() -> None:
@@ -119,7 +116,10 @@ def test_cost_from_tokens_and_the_pinned_table() -> None:
     )
     # 4.00 + 2.00 + 0.40 + 0.50 (5-minute writes at 1.25x input)
     assert cost_usd("claude-opus-5-5", usage) == pytest.approx(6.90)
-    assert cost_usd("claude-haiku-5-5", usage) == pytest.approx(0.1 + 0.05 + 0.02 + 0.0125)
+    # Haiku 5.5 has a second rate card for prompts over 100K tokens ($0.50 / $2.50).
+    assert cost_usd("claude-haiku-5-5", usage) == pytest.approx(0.5 + 0.25 + 0.1 + 0.0625)
+    small = Usage(input_tokens=10_000, output_tokens=1_000, cache_read_input_tokens=50_000)
+    assert cost_usd("claude-haiku-5-5", small) == pytest.approx(0.001 + 0.0005 + 0.0005)
     with pytest.raises(UnknownModelPriceError):
         cost_usd("gpt-5", usage)
 
