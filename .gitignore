@@ -10,3 +10,16 @@ runs/
 # Local secrets
 .env
 .env.*
+
+# Hill-climb state (.claude/hillclimb/): committed for reproducibility, except bulk.
+# runs/ above would hide each round's run folders, so re-include them, then drop the
+# command logs, state snapshots, checkpoints and run.json (absolute local paths) (the Baseline's after-Rules files stay:
+# the offline retrieval metric reads them).
+!.claude/hillclimb/**/runs/
+.claude/hillclimb/**/runs/*/logs/
+.claude/hillclimb/**/runs/*/state/*
+!.claude/hillclimb/**/runs/*/state/after-rules.json
+.claude/hillclimb/**/runs/*/checkpoints.sqlite*
+.claude/hillclimb/**/runs/*/run.json
+.claude/hillclimb/**/report.html
+.claude/hillclimb/**/progress.txt

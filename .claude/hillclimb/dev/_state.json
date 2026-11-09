@@ -1,0 +1,129 @@
+{
+  "flow": "dev",
+  "label": "directional",
+  "note": "Hill-climb on the dev split only (n = 1-2 cases, no test split); the held-out split runs once at the end with `migrator eval run --split held-out` and never appears here. See experiments.md.",
+  "goal": {
+    "target": "cost_per_clean_run_usd",
+    "direction": "lower",
+    "hold": [
+      "clean_run",
+      "repair_traps_expected",
+      "regressions",
+      "cheating_hits"
+    ],
+    "also": "quality on the harder dev case (fixture-mui4-hard) once it lands"
+  },
+  "keep_rule": "keep a change if clean runs, repair traps Expected, regressions and cheating-check hits are no worse than the best round's, and either one of them improves or cost per clean run drops (`migrator eval climb` prints the verdict)",
+  "approve_each_round": true,
+  "reps": 2,
+  "current_round": 1,
+  "best": {
+    "round": 1,
+    "variant": "v1",
+    "configuration": "opus-low",
+    "test_score": null,
+    "note": "M3's measured opus-low run on fixture revision 2: 2 of 2 clean, 9 of 9 repair traps, $0.20 per clean run"
+  },
+  "train_ids": [
+    "fixture-mui4"
+  ],
+  "test_ids": [],
+  "runner": {
+    "command": "uv run migrator eval climb --config <configuration> --max-cost <usd> --approved",
+    "dry_run": "uv run migrator eval climb --config <configuration> --dry-run",
+    "results_dir": ".claude/hillclimb",
+    "wraps": "migrator eval run --split dev --results-dir .claude/hillclimb, then migrator eval summary"
+  },
+  "harness_paths": [
+    "evals/cases",
+    "evals/configs/baseline.toml",
+    "fixtures",
+    "src/migrator/checks",
+    "src/migrator/cli.py",
+    "src/migrator/config.py",
+    "src/migrator/cost.py",
+    "src/migrator/evals",
+    "src/migrator/execs.py",
+    "src/migrator/migrations/mui-4-to-5/guide",
+    "src/migrator/migrations/mui-4-to-5/migration.toml",
+    "src/migrator/migrations/mui-4-to-5/tools/package-lock.json",
+    "src/migrator/repair/guardrails.py",
+    "src/migrator/report.py",
+    "src/migrator/scan",
+    "src/migrator/verify",
+    "src/migrator/workspace.py",
+    "uv.lock"
+  ],
+  "harness_sha": null,
+  "metrics": [
+    {
+      "id": "clean_run",
+      "label": "Clean run",
+      "kind": "binary"
+    },
+    {
+      "id": "migrated_share",
+      "label": "Migrated share",
+      "kind": "float",
+      "scale": 1
+    },
+    {
+      "id": "repair_traps_expected",
+      "label": "Repair traps",
+      "kind": "float",
+      "scale": 1
+    },
+    {
+      "id": "cheating_hits",
+      "label": "Cheating hits",
+      "kind": "float",
+      "scale": 10,
+      "better": "lower"
+    },
+    {
+      "id": "regressions",
+      "label": "Regressions",
+      "kind": "float",
+      "scale": 10,
+      "better": "lower"
+    }
+  ],
+  "perf_fields": [
+    {
+      "id": "cost_usd",
+      "label": "Cost",
+      "unit": "$"
+    },
+    {
+      "id": "latency_s",
+      "label": "Time",
+      "unit": "s"
+    },
+    {
+      "id": "tool_calls",
+      "label": "Tool calls"
+    }
+  ],
+  "rounds": [
+    {
+      "variant": "baseline",
+      "configuration": "baseline",
+      "configuration_digest": "73a3262d088d",
+      "cases": [
+        "fixture-mui4"
+      ],
+      "verdict": null,
+      "source": "runs/evals/dev/baseline (M2/M3 rules-only Baseline, fixture revision 2)"
+    },
+    {
+      "variant": "v1",
+      "configuration": "opus-low",
+      "configuration_digest": "d81d48a907d0",
+      "cases": [
+        "fixture-mui4"
+      ],
+      "verdict": null,
+      "source": "runs/evals/dev/v3 (M3 opus-low, fixture revision 2), the starting point"
+    }
+  ]
+}

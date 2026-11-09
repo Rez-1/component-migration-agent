@@ -1,0 +1,184 @@
+[
+  {
+    "type": "human",
+    "data": {
+      "content": "## Failing file: `src/screens/Notifications.tsx`\n\nAttempt 1 of 3.\n\n### Failures in this file (1)\n\n1. **Type error** TS2769, line 39: No overload matches this call. Overload 1 of 2, '(props: { component: \"span\"; } & TypographyOwnProps & CommonProps & Omit<Omit<DetailedHTMLProps<HTMLAttributes<HTMLSpanElement>, HTMLSpanElement>, \"ref\"> & { ...; }, \"borderRadius\" | ... 112 more ... | \"variantMapping\">): Element | null', gave the following error.\n\n### What the Rules stage changed in this file\n\n```diff\n--- a/src/screens/Notifications.tsx\n+++ b/src/screens/Notifications.tsx\n@@ -10,5 +10,5 @@\n   Typography,\n-} from '@material-ui/core';\n-import NotificationsIcon from '@material-ui/icons/Notifications';\n-import MailIcon from '@material-ui/icons/Mail';\n+} from '@mui/material';\n+import NotificationsIcon from '@mui/icons-material/Notifications';\n+import MailIcon from '@mui/icons-material/Mail';\n \n```\n\n### The file now (61 lines)\n\n```tsx\n 1  import { useState } from 'react';\n 2  import {\n 3    Badge,\n 4    Button,\n 5    List,\n 6    ListItem,\n 7    ListItemIcon,\n 8    ListItemText,\n 9    Paper,\n10    Typography,\n11  } from '@mui/material';\n12  import NotificationsIcon from '@mui/icons-material/Notifications';\n13  import MailIcon from '@mui/icons-material/Mail';\n14  \n15  export interface Notice {\n16    id: number;\n17    text: string;\n18    read: boolean;\n19  }\n20  \n21  const NOTICES: Notice[] = [\n22    { id: 1, text: 'Alan Turing joined your workspace', read: false },\n23    { id: 2, text: 'Your export is ready', read: false },\n24    { id: 3, text: 'Weekly digest sent', read: true },\n25    { id: 4, text: 'Grace Hopper changed her role', read: false },\n26  ];\n27  \n28  export function Notifications({ initial = NOTICES }: { initial?: Notice[] }) {\n29    const [notices, setNotices] = useState(initial);\n30    const unread = notices.filter((n) => !n.read).length;\n31  \n32    return (\n33      <Paper component=\"section\" aria-labelledby=\"notifications-title\">\n34        <Typography id=\"notifications-title\" variant=\"h6\" component=\"h1\">\n35          <Badge badgeContent={unread} color=\"secondary\">\n36            <NotificationsIcon aria-hidden />\n37          </Badge>{' '}\n38          Notifications\n39          <Typography variant=\"srOnly\" component=\"span\">\n40            {unread === 0 ? 'No unread notifications' : `${unread} unread notifications`}\n41          </Typography>\n42        </Typography>\n43        <List dense>\n44          {notices.map((n) => (\n45            <ListItem key={n.id} selected={!n.read}>\n46              <ListItemIcon>\n47                <MailIcon color={n.read ? 'disabled' : 'primary'} />\n48              </ListItemIcon>\n49              <ListItemText primary={n.text} secondary={n.read ? 'Read' : 'Unread'} />\n50            </ListItem>\n51          ))}\n52        </List>\n53        <Button\n54          disabled={unread === 0}\n55          onClick={() => setNotices(notices.map((n) => ({ ...n, read: true })))}\n56        >\n57          Mark all as read\n58        </Button>\n59      </Paper>\n60    );\n61  }\n```\n\n### Local imports\n\nNone.\n\n### Used by\n\n- `src/App.tsx` imports `Notifications` from this file.\n\n### Guide sections (keyword lookup: `srOnly`, `borderRadius`, `variantMapping`)\n\n**Typography › Remove srOnly variant**\n\nRemove the `srOnly` variant.\n\nYou can use the `visuallyHidden` utility in conjunction with the `sx` prop instead.\n\n```diff\n+import { visuallyHidden } from '@mui/utils';\n\n-<Typography variant=\"srOnly\">Create a user</Typography>\n+<span style={visuallyHidden}>Create a user</span>\n```\n\n**Box › Update borderRadius prop value (codemod)**\n\nThe `borderRadius` system prop value transformation has been changed.\n\nIf it receives a number, it multiplies this value with the `theme.shape.borderRadius` value.\n\nUse a string to provide an explicit px value.\n\n```diff\n-<Box borderRadius=\"borderRadius\">\n+<Box borderRadius={1}>\n```\n\n```diff\n-<Box borderRadius={16}>\n+<Box borderRadius=\"16px\">\n```\n\n**Dialog › Remove disableTypography prop (codemod)**\n\nFlatten DialogTitle DOM structure and remove the `disableTypography` prop.\n\n```diff\n-<DialogTitle disableTypography>\n-  <Typography variant=\"h4\" component=\"h2\">\n+<DialogTitle>\n+  <Typography variant=\"h4\" component=\"span\">\n      My header\n   </Typography>\n```\n\nAlso possibly relevant (`search_guide` for the text):\n\n- Migrating from JSS to Emotion › 1. Use styled or sx API\n- ref › Fix ref type specificity\n- ref › Refactor non-ref-forwarding class components\n- Select › Update default variant (codemod)\n- Typography › Remove color and style override keys\n- @mui/material/styles › Replace innerRef with ref (codemod)\n- RootRef › Remove component\n- TextField › Forward ref instead of inputRef prop",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "human",
+      "name": null,
+      "id": null
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "signature": "CAQSwQcKEAgTGAI4AUIIdGhpbmtpbmcSDGIIcOo6KBFUQtrOJRoM7E4Bfjit0viU00QRIjCws1OLqomBR/Kg1yeouAr5qLP36MUvaHncYZ8Rzy6qZFVpW0VElQDmT6dF9K+em68q3gaBbR/H1crzq4VogvoV6ny93c211mekLXisspSsF8nEB8wa4Wd6Zk/rSbIw2BsuWQhsL78mOb/8HpK5D3pNQhgPtuSFKKZnwzX6DnOP33Qp/4PHB7IdAESH8hATWHSKQAVDTGC79gWnyv3nV7zrjMxUnGv8GOO2lKa5HvCYhkaGw6OCdfwBY1iU6jkd0Tqe5u48dNh3sHIRnXfkuXcq+LSY3KRTmkuFPEqJfB3nL1Bj4B15NelEK2boe7XIgTCfCFKoSe/2EM+J1Sz09qTEgTzqNEsvVu7di922yq6Dick9LTJzSvWuA+tmLyRiLux5n3SCgsT9nEmdiE0H8U/PWKf6OFTEdbTin87URWm2tOaHpl2XElZtC/Rzt9Fjd7Yh3Tbz6jQvT3S41JJbrN2Srt03m5m/5q2BBpuD2hKcTtIdNsBufrpXUMGMNILS99om52+lGpp7vkdTlbNCgGpuaYxUMQlxYu0/LrUAJLnJHRgisqR3OZDXWWtZtLyOERMlotZLIpDylnQEjafutDy+yAwWb/UNoegnJEcg67G30BIViaYwpZcwWfMWkD0K6YiYTSzkWlfvv3esikWqx6uOzmdnzD2EzAC2UdT2psh/KNSYLJxCpeP/IHQKDxBfiNsgXYdwoZr8QxBiuAVeKbs5jWbVgeEXhKOlZIjWpOLnvMtzEp2/FrrvXiwk0cHSfSN9fNqNEnKbNsMuvV89snjc7tNVH0yUAr7oguVvrguvd8o7Z1Wf+CyfgvkoF/mBz9SjwA+nWfVWtslw7OZiJDPjKrZw8W1+iK+uCKC4kmEnd+oBmLEC6YrW1/nmKfy3pKclcwM72vL8SD3X+9xraT1ju7iiiV2ZbPorM4PorZ06OTpQm6EZhtAIO+ATxSpeTC3IymLHRHHY94wLa6VBAECt9rzG9QiiZjTQIg7PeCr3TamtUp0V9+bnJFfkeauOm2JNYuFUvm3xX+zP+Ljw2WStFXSQAnhn9dyE6Ye9t8kNcfpnh/HpPOsihhW3MdW/K+QB3CrRlnEXg9JLt+MwDxt+PBEUBn7tMC8a1NM1xFE2Kj2CIiAdAb/5axpfHtrLMIqkUK4kNVW4gxa8Sc1RyWP+ac6vF5UMr6tFXNT4KJfKfLttT1gxg9rhLJewXNz7d2qQGAE=",
+          "thinking": "I'm swapping the placeholder for a span with the visually hidden style. The open question is whether `@mui/utils` can be imported directly, since it's only a transitive dependency and lint might flag it. I'll go with the approach from the guide and import `visuallyHidden` from `@mui/utils`, with `Box sx={visuallyHidden}` as a fallback.\n\n",
+          "type": "thinking"
+        },
+        {
+          "id": "toolu_016qCDevCgjgb7HaJCcM7X4D",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/Notifications.tsx",
+            "old_text": "        <Typography variant=\"srOnly\" component=\"span\">\n          {unread === 0 ? 'No unread notifications' : `${unread} unread notifications`}\n        </Typography>",
+            "new_text": "        <span style={visuallyHidden}>\n          {unread === 0 ? 'No unread notifications' : `${unread} unread notifications`}\n        </span>"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01D8yq5Y68xmQz994qj2cVTG",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/Notifications.tsx",
+            "old_text": "import MailIcon from '@mui/icons-material/Mail';\n",
+            "new_text": "import MailIcon from '@mui/icons-material/Mail';\nimport { visuallyHidden } from '@mui/utils';\n"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_0194VNWpfgKuEYzhKcXwNAft",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "note": "Replaced removed Typography srOnly variant with span + visuallyHidden per migration guide."
+          },
+          "name": "run_verify",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgsyQdMUTPUinPAnv7P2G",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-opus-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 2009
+          },
+          "cache_creation_input_tokens": 2009,
+          "cache_read_input_tokens": 1872,
+          "inference_geo": "global",
+          "input_tokens": 4,
+          "output_tokens": 599,
+          "output_tokens_details": {
+            "thinking_tokens": 145
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-opus-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c1f7-145b-7044-a163-5a34dcf0b12f-0",
+      "tool_calls": [
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/screens/Notifications.tsx",
+            "old_text": "        <Typography variant=\"srOnly\" component=\"span\">\n          {unread === 0 ? 'No unread notifications' : `${unread} unread notifications`}\n        </Typography>",
+            "new_text": "        <span style={visuallyHidden}>\n          {unread === 0 ? 'No unread notifications' : `${unread} unread notifications`}\n        </span>"
+          },
+          "id": "toolu_016qCDevCgjgb7HaJCcM7X4D",
+          "type": "tool_call"
+        },
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/screens/Notifications.tsx",
+            "old_text": "import MailIcon from '@mui/icons-material/Mail';\n",
+            "new_text": "import MailIcon from '@mui/icons-material/Mail';\nimport { visuallyHidden } from '@mui/utils';\n"
+          },
+          "id": "toolu_01D8yq5Y68xmQz994qj2cVTG",
+          "type": "tool_call"
+        },
+        {
+          "name": "run_verify",
+          "args": {
+            "note": "Replaced removed Typography srOnly variant with span + visuallyHidden per migration guide."
+          },
+          "id": "toolu_0194VNWpfgKuEYzhKcXwNAft",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 3885,
+        "output_tokens": 599,
+        "total_tokens": 4484,
+        "input_token_details": {
+          "cache_read": 1872,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 2009,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 145
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/screens/Notifications.tsx so far: +2 −2 lines (3% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_016qCDevCgjgb7HaJCcM7X4D",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/screens/Notifications.tsx so far: +3 −2 lines (5% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01D8yq5Y68xmQz994qj2cVTG",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Attempt 1 passed: no failures left in src/screens/Notifications.tsx and nothing new elsewhere. Patch: `src/screens/Notifications.tsx` +3 −2 lines (5% of the file). This file is done.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "run_verify",
+      "id": null,
+      "tool_call_id": "toolu_0194VNWpfgKuEYzhKcXwNAft",
+      "artifact": null,
+      "status": "success"
+    }
+  }
+]
