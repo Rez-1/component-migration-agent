@@ -1,0 +1,126 @@
+# Migration spec: Material UI v4 -> MUI v5.
+# Pure data, checked by migrator.migrations.MigrationSpec on load. One spec is one
+# version jump; v4 -> v6 would be two runs.
+
+id = "mui@4->mui@5"
+from = "mui@4"
+to = "mui@5"
+
+# Fields the repair prompt template is filled from (used from M3). No library
+# names live in prompt or tool text; they come from here.
+library_name = "Material UI"
+from_version = "v4"
+to_version = "v5"
+codemod_name = "@mui/codemod"
+guide_title = "Migrating to v5"
+repair_notes = [
+  "Keep makeStyles and withStyles on @mui/styles; do not rewrite JSS styling to styled() or sx.",
+  "Keep createTheme(adaptV4Theme(...)) as the codemod left it; do not restructure the theme.",
+]
+
+# Comments the codemods leave for work they could not do (Codemod TODOs).
+codemod_todo_markers = ["FIXME", "TODO"]
+
+# Source files, unless the repo's RepoConfig says otherwise.
+source_globs = ["src/**/*.ts", "src/**/*.tsx", "src/**/*.js", "src/**/*.jsx"]
+exclude = ["**/node_modules/**"]
+
+# A target repo is on the old version when one of these packages is a direct
+# dependency with this major version.
+[detection]
+packages = ["@material-ui/core"]
+major = 4
+
+[[preconditions]]
+package = "react"
+min_major = 17
+
+# Module-specifier patterns (regular expressions) for the scanner's usages and
+# for the "no old imports" outcome check.
+[usage]
+old_modules = ['^@material-ui/']
+new_modules = ['^@mui/']
+
+# The vendored guide (see guide/SOURCE.md).
+[guide]
+repo = "mui/material-ui"
+tag = "v5.18.0"
+commit = "6b50143dcfc2aad56a37c9f2e1f14256e9a65c4e"
+dir = "guide"
+files = [
+  "migration-v4.md",
+  "v5-style-changes.md",
+  "v5-component-changes.md",
+  "migrating-from-jss.md",
+  "troubleshooting.md",
+]
+section_level = 2          # "##": one component or area
+change_level = 3           # "###": one change
+codemod_marker = "✅"      # prefix on a change heading the codemods already handle
+drop_sections = ["Material UI v5 migration"]   # the link list at the top of every file
+link_base = "https://v5.mui.com"
+
+# Pinned Node tools, installed once from this lockfile into the Migrator's cache.
+[tools]
+workspace = "tools"
+
+[tools.bins]
+mui-codemod = "node_modules/@mui/codemod/codemod.js"
+
+# Dependency map, exact pins matching the guide's tag. Each old package that is a
+# direct dependency is replaced, in the same section, by its new packages.
+[[dependency_map]]
+old = "@material-ui/core"
+new = { "@mui/material" = "5.18.0", "@mui/styles" = "5.18.0", "@emotion/react" = "11.14.0", "@emotion/styled" = "11.14.1" }
+
+[[dependency_map]]
+old = "@material-ui/icons"
+new = { "@mui/icons-material" = "5.18.0" }
+
+[[dependency_map]]
+old = "@material-ui/lab"
+new = { "@mui/lab" = "5.0.0-alpha.177" }
+
+[[dependency_map]]
+old = "@material-ui/styles"
+new = { "@mui/styles" = "5.18.0" }
+
+# Ordered rule steps. The v4 packages must be installed before the codemods
+# (preset-safe resolves deep imports against node_modules), so the dependency
+# map comes after them. Each codemod runs exactly once: preset-safe is not
+# idempotent. "{files}" expands to the affected files.
+[[rule_steps]]
+kind = "install"
+
+[[rule_steps]]
+kind = "codemod"
+name = "preset-safe"
+tool = "mui-codemod"
+args = ["v5.0.0/preset-safe", "{files}", "--", "--verbose=2", "--fail-on-error"]
+
+[[rule_steps]]
+kind = "codemod"
+name = "variant-prop"
+tool = "mui-codemod"
+args = ["v5.0.0/variant-prop", "{files}", "--", "--verbose=2", "--fail-on-error"]
+
+[[rule_steps]]
+kind = "codemod"
+name = "link-underline-hover"
+tool = "mui-codemod"
+args = ["v5.0.0/link-underline-hover", "{files}", "--", "--verbose=2", "--fail-on-error"]
+
+[[rule_steps]]
+kind = "codemod"
+name = "box-sx-prop"
+tool = "mui-codemod"
+args = ["v5.0.0/box-sx-prop", "{files}", "--", "--verbose=2", "--fail-on-error"]
+
+[[rule_steps]]
+kind = "format"
+
+[[rule_steps]]
+kind = "dependencies"
+
+[[rule_steps]]
+kind = "install"
