@@ -191,13 +191,15 @@ def failures_for_check(check: str, trap: Trap, failures: list[Failure]) -> list[
     if check == "lint":
         return [f for f in failures if f.source == "lint" and f.file == trap.location.file]
     test_file, name = _split_test_check(check)
+    # A suite that failed to run (a crash on import) never ran the trap's test either,
+    # so it counts as the check firing.
     return [
         f
         for f in failures
         if f.source == "test"
         and f.test_file == test_file
         and f.test_name is not None
-        and (f.test_name == name or f.test_name.endswith(f" › {name}"))
+        and (f.test_name in (name, "(suite)") or f.test_name.endswith(f" › {name}"))
     ]
 
 
@@ -231,6 +233,8 @@ def score_trap(
         result = "Expected" if handled else "Missed"
     elif caught:
         result = "Missed"
+    elif layers.get(file) is None and file not in handed_off:
+        result = "Missed"  # no layer touched the file, so none handled the trap
     elif trap.expected_layer == "human":
         result = "Expected" if file in handed_off else "Other layer"
     else:

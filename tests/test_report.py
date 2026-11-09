@@ -11,6 +11,7 @@ from migrator.report import (
     RunMeta,
     build_scorecard,
     render_scorecard,
+    score_trap,
     stable_view,
 )
 from migrator.rules import RulesResult, RuleStepResult
@@ -221,3 +222,21 @@ def test_cheating_checks_and_cost_in_the_scorecard(card_input: ReportInput) -> N
     assert "$0: this run made no model calls. Run cap $5.00; month cap $20.00." in md
     unchecked = render_scorecard(build_scorecard(card_input))
     assert "| Cheating-check hits | — (not checked" in unchecked
+
+
+def test_a_crashed_suite_fires_the_trap_check_and_untouched_files_miss() -> None:
+    crashed = Failure(
+        source="test",
+        file="src/Tested.tsx",
+        message="Cannot find module '@material-ui/core'",
+        test_file="src/__tests__/Tested.test.tsx",
+        test_name="(suite)",
+    )
+    trap = _trap(
+        "dialog", "agent", "src/Tested.tsx", ["src/__tests__/Tested.test.tsx › stays open"]
+    )
+    result = score_trap(trap, [crashed], {}, set(), rules_ok=True)
+    assert result.result == "Missed" and result.checks[0].fired
+    quiet = _trap("quiet", "agent", "src/Other.tsx", ["typecheck"])
+    assert score_trap(quiet, [], {}, set(), rules_ok=True).result == "Missed"
+    assert score_trap(quiet, [], {"src/Other.tsx": "rules"}, set(), True).result == "Other layer"
