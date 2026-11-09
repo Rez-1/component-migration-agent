@@ -15,7 +15,7 @@ from typing import Literal
 
 import tree_sitter_typescript as tsts
 from pydantic import BaseModel, ConfigDict
-from tree_sitter import Language, Node, Parser
+from tree_sitter import Language, Node, Parser, Tree
 
 UsageKind = Literal["import", "jsx", "call"]
 
@@ -70,12 +70,26 @@ def _walk(node: Node) -> Iterator[Node]:
         stack.extend(reversed(current.children))
 
 
+def parse_tree(source: bytes, path: str) -> Tree:
+    """The tree-sitter tree of one TS/TSX/JS file (for the cheating checks, too)."""
+    return _parser(dialect_for(path)).parse(source)
+
+
+walk = _walk
+node_text = _text
+
+
 def _source(node: Node) -> str | None:
     source = node.child_by_field_name("source")
     if source is None:
         return None
     fragment = next((c for c in source.children if c.type == "string_fragment"), None)
     return _text(fragment)
+
+
+def module_source(node: Node) -> str | None:
+    """The module specifier of an import or export statement (``'./App'``)."""
+    return _source(node)
 
 
 def _has_type_keyword(node: Node) -> bool:
