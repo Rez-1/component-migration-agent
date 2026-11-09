@@ -1,0 +1,352 @@
+# Planted traps in fixtures/mui4-app: one instance of one breaking change each.
+# Read by the eval runner to score trap results (Expected / Other layer / Missed).
+#
+# Fields
+#   id               stable key, used in scorecards and experiment summaries
+#   title            short human label
+#   breaking_change  where the guide describes it: guide file (v5.18.0,
+#                    docs/data/material/migration/migration-v4/) and
+#                    "## section › ### change" heading. `codemod_marked` is true
+#                    when the heading carries the guide's ✅ "handled by a codemod" marker.
+#   expected_layer   rules | agent | human | visual-only
+#                    (rules/agent/human are the glossary's Layers; visual-only
+#                    means the trap is never caught by verify and is scored
+#                    "Not scored")
+#   location         primary file, line in the v4 source, and the symbol
+#   caught_by        what makes verify fail if the trap is left unfixed after the
+#                    Baseline: typecheck, lint, or a test as "<file> › <name>".
+#                    "none" for rules traps (the codemods fix them) and the visual trap.
+#   note             anything a reader of the scorecard needs
+#   baseline_check   what happened in the empirical preview of the Baseline (below)
+#
+# Baseline preview, 2026-11-09 (not M1's Baseline, a hand-run preview of it):
+#   copy of the fixture -> npm ci (v4) -> @mui/codemod 9.4.0 v5.0.0/{preset-safe,
+#   variant-prop, link-underline-hover, box-sx-prop} on src/, each once ->
+#   dependency bump (@mui/material, @mui/icons-material, @mui/styles 5.18.0,
+#   @mui/lab 5.0.0-alpha.177, @emotion/react 11.14.0, @emotion/styled 11.14.1)
+#   -> npm install -> npm run typecheck / lint / jest. Node 24.14.0, npm 11.9.0.
+#   Result: 12 files changed by the codemods (0 ERR); typecheck 8 errors in
+#   6 files; lint clean; jest 7 of 19 tests failing in 5 suites. 9 source files
+#   fail, 3 affected files are clean (App.tsx, UsersTable.tsx, Faq.tsx).
+#   Every rules trap was rewritten as expected; every agent and human trap fails
+#   verify. In a second scratch copy, applying a minimal hand-written fix for each
+#   agent trap and then the human fix (in src/test-utils.tsx) made verify pass,
+#   so every trap is fixable and its check goes green once fixed.
+
+schema_version: 1
+case: fixture-mui4
+counts: { rules: 12, agent: 8, human: 1, visual-only: 1 }
+
+traps:
+  # ---------------------------------------------------------------- rules (12)
+  - id: create-theme
+    title: createMuiTheme renamed createTheme
+    breaking_change:
+      file: v5-style-changes.md
+      section: "@mui/material/styles › ✅ Rename createMuiTheme"
+      codemod_marked: true
+    expected_layer: rules
+    location: { file: src/theme.ts, line: 4, symbol: createMuiTheme }
+    caught_by: none
+    note: >-
+      preset-safe also wraps the argument in adaptV4Theme(...) (Theme structure ›
+      ✅ Add adaptV4Theme helper), which moves `props` and `overrides` to
+      `components` at runtime. The repair notes say to keep adaptV4Theme.
+    baseline_check: handled (createTheme(adaptV4Theme({...})))
+
+  - id: grid-justify
+    title: Grid justify renamed justifyContent
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Grid › ✅ Rename justify prop"
+      codemod_marked: true
+    expected_layer: rules
+    location: { file: src/screens/Dashboard.tsx, line: 44, symbol: "Grid justify" }
+    caught_by: none
+    baseline_check: handled
+
+  - id: fade-alpha
+    title: fade renamed alpha
+    breaking_change:
+      file: v5-style-changes.md
+      section: "@mui/material/styles › ✅ Rename fade to alpha"
+      codemod_marked: true
+    expected_layer: rules
+    location: { file: src/screens/Dashboard.tsx, line: 11, symbol: fade }
+    caught_by: none
+    baseline_check: handled
+
+  - id: autocomplete-import
+    title: Autocomplete moved from lab to core
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Autocomplete › ✅ Update import"
+      codemod_marked: true
+    expected_layer: rules
+    location: { file: src/screens/Search.tsx, line: 2, symbol: "import { Autocomplete } from '@material-ui/lab'" }
+    caught_by: none
+    note: The codemod leaves two separate `@mui/material` imports in the file; harmless.
+    baseline_check: handled
+
+  - id: autocomplete-option-equal
+    title: getOptionSelected renamed isOptionEqualToValue
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Autocomplete › ✅ Rename getOptionSelected"
+      codemod_marked: true
+    expected_layer: rules
+    location: { file: src/screens/Search.tsx, line: 38, symbol: getOptionSelected }
+    caught_by: none
+    baseline_check: handled
+
+  - id: button-color-default-literal
+    title: Button color="default" removed (literal)
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Button › ✅ Remove default color prop"
+      codemod_marked: true
+    expected_layer: rules
+    location: { file: src/screens/UsersTable.tsx, line: 61, symbol: 'Button color="default"' }
+    caught_by: none
+    note: Same breaking change as button-color-expression; the codemod only matches the literal.
+    baseline_check: handled (prop deleted)
+
+  - id: spacing-px-template
+    title: theme.spacing returns px strings (template literal)
+    breaking_change:
+      file: v5-style-changes.md
+      section: "Theme structure › ✅ Remove px suffix"
+      codemod_marked: true
+    expected_layer: rules
+    location: { file: src/screens/UsersTable.tsx, line: 26, symbol: "`${theme.spacing(1)}px ${theme.spacing(2)}px`" }
+    caught_by: none
+    note: Same breaking change as spacing-arithmetic; the codemod is a regex over template strings.
+    baseline_check: handled (px suffixes removed)
+
+  - id: expansion-panel
+    title: ExpansionPanel renamed Accordion
+    breaking_change:
+      file: v5-component-changes.md
+      section: "ExpansionPanel › ✅ Rename components"
+      codemod_marked: true
+    expected_layer: rules
+    location: { file: src/screens/Faq.tsx, line: 41, symbol: "ExpansionPanel, ExpansionPanelSummary, ExpansionPanelDetails" }
+    caught_by: none
+    baseline_check: handled
+
+  - id: link-underline
+    title: Link underline default changed from hover to always
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Link › ✅ Update default underline prop"
+      codemod_marked: true
+    expected_layer: rules
+    location: { file: src/screens/Faq.tsx, line: 55, symbol: Link }
+    caught_by: none
+    note: Visual only. link-underline-hover adds underline="hover".
+    baseline_check: handled
+
+  - id: textfield-default-variant
+    title: TextField default variant changed from standard to outlined
+    breaking_change:
+      file: v5-component-changes.md
+      section: "TextField › ✅ Update default variant"
+      codemod_marked: true
+    expected_layer: rules
+    location: { file: src/screens/ProfileForm.tsx, line: 48, symbol: "TextField (Display name)" }
+    caught_by: none
+    note: >-
+      Visual only. variant-prop adds variant="standard". It also adds
+      variant="standard" to the native Select on line 57 although its
+      FormControl says outlined; FormControl's variant still wins at runtime.
+    baseline_check: handled
+
+  - id: breakpoint-down
+    title: breakpoints.down(key) is now exclusive
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Theme › ✅ Breakpoint behavior"
+      codemod_marked: true
+    expected_layer: rules
+    location: { file: src/screens/ResponsiveNav.tsx, line: 41, symbol: "theme.breakpoints.down('sm')" }
+    caught_by: none
+    note: >-
+      The codemod shifts down('sm') to down('md'), which keeps the v4 query only
+      if the breakpoint values are unchanged. They are not: see breakpoint-sizes,
+      the agent trap on the same line.
+    baseline_check: handled (down('md'))
+
+  - id: box-system-props
+    title: Box system props moved to sx
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Box › ✅ Apply sx API"
+      codemod_marked: true
+    expected_layer: rules
+    location: { file: src/screens/Settings.tsx, line: 53, symbol: "Box mt display justifyContent" }
+    caught_by: none
+    note: box-sx-prop rewrites to sx={{...}} with double quotes and a reflow (formatting churn).
+    baseline_check: handled
+
+  # ---------------------------------------------------------------- agent (8)
+  - id: autocomplete-render-option
+    title: Autocomplete renderOption must return the whole option
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Autocomplete › Update `renderOption`"
+      codemod_marked: false
+    expected_layer: agent
+    location: { file: src/screens/Search.tsx, line: 39, symbol: renderOption }
+    caught_by:
+      - typecheck   # TS2339 'label' / 'country' do not exist on HTMLAttributes<HTMLLIElement>
+      - "src/screens/__tests__/Search.test.tsx › selects Amsterdam"
+      - "src/screens/__tests__/Search.test.tsx › suggests matching cities with their country"
+    note: Matches docs/prototypes/repair-prompt/attempt-search-renderoption.md.
+    baseline_check: fails (2 type errors, 2 failing tests)
+
+  - id: spacing-arithmetic
+    title: theme.spacing() used in arithmetic
+    breaking_change:
+      file: v5-style-changes.md
+      section: "Theme structure › ✅ Remove px suffix"
+      codemod_marked: true
+    expected_layer: agent
+    location: { file: src/screens/Dashboard.tsx, line: 10, symbol: "theme.spacing(1) * 3; titleMinHeight (line 20)" }
+    caught_by:
+      - typecheck   # TS2362 on line 10; TS2322 on line 20 (string returned where number declared)
+    note: >-
+      The guide marks the section ✅ but the codemod only rewrites template
+      strings. Matches docs/prototypes/repair-prompt/attempt-dashboard-spacing.md:
+      titleMinHeight is exported to UsersTable.tableHeight (declared `: number`),
+      so a fix that makes titleMinHeight return a string causes a regression
+      (TS2322) in UsersTable.tsx line 23. Verified in the fix check.
+    baseline_check: fails (2 type errors)
+
+  - id: dialog-disable-backdrop-click
+    title: Dialog disableBackdropClick removed
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Dialog › ✅ Remove disableBackdropClick prop"
+      codemod_marked: true
+    expected_layer: agent
+    location: { file: src/screens/AccountDialog.tsx, line: 34, symbol: disableBackdropClick }
+    caught_by:
+      - "src/screens/__tests__/AccountDialog.test.tsx › stays open, keeping what was typed, when the user clicks outside it"
+    note: >-
+      preset-safe (dialog-props) deletes the prop and does not add the
+      onClose reason filter the guide shows, so type-check passes and only the
+      behaviour test notices. Fix: ignore reason === 'backdropClick' in onClose.
+    baseline_check: fails (1 failing test; no type error)
+
+  - id: typography-sr-only
+    title: Typography srOnly variant removed
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Typography › Remove srOnly variant"
+      codemod_marked: false
+    expected_layer: agent
+    location: { file: src/screens/Notifications.tsx, line: 39, symbol: 'Typography variant="srOnly"' }
+    caught_by:
+      - typecheck   # TS2769 no overload matches (variant)
+    note: >-
+      Fix uses visuallyHidden from @mui/utils (as the guide shows); @mui/utils
+      is a transitive dependency of @mui/material, not a direct one.
+    baseline_check: fails (1 type error)
+
+  - id: breakpoint-sizes
+    title: Default breakpoint values changed (md 960 -> 900)
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Theme › Breakpoint sizes"
+      codemod_marked: false
+    expected_layer: agent
+    location: { file: src/screens/ResponsiveNav.tsx, line: 41, symbol: "useMediaQuery(theme.breakpoints.down('sm'))" }
+    caught_by:
+      - "src/screens/__tests__/ResponsiveNav.test.tsx › uses a menu on a small tablet (920px wide)"
+    note: >-
+      After the codemod the query is down('md') = below 900px in v5, so a 920px
+      screen gets tabs instead of the menu. Fixable in ResponsiveNav.tsx
+      (down(960)) or in src/theme.ts (restore the v4 breakpoint values, as the
+      guide suggests); the theme route changes every screen's breakpoints.
+    baseline_check: fails (1 failing test)
+
+  - id: button-color-expression
+    title: Button color "default" passed as an expression
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Button › ✅ Remove default color prop"
+      codemod_marked: true
+    expected_layer: agent
+    location: { file: src/screens/Settings.tsx, line: 56, symbol: "color={dirty ? 'primary' : 'default'}" }
+    caught_by:
+      - typecheck   # TS2769 '"default"' is not assignable
+      - "src/screens/__tests__/Settings.test.tsx › enables Save only after a change, and saves the new preferences"
+    note: >-
+      The codemod only deletes literal color="default". At runtime v5 crashes
+      (theme.palette.default is undefined), which also fails the second Settings
+      test until fixed; that test then still fails on button-label-override.
+    baseline_check: fails (1 type error, 2 failing tests)
+
+  - id: button-label-override
+    title: Button label slot removed; theme override on MuiButton.label is dead
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Button › Remove span and label"
+      codemod_marked: false
+    expected_layer: agent
+    location: { file: src/theme.ts, line: 16, symbol: "overrides.MuiButton.label" }
+    caught_by:
+      - typecheck   # TS2322 'label' not in ButtonClasses
+      - "src/screens/__tests__/Settings.test.tsx › shows button text in sentence case, as the theme asks"
+    note: >-
+      Fix: move textTransform to MuiButton.root. Checked: with only this fix
+      missing, the Settings sentence-case test still fails (computed
+      text-transform is uppercase), so the test catches it on its own.
+    baseline_check: fails (1 type error, 1 failing test)
+
+  - id: select-event-type
+    title: Select onChange event type is SelectChangeEvent
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Select › Update event type (TypeScript)"
+      codemod_marked: false
+    expected_layer: agent
+    location: { file: src/screens/ProfileForm.tsx, line: 33, symbol: handleRoleChange }
+    caught_by:
+      - typecheck   # TS2322 on line 61 (onChange={handleRoleChange})
+    baseline_check: fails (1 type error)
+
+  # ---------------------------------------------------------------- human (1)
+  - id: styles-needs-theme-provider
+    title: "@mui/styles makeStyles has no default theme"
+    breaking_change:
+      file: v5-style-changes.md
+      section: "@mui/styles › Update ThemeProvider import"
+      codemod_marked: false
+    expected_layer: human
+    location: { file: src/screens/ProfileCard.tsx, line: 4, symbol: makeStyles }
+    fix_location: { file: src/test-utils.tsx, line: 12, symbol: renderComponent }
+    caught_by:
+      - "src/screens/__tests__/ProfileCard.test.tsx › shows the name, role, email and initials"
+    note: >-
+      The app itself is fine: App.tsx wraps everything in ThemeProvider. The
+      ProfileCard test renders bare through renderComponent, which worked in v4
+      because makeStyles fell back to the default theme. In v5 it fails with
+      "theme.spacing is not a function". The right fix is in src/test-utils.tsx,
+      a Test file the repair agent may not edit, so the expected result is a
+      hand-off. Risk: an agent could make the test pass from ProfileCard.tsx
+      (e.g. makeStyles' defaultTheme option); that scores as Other layer.
+    baseline_check: fails (1 failing test); passes after the test-utils fix
+
+  # ---------------------------------------------------------------- visual (1)
+  - id: switch-default-color
+    title: Switch default colour changed from secondary to primary
+    breaking_change:
+      file: v5-component-changes.md
+      section: "Switch › Update default color prop"
+      codemod_marked: false
+    expected_layer: visual-only
+    location: { file: src/screens/Settings.tsx, line: 48, symbol: "Switch (no color prop)" }
+    caught_by: none
+    note: Not scored. No test checks colour; the switches turn blue instead of orange.
+    baseline_check: not caught (as designed)
