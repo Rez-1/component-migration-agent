@@ -19,6 +19,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from migrator import __version__
+from migrator.checks import CheatingReport, CheckInput, read_files, read_test_rules, run_checks
 from migrator.config import (
     CaseConfig,
     ConfigError,
@@ -29,7 +30,9 @@ from migrator.config import (
     read_package_json,
     resolve_repo_config,
 )
-from migrator.execs import CommandRunner, LocalRunner
+from migrator.configuration import BASELINE, Configuration, ensure_runnable
+from migrator.cost import RunCost
+from migrator.execs import CommandRunner, DeadlineRunner, LocalRunner
 from migrator.migrations import MigrationSpec
 from migrator.report import (
     ReportInput,
@@ -62,6 +65,9 @@ class RunOptions(BaseModel):
     traps: Path | None = None
     keep_workspace: bool = False
     tools_cache: Path | None = None
+    configuration: Configuration = BASELINE
+    ceiling_s: float | None = None  # hard wall-clock ceiling for the whole run
+    run_id: str | None = None  # default: the run folder's name
 
 
 class RunResult(BaseModel):
@@ -138,15 +144,19 @@ def dry_run(
     on_stage: StageCallback | None = None,
 ) -> RunResult:
     """A full run in a throwaway copy of the target repo; the repo itself is untouched."""
+    configuration = opts.configuration
+    ensure_runnable(configuration)
     runner = runner or LocalRunner()
+    if opts.ceiling_s is not None:
+        runner = DeadlineRunner(runner, opts.ceiling_s)
     say = on_stage or (lambda _stage, _msg: None)
     started = time.monotonic()
     started_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     timings: dict[str, float] = {}
     repo = opts.repo.resolve()
-    spec = opts.spec
+    spec = configuration.apply_to(opts.spec)
     run_dir = opts.run_dir
-    run_id = run_dir.name
+    run_id = opts.run_id or run_dir.name
     logs = run_dir / "logs"
 
     def timed(stage: str, t0: float) -> None:
@@ -177,6 +187,9 @@ def dry_run(
     rules: RulesResult | None = None
     verified: VerifyResult | None = None
     final_usage: UsageReport | None = None
+    cheating: CheatingReport | None = None
+    # What the Pre-check verifies: the untouched workspace, for the cheating checks.
+    untouched = read_files(workspace)
     try:
         t0 = time.monotonic()
         say("Pre-check", "installing and verifying the untouched workspace")
@@ -229,6 +242,23 @@ def dry_run(
             )
             final_usage = run_scan(workspace, spec, config)
             timed("verify", t0)
+            # Without the repair loop (M3) the final workspace is the one after Rules.
+            after_rules = read_files(workspace)
+            cheating = run_checks(
+                CheckInput(
+                    before=untouched,
+                    after_rules=after_rules,
+                    final=after_rules,
+                    test_rules=read_test_rules(workspace),
+                    precheck_totals=pre.test_totals,
+                    final_totals=verified.test_totals,
+                )
+            )
+            say(
+                "Checks",
+                f"{len(cheating.hits)} cheating-check hits, {len(cheating.notes)} "
+                "Rules-layer notes",
+            )
             say(
                 "Verify",
                 f"{len(verified.failures)} failures in {len(verified.failing_files())} files",
@@ -253,7 +283,12 @@ def dry_run(
                 verify=verified,
                 final_usage=final_usage,
                 traps=traps,
-                configuration="baseline",
+                configuration=configuration.name,
+                configuration_digest=configuration.digest(),
+                cheating=cheating,
+                cost=RunCost.no_llm(
+                    configuration.cost.max_run_usd, configuration.cost.max_month_usd
+                ),
                 case=opts.case.id if opts.case else (traps.case if traps else None),
                 meta=meta,
             )

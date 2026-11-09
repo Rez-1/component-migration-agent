@@ -108,3 +108,48 @@ class LocalRunner:
                 "utf-8",
             )
         return result
+
+
+class RunTimeoutError(TimeoutError):
+    """A run passed its wall-clock ceiling."""
+
+
+class DeadlineRunner:
+    """Wraps a runner with a hard wall-clock ceiling for a whole run.
+
+    Each command gets at most the time left; once the ceiling has passed, the next
+    command raises ``RunTimeoutError`` instead of starting. Every slow part of a run is
+    a command, so this bounds the run without threads.
+    """
+
+    def __init__(self, inner: CommandRunner, ceiling_s: float):
+        self.inner = inner
+        self.ceiling_s = ceiling_s
+        self.deadline = time.monotonic() + ceiling_s
+
+    def run(
+        self,
+        command: str | Sequence[str],
+        cwd: Path,
+        *,
+        env: Mapping[str, str] | None = None,
+        timeout_s: float | None = None,
+        log_file: Path | None = None,
+    ) -> CommandResult:
+        left = self.deadline - time.monotonic()
+        if left <= 0:
+            raise RunTimeoutError(
+                f"the run passed its {self.ceiling_s:.0f} s ceiling before `{display(command)}`"
+            )
+        result = self.inner.run(
+            command,
+            cwd,
+            env=env,
+            timeout_s=min(timeout_s, left) if timeout_s else left,
+            log_file=log_file,
+        )
+        if result.timed_out and self.deadline - time.monotonic() <= 0:
+            raise RunTimeoutError(
+                f"the run passed its {self.ceiling_s:.0f} s ceiling during `{result.command}`"
+            )
+        return result

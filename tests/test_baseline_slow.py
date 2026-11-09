@@ -91,6 +91,15 @@ def test_baseline_dry_run_on_the_fixture(tmp_path: Path, spec: MigrationSpec) ->
             assert any(c.fired for c in trap.checks), f"{trap.id} not caught by verify"
             assert any(f.file == trap.file for f in failures), f"no failure in {trap.file}"
 
+    # Cheating checks: no hits; preset-safe's eslint-disable in App.tsx is a Rules note.
+    assert card.cheating is not None
+    assert (h.cheating_check_hits, h.cheating_check_warnings) == (0, 0)
+    assert [(n.file, n.check, n.layer) for n in card.cheating.notes] == [
+        ("src/App.tsx", "escape-hatch:eslint-disable", "rules")
+    ]
+    assert card.cheating.test_files["src/test-utils.tsx"] == "imported only by tests"
+    assert card.cost.total_usd == 0.0
+
     # Same numbers as the committed expected scorecard (everything but meta).
     expected = json.loads(EXPECTED.read_text("utf-8"))
     assert stable_view(card) == stable_view(expected)

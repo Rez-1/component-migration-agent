@@ -14,12 +14,16 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from migrator.checks import CheatingReport, Finding, Layer
 from migrator.config import Trap, TrapList
+from migrator.configuration import DEFAULT_MAX_MONTH_USD, DEFAULT_MAX_RUN_USD
+from migrator.cost import RunCost
 from migrator.rules import CodemodTodo, RulesResult
 from migrator.scan import UsageReport
 from migrator.verify import Failure, PrecheckResult, TestTotals, VerifyResult
 
-SCHEMA_VERSION = 1
+# 2: cheating checks, cost block, configuration digest (M2).
+SCHEMA_VERSION = 2
 
 Outcome = Literal[
     "Migrated by rules", "Migrated by agent", "Migrated by human", "Handed off", "Unmigrated"
@@ -32,7 +36,6 @@ OUTCOMES: tuple[Outcome, ...] = (
     "Unmigrated",
 )
 TrapResultName = Literal["Expected", "Other layer", "Missed", "Not scored"]
-Layer = Literal["rules", "agent", "human"]
 RunStatus = Literal["completed", "rejected", "rules_failure"]
 
 
@@ -57,7 +60,8 @@ class Headline(BaseModel):
     outcomes: dict[str, int]
     hand_offs: int
     regressions: int
-    cheating_check_hits: int | None  # cheating checks arrive in M2
+    cheating_check_hits: int
+    cheating_check_warnings: int
     codemod_todos: int
     traps: TrapCounts | None
 
@@ -141,6 +145,7 @@ class Scorecard(BaseModel):
     migration: str
     target_repo: str
     configuration: str
+    configuration_digest: str | None
     case: str | None
     status: RunStatus
     reason: str | None
@@ -151,6 +156,8 @@ class Scorecard(BaseModel):
     rules: RulesSummary | None
     verify: VerifySummary | None
     traps: list[TrapResult] | None
+    cheating: CheatingReport | None  # None when the run stopped before Verify
+    cost: RunCost
     meta: RunMeta
 
 
@@ -162,7 +169,10 @@ class ReportInput(BaseModel):
     final_usage: UsageReport | None  # rescan of the workspace after the run
     traps: TrapList | None
     configuration: str = "baseline"
+    configuration_digest: str | None = None
     case: str | None = None
+    cheating: CheatingReport | None = None
+    cost: RunCost = RunCost.no_llm(DEFAULT_MAX_RUN_USD, DEFAULT_MAX_MONTH_USD)
     meta: RunMeta
 
 
@@ -259,6 +269,9 @@ def build_scorecard(inp: ReportInput) -> Scorecard:
     rules_changed = set(inp.rules.changed_files) if inp.rules else set()
     layers: dict[str, Layer] = {p: "rules" for p in rules_changed}
     handed_off: set[str] = set()  # the repair agent arrives in M3
+    cheating = inp.cheating
+    hit_files = cheating.hit_files() if cheating else set()
+    hits = cheating.hits if cheating else []
 
     if inp.precheck.status == "rejected":
         status: RunStatus = "rejected"
@@ -279,6 +292,9 @@ def build_scorecard(inp: ReportInput) -> Scorecard:
                 "Unmigrated",
                 "Pre-check rejected" if status == "rejected" else "Rules failure",
             )
+        elif path in hit_files:
+            checks = sorted({h.check for h in hits if h.file == path})
+            outcome, note = "Unmigrated", "cheating check: " + ", ".join(checks)
         elif file_failures:
             kinds = Counter(f.source for f in file_failures)
             note = ", ".join(f"{n} {k}" for k, n in sorted(kinds.items()))
@@ -324,7 +340,8 @@ def build_scorecard(inp: ReportInput) -> Scorecard:
         )
 
     headline = Headline(
-        clean_run=status == "completed" and not failures,
+        # A cheating-check hit fails the run however clean the final verify is.
+        clean_run=status == "completed" and not failures and not hits,
         failures=len(failures),
         failing_files=len({f.file for f in failures}),
         migrated_without_human=Share(
@@ -335,7 +352,8 @@ def build_scorecard(inp: ReportInput) -> Scorecard:
         outcomes={o: counts[o] for o in OUTCOMES},
         hand_offs=len(handed_off),
         regressions=len(regressions),
-        cheating_check_hits=None,
+        cheating_check_hits=len(hits),
+        cheating_check_warnings=len(cheating.warnings) if cheating else 0,
         codemod_todos=len(inp.rules.codemod_todos) if inp.rules else 0,
         traps=trap_counts,
     )
@@ -344,6 +362,7 @@ def build_scorecard(inp: ReportInput) -> Scorecard:
         migration=inp.usage.migration,
         target_repo=inp.usage.target_repo,
         configuration=inp.configuration,
+        configuration_digest=inp.configuration_digest,
         case=inp.case,
         status=status,
         reason=reason,
@@ -389,6 +408,8 @@ def build_scorecard(inp: ReportInput) -> Scorecard:
         if inp.verify
         else None,
         traps=trap_results,
+        cheating=cheating,
+        cost=inp.cost,
         meta=inp.meta,
     )
 
@@ -434,6 +455,78 @@ def _traps_line(t: TrapCounts | None) -> str:
     )
 
 
+def usd(value: float | None) -> str:
+    """Dollars for a report: "—" when there is no value (never a silent $0)."""
+    if value is None:
+        return "—"
+    return "$0" if value == 0 else f"${value:.2f}"
+
+
+def _cost_head(cost: RunCost) -> str:
+    if cost.model_calls == 0:
+        return f"$0 (no LLM) of {usd(cost.run_cap_usd)} cap"
+    return f"**{usd(cost.total_usd)}** of {usd(cost.run_cap_usd)} cap"
+
+
+def _cost_line(cost: RunCost) -> str:
+    caps = f"Run cap {usd(cost.run_cap_usd)}; month cap {usd(cost.month_cap_usd)}"
+    month = (
+        f", this month {usd(cost.month_spent_usd)} of {usd(cost.month_cap_usd)}"
+        if cost.month_spent_usd is not None
+        else ""
+    )
+    if cost.model_calls == 0:
+        return f"$0: this run made no model calls. {caps}{month}."
+    share = (
+        f" Cache reads covered {round(cost.cache_read_share * 100)}% of input tokens."
+        if cost.cache_read_share is not None
+        else ""
+    )
+    return (
+        f"{usd(cost.total_usd)} = {usd(cost.output_usd)} output + {usd(cost.input_usd)} input"
+        f" + {usd(cost.cache_read_usd + cost.cache_write_usd)} cache (reads "
+        f"{usd(cost.cache_read_usd)}, writes {usd(cost.cache_write_usd)}), "
+        f"{', '.join(cost.models)}, {cost.model_calls} calls.{share} {caps}{month}."
+    )
+
+
+def _cheating_cell(card: Scorecard) -> str:
+    if card.cheating is None:
+        return "— (not checked: the run stopped before Verify)"
+    h = card.headline
+    rules_notes = len(card.cheating.notes)
+    cell = f"{h.cheating_check_hits} ({h.cheating_check_warnings} warnings)"
+    return cell + (f"; {rules_notes} Rules-layer notes" if rules_notes else "")
+
+
+def _finding_row(f: Finding) -> str:
+    return f"| {f.file or '(run)'} | {f.layer} | {f.check} | {f.detail} |"
+
+
+def _cheating_section(card: Scorecard) -> list[str]:
+    report = card.cheating
+    if report is None:
+        return []
+    lines = ["", "## Cheating checks", ""]
+    if not report.hits and not report.warnings:
+        lines.append("No hits and no warnings on repair-agent patches.")
+    for title, findings in (("Hits (fail the run)", report.hits), ("Warnings", report.warnings)):
+        if findings:
+            lines += [f"**{title}**", "", "| File | Layer | Check | Detail |", "|---|---|---|---|"]
+            lines += [_finding_row(f) for f in findings] + [""]
+    if report.notes:
+        lines += [
+            "",
+            "Reported, not failing (only repair-agent patches can fail a run):",
+            "",
+            "| File | Layer | Check | Detail |",
+            "|---|---|---|---|",
+        ]
+        lines += [_finding_row(f) for f in report.notes]
+    lines += ["", f"{len(report.test_files)} test files checked."]
+    return lines
+
+
 def render_scorecard(card: Scorecard) -> str:
     h = card.headline
     m = card.meta
@@ -443,7 +536,7 @@ def render_scorecard(card: Scorecard) -> str:
         "",
         f"`{card.migration}` · configuration `{card.configuration}`"
         + (f" · case `{card.case}`" if card.case else "")
-        + f" · {_duration(m.duration_s)} · $0 (no LLM)",
+        + f" · {_duration(m.duration_s)} · {_cost_head(card.cost)}",
         "",
     ]
     if card.status == "rejected":
@@ -470,10 +563,10 @@ def render_scorecard(card: Scorecard) -> str:
         f"| Migrated without a human | {share.count} / {share.total} ({_pct(share.share)}) |",
         f"| Hand-offs | {h.hand_offs} |",
         f"| Regressions | {h.regressions} |",
-        "| Cheating-check hits | — (from M2) |",
+        f"| Cheating-check hits | {_cheating_cell(card)} |",
         f"| Codemod TODOs left | {h.codemod_todos} |",
         f"| Traps | {_traps_line(h.traps)} |",
-        f"| Cost / time | $0 · {_duration(m.duration_s)} |",
+        f"| Cost / time | {usd(card.cost.total_usd)} · {_duration(m.duration_s)} |",
         "",
         "## Files",
         "",
@@ -540,6 +633,8 @@ def render_scorecard(card: Scorecard) -> str:
             else f"Not caught by verify: {', '.join(uncaught)}.",
         ]
 
+    lines += _cheating_section(card)
+
     if card.rules:
         lines += [
             "",
@@ -573,6 +668,7 @@ def render_scorecard(card: Scorecard) -> str:
             f"| {totals.suites_failed} of {totals.suites_total} |",
             f"| Snapshots | {pre.test_totals.snapshots_total} | {totals.snapshots_total} |",
         ]
+    lines += ["", "## Cost", "", _cost_line(card.cost)]
     lines += [
         "",
         f"Node {m.node_version or '?'}, npm {m.npm_version or '?'}, migrator {m.migrator_version}.",

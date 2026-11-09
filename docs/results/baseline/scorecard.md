@@ -1,6 +1,6 @@
 # Scorecard: mui4-fixture-app · run baseline-a
 
-`mui@4->mui@5` · configuration `baseline` · case `fixture-mui4` · 27 s · $0 (no LLM)
+`mui@4->mui@5` · configuration `baseline` · case `fixture-mui4` · 26 s · $0 (no LLM) of $5.00 cap
 
 **Clean run: no. Final verify found 15 failures in 9 files.** **3 of 12 affected files migrated without a human (25%)**: 3 by rules, 0 by the repair agent. 0 handed off, 9 unmigrated.
 
@@ -10,10 +10,10 @@
 | Migrated without a human | 3 / 12 (25%) |
 | Hand-offs | 0 |
 | Regressions | 0 |
-| Cheating-check hits | — (from M2) |
+| Cheating-check hits | 0 (0 warnings); 1 Rules-layer notes |
 | Codemod TODOs left | 0 |
 | Traps | 12 expected · 0 other layer · 9 missed · 1 not scored |
-| Cost / time | $0 · 27 s |
+| Cost / time | $0 · 26 s |
 
 ## Files
 
@@ -63,6 +63,18 @@ Changed but not affected: `package-lock.json`, `package.json`.
 
 Every agent and human trap was caught by verify.
 
+## Cheating checks
+
+No hits and no warnings on repair-agent patches.
+
+Reported, not failing (only repair-agent patches can fail a run):
+
+| File | Layer | Check | Detail |
+|---|---|---|---|
+| src/App.tsx | rules | escape-hatch:eslint-disable | an `eslint-disable` comment: 0 -> 1 |
+
+13 test files checked.
+
 ## Rule steps
 
 | # | Step | Status | Changed | Detail |
@@ -87,5 +99,9 @@ Pre-check: ok, 0 Pre-existing failures.
 | Tests skipped | 0 | 0 |
 | Suites failing | 0 of 10 | 5 of 10 |
 | Snapshots | 0 | 0 |
+
+## Cost
+
+$0: this run made no model calls. Run cap $5.00; month cap $20.00.
 
 Node 24.14.0, npm 11.9.0, migrator 0.1.0.
