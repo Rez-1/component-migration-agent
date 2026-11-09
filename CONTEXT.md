@@ -1,0 +1,157 @@
+# Component Migration
+
+The Migrator moves a target repo from one component-library version to another (first `mui@4 → mui@5`): rules first, the repair agent second, gated by verification and measured by evals.
+
+## Language
+
+### The tool and its work
+
+**Migrator**:
+The whole tool: it takes a target repo through every stage of a run.
+_Avoid_: agent (for the whole tool), bot
+
+**Repair agent**:
+The LLM loop inside the Migrator that fixes failing files.
+_Avoid_: agent (unqualified), LLM (as a name for this part)
+
+**Migration**:
+One supported version jump of a component library, such as `mui@4 → mui@5`.
+_Avoid_: upgrade, recipe
+
+**Migration spec**:
+The description of one migration that the Migrator reads: what changes and how the rules stage handles it.
+_Avoid_: recipe, config
+
+**Target repo**:
+The codebase a run migrates.
+_Avoid_: project, app, codebase
+
+**Run**:
+One execution of the Migrator on one target repo, from the CLI or from an eval.
+_Avoid_: execution, job, trial
+
+**Workspace**:
+The copy of the target repo that a run changes; the original is untouched until changes land on its branch.
+_Avoid_: sandbox, copy, temp dir
+
+### Stages and layers
+
+**Stage**:
+One step of a run, in order: Pre-check, Rules, Verify, Repair, Review, Report.
+_Avoid_: phase, step, pass
+
+**Pre-check**:
+The verification of the untouched workspace before any change.
+_Avoid_: baseline verify, initial check
+
+**Pre-existing failure**:
+A failure the pre-check finds, so it is not charged to the run.
+_Avoid_: known failure, baseline failure
+
+**Layer**:
+Who last changed a file: Rules, Agent or Human.
+_Avoid_: LLM (as a layer), source, owner (except a trap's expected owner)
+
+**Rules**:
+The deterministic layer: the dependency map, the official codemods and any of our own rules.
+_Avoid_: codemod layer, rules pass
+
+**Baseline**:
+The rules-only configuration that every other configuration is compared against.
+_Avoid_: control, codemod only
+
+### Verification and repair
+
+**Failure**:
+One problem reported by verification (a type error, a lint error or a failing test), with its file, line and message.
+_Avoid_: error, issue, problem (as the general term)
+
+**Failing file**:
+A file with at least one failure.
+
+**Attempt**:
+One try by the repair agent to fix one failing file.
+_Avoid_: iteration, retry (as a noun)
+
+**Edit**:
+One find-and-replace change the repair agent makes to a file.
+_Avoid_: change, diff (for a single edit)
+
+**Patch**:
+All of the repair agent's edits to one file in a run, across every attempt; the size limit for a hand-off applies to it.
+_Avoid_: fix, change set
+
+**Hand-off**:
+One file passed to a human, because the repair agent gave up or its patch was over the size limit.
+_Avoid_: escalation, TODO, manual fix
+
+**Review list**:
+The hand-offs of one run.
+
+**Guardrail**:
+A block the repair agent's tools enforce, such as refusing writes to test files.
+_Avoid_: cheating check, restriction
+
+**Cheating check**:
+A rule run on a run's final diff to catch gamed success, such as an added `.skip`.
+_Avoid_: guardrail, lint
+
+### Evals
+
+**Case**:
+One eval input: a target-repo snapshot, its verify commands and optionally a reference.
+_Avoid_: example, sample, task, benchmark item
+
+**Fixture**:
+The purpose-built target repo written against the old library version, with planted traps.
+_Avoid_: demo app, test app
+
+**Fixture case**:
+A case whose target repo is the fixture.
+
+**Breaking change**:
+A change in the library between versions, as its migration guide describes it.
+_Avoid_: trap (for the library change itself)
+
+**Trap**:
+One planted instance of a breaking change in the fixture, with the layer expected to handle it.
+_Avoid_: gotcha, pitfall
+
+**Trap result**:
+How a run handled one trap: Expected (the expected layer handled it; for a human trap, it was handed off), Other layer, or Missed.
+
+**Configuration**:
+Everything an experiment varies: model, effort, repair prompt, retrieval mode, max attempts and which rules are on. The baseline is the configuration with repair turned off.
+_Avoid_: variant, arm, settings
+
+**Split**:
+Either the dev set (climbed on) or the held-out set (run only at milestones).
+
+**Experiment**:
+All runs of one configuration over a split.
+_Avoid_: trial, sweep
+
+**Reference**:
+The diff of the real migration PR for a case.
+_Avoid_: answer key, ground truth, golden
+
+### Reports
+
+**Usage**:
+One reference to the old library in a file: an import, a JSX element or a call.
+_Avoid_: occurrence, hit
+
+**Affected file**:
+A file with at least one usage before the run.
+
+**Outcome**:
+How one affected file ends a run: Migrated by rules, Migrated by agent, Migrated by human, Handed off, or Unmigrated.
+_Avoid_: status, result (for a file)
+
+**Scorecard**:
+The measured results of one run, including the count of each outcome.
+_Avoid_: report card, results
+
+**Experiment summary**:
+The aggregate of an experiment's scorecards, with mean and spread.
+_Avoid_: leaderboard
