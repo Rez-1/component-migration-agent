@@ -1,0 +1,33 @@
+# Case: the second, harder dev fixture (see README.md next to this file).
+# Same layout as evals/cases/fixture-mui4/case.toml:
+#   - top level: the case's own data (what to migrate, how it is scored);
+#   - [repo]: a RepoConfig, the same schema as a target repo's migrate.toml.
+
+id = "fixture-mui4-hard"
+migration = "mui@4->mui@5"
+
+# Target repo snapshot, relative to the repository root. Runs copy it into a
+# fresh workspace and never edit it in place.
+source = "fixtures/mui4-app-hard"
+
+# Climbed on, like fixture-mui4. Its traps are harder, so quality has headroom.
+split = "dev"
+
+runner = "jest"
+
+# No real migration PR: scored per trap (traps.yaml) instead.
+reference = "none"
+
+traps = "traps.yaml"
+
+[repo]
+# Built and checked locally on Node 24.14.0 (npm 11.9.0), as fixture-mui4.
+node = "20"
+install_flags = []
+source_globs = ["src/**/*.ts", "src/**/*.tsx"]
+exclude = ["node_modules/**"]
+
+[repo.verify]
+typecheck = "npm run typecheck"   # tsc --noEmit
+lint = "npm run lint"             # eslint src --ext .ts,.tsx --max-warnings 0
+test = "npm test"                 # jest

@@ -1,0 +1,145 @@
+# Known-good fixes for the agent traps of fixture-mui4-hard (revision 1), as the repair
+# agent would make them.
+#
+# Each entry is one failing file (in the order the Migrator repairs them) and the
+# find-and-replace edits that fix it, applied to the workspace as the Rules stage left
+# it (the four codemods, then the dependency bump). Several fixes live in a shared file
+# the failing screen imports (the screen's test fails, the cause is one import away):
+# every edit stays inside the failing file or a local file it imports, adds no escape
+# hatch and is far below the hand-off size limit, so replaying them through apply_edit
+# trips no guardrail.
+#
+# Used by tests/test_oracle_hard_slow.py, which replays these with a scripted model
+# through the whole graph and checks the scorecard: every agent trap Expected.
+schema_version: 2
+case: fixture-mui4-hard
+
+files:
+  - path: src/components/RangeSlider.tsx
+    traps: [slider-event-type]
+    note: >-
+      Slider's onChange event is a native Event in v5; type the wrapper's prop that way.
+      Its callers pass unannotated arrow functions, so none of them breaks.
+    edits:
+      - path: src/components/RangeSlider.tsx
+        old: |-
+          import { ChangeEvent } from 'react';
+          import { Slider, Typography } from '@mui/material';
+        new: "import { Slider, Typography } from '@mui/material';"
+      - path: src/components/RangeSlider.tsx
+        old: "  onChange: (event: ChangeEvent<unknown>, value: number | number[]) => void;"
+        new: "  onChange: (event: Event, value: number | number[]) => void;"
+
+  - path: src/components/StatusChip.tsx
+    traps: [chip-variant-wrapped]
+    note: Chip's "default" variant is "filled" in v5; the withStyles wrapper hid it from the codemod.
+    edits:
+      - path: src/components/StatusChip.tsx
+        old: '      variant="default"'
+        new: '      variant="filled"'
+
+  - path: src/screens/Activity.tsx
+    traps: [root-ref-removed]
+    note: >-
+      RootRef is gone and the codemod replaced it with a fragment, dropping the ref. Put
+      the ref on the List itself, typed as the list element it now points at.
+    edits:
+      - path: src/screens/Activity.tsx
+        old: |2-
+            ListItemText,
+            RootRef,
+        new: "  ListItemText,"
+      - path: src/screens/Activity.tsx
+        old: "  const listRef = useRef<HTMLElement>(null);"
+        new: "  const listRef = useRef<HTMLUListElement>(null);"
+      - path: src/screens/Activity.tsx
+        old: '        <List aria-label="Activity feed">'
+        new: '        <List ref={listRef} aria-label="Activity feed">'
+
+  - path: src/screens/Board.tsx
+    traps: [theme-state-selector]
+    note: >-
+      Theme overrides are Emotion styles in v5, where the JSS `$selected` reference
+      matches nothing; use the global state class (theme.ts, which Board imports).
+    edits:
+      - path: src/theme.ts
+        old: "        '&$selected': { fontWeight: 700 },"
+        new: "        '&.Mui-selected': { fontWeight: 700 },"
+
+  - path: src/screens/IssueDetail.tsx
+    traps: [autocomplete-reason-names, dialog-transition-spread]
+    note: >-
+      Autocomplete's onChange reasons are camelCase in v5 (LabelPicker's announcement
+      table), and Dialog's on* transition callbacks moved to TransitionProps (the
+      focusOnOpen helper's spread escaped the codemod).
+    edits:
+      - path: src/components/LabelPicker.tsx
+        old: |2-
+            'select-option': (label) => `Added “${label.name}”`,
+            'remove-option': (label) => `Removed “${label.name}”`,
+        new: |2-
+            selectOption: (label) => `Added “${label.name}”`,
+            removeOption: (label) => `Removed “${label.name}”`,
+      - path: src/components/dialogFocus.ts
+        old: |2-
+            return {
+              onEntered: () => field.current?.focus(),
+            };
+        new: |2-
+            return {
+              TransitionProps: { onEntered: () => field.current?.focus() },
+            };
+
+  - path: src/screens/IssueList.tsx
+    traps: [table-pagination-labels]
+    note: >-
+      backIconButtonText and nextIconButtonText are gone; label the page buttons with
+      getItemAriaLabel instead (deleting the props would lose the labels).
+    edits:
+      - path: src/screens/IssueList.tsx
+        old: |2-
+                  backIconButtonText="Previous issues"
+                  nextIconButtonText="Next issues"
+        new: |2-
+                  getItemAriaLabel={(type) => (type === 'next' ? 'Next issues' : 'Previous issues')}
+
+  - path: src/screens/NewIssueDialog.tsx
+    traps: [option-equal-spread, input-component-ref]
+    note: >-
+      The shared person-picker props still say getOptionSelected (a spread the codemod
+      can't see), and a custom inputComponent must forward the ref in v5, not read inputRef.
+    edits:
+      - path: src/components/personPicker.ts
+        old: "  getOptionSelected: (option: Person, value: Person) => option.id === value.id,"
+        new: "  isOptionEqualToValue: (option: Person, value: Person) => option.id === value.id,"
+      - path: src/components/DurationInput.tsx
+        old: "import { FocusEvent } from 'react';"
+        new: "import { FocusEvent, ForwardedRef, forwardRef } from 'react';"
+      - path: src/components/DurationInput.tsx
+        old: |-
+          export function DurationInput(props: InputBaseComponentProps) {
+            const { inputRef, onBlur, ...other } = props;
+            return (
+              <input
+                {...other}
+                ref={inputRef}
+        new: |-
+          function DurationInputBase(props: InputBaseComponentProps, ref: ForwardedRef<HTMLInputElement>) {
+            const { onBlur, ...other } = props;
+            return (
+              <input
+                {...other}
+                ref={ref}
+      - path: src/components/DurationInput.tsx
+        old: |2-
+                }}
+              />
+            );
+          }
+        new: |2-
+                }}
+              />
+            );
+          }
+
+          export const DurationInput = forwardRef(DurationInputBase);
