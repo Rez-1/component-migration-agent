@@ -1,0 +1,25 @@
+# Tool descriptions the model sees (prompt v1), in their fixed order: the tool list is
+# part of the cached prefix, so the order and the text never vary within a run.
+# {guide_title} comes from the migration spec; no library names live here.
+
+[read_file]
+description = "Read a file in the workspace, with line numbers."
+path = "Path of the file, relative to the workspace root (for example src/App.tsx)."
+
+[search_guide]
+description = "Search the migration guide (\"{guide_title}\") by component or API name. Returns the best-matching sections."
+query = "Component, prop or API names to look for, such as a component name and a prop."
+
+[apply_edit]
+description = "Replace exactly one occurrence of old_text with new_text in an allowed file (this file or a local file it imports). Fails if old_text is missing or appears more than once."
+path = "Path of the file to edit, relative to the workspace root."
+old_text = "The exact text to replace, including its indentation; it must appear exactly once."
+new_text = "The text to put in its place."
+
+[run_verify]
+description = "End this attempt and check the result: type-check, lint and the related tests."
+note = "One line: what you changed and why."
+
+[hand_off]
+description = "Give this file to a human. Use it when the right fix needs a change you can't make."
+reason = "One line: why a human needs to make this fix."

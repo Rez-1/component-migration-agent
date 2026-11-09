@@ -251,7 +251,7 @@ def _matches_glob(path: str, glob: str) -> bool:
     return False
 
 
-def _resolve_import(importer: str, spec: str, files: Iterable[str]) -> str | None:
+def resolve_import(importer: str, spec: str, files: Iterable[str]) -> str | None:
     if not spec.startswith("."):
         return None
     base = PurePosixPath(importer).parent / spec
@@ -280,7 +280,7 @@ def import_graph(files: Mapping[str, str]) -> dict[str, set[str]]:
             if stmt.type not in ("import_statement", "export_statement"):
                 continue
             spec = module_source(stmt)
-            target = _resolve_import(path, spec, importers) if spec else None
+            target = resolve_import(path, spec, importers) if spec else None
             if target is not None and target != path:
                 importers[target].add(path)
     return importers
