@@ -239,9 +239,11 @@ def check_real_run(repo: Path, branch: str) -> None:
             "the last commit, so commit or stash them first."
         )
     if branch_exists(repo, branch):
+        held = worktree_of(repo, branch)
+        remove = f"`git worktree remove --force {held}`, then " if held else ""
         raise GitError(
-            f"the branch {branch} already exists. Delete it (`git branch -D {branch}`) or "
-            "choose another with --branch."
+            f"the branch {branch} already exists. Delete it ({remove}`git branch -D "
+            f"{branch}`) or choose another with --branch."
         )
 
 
@@ -260,13 +262,31 @@ def add_worktree(repo: Path, path: Path, branch: str) -> Worktree:
     )
 
 
-def remove_worktree(worktree: Worktree) -> None:
-    """Remove the worktree folder (installed packages included); the branch stays."""
+def remove_worktree(worktree: Worktree) -> bool:
+    """Remove the worktree folder (installed packages included). The branch stays when
+    it has commits; a branch the run never committed to is deleted too, so a rejected
+    run does not block the next one. True when the branch was deleted."""
     try:
         git(["worktree", "remove", "--force", str(worktree.path)], worktree.repo)
     except GitError:
         shutil.rmtree(worktree.path, ignore_errors=True)
         git(["worktree", "prune"], worktree.repo)
+    tip = git(["rev-parse", f"refs/heads/{worktree.branch}"], worktree.repo).strip()
+    if tip != worktree.base_sha:
+        return False
+    git(["branch", "-D", worktree.branch], worktree.repo)
+    return True
+
+
+def worktree_of(repo: Path, branch: str) -> Path | None:
+    """The worktree that has ``branch`` checked out, if any."""
+    path: str | None = None
+    for line in git(["worktree", "list", "--porcelain"], repo).splitlines():
+        if line.startswith("worktree "):
+            path = line.removeprefix("worktree ")
+        elif line == f"branch refs/heads/{branch}" and path:
+            return Path(path)
+    return None
 
 
 def _trailers(message: str) -> dict[str, str]:

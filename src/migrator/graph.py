@@ -1055,10 +1055,10 @@ class RunGraph:
         d.say("Report", f"written to {run_dir}")
         ws = state.get("workspace")
         if ws and not d.keep_workspace:
-            if d.worktree is not None:
-                remove_worktree(d.worktree)  # the branch and its commits stay
-            else:
+            if d.worktree is None:
                 shutil.rmtree(Path(ws).parent, ignore_errors=True)
+            elif remove_worktree(d.worktree):  # the branch stays when it has commits
+                d.say("Report", f"nothing was committed, so {d.worktree.branch} was removed")
         return {"scorecard_path": str(run_dir / "scorecard.json")}
 
     # ------------------------------------------------------------------ wiring

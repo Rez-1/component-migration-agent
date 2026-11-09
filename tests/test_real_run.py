@@ -234,6 +234,25 @@ def test_a_dirty_working_tree_is_refused(tmp_path: Path, spec: MigrationSpec) ->
     assert not (tmp_path / "cache" / "worktrees").exists()  # refused before any worktree
 
 
+def test_a_rejected_real_run_leaves_no_branch_behind(tmp_path: Path, spec: MigrationSpec) -> None:
+    toolchain = FakeToolchain()
+
+    def broken_install(command: str, cwd: Path) -> tuple[int, str]:
+        return (1, "npm ERR! broken") if command.startswith("npm ci") else toolchain(command, cwd)
+
+    result, repo, _ = real_run(tmp_path, spec, runner=FakeRunner(broken_install))
+    assert isinstance(result, RunResult) and result.scorecard.status == "rejected"
+    assert git(repo, "branch", "--list", BRANCH) == ""
+    assert git(repo, "worktree", "list").count("\n") == 1
+
+
+def test_a_leftover_worktree_is_named_in_the_refusal(tmp_path: Path, spec: MigrationSpec) -> None:
+    repo = make_git_repo(tmp_path / "repo")
+    add_worktree(repo, tmp_path / "left-over", BRANCH)
+    with pytest.raises(RunError, match=r"git worktree remove --force .*left-over"):
+        real_run(tmp_path, spec)
+
+
 def test_the_run_files_folder_does_not_make_the_tree_dirty(tmp_path: Path) -> None:
     repo = make_git_repo(tmp_path / "repo")
     (repo / ".migrator" / "runs" / "old").mkdir(parents=True)
