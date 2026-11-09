@@ -26,6 +26,7 @@ from migrator.execs import CommandResult, CommandRunner
 from migrator.verify.parsers import (
     Failure,
     TestTotals,
+    jest_suite_files,
     parse_eslint_json,
     parse_eslint_stylish,
     parse_jest_json,
@@ -68,6 +69,9 @@ class VerifyInput(BaseModel):
     log_dir: Path
     label: str = "verify"
     pre_existing: list[Failure] = []
+    # Narrow verify (the repair agent's run_verify): run only the tests related to
+    # these files (``jest --findRelatedTests``). None runs every test.
+    related_to: list[str] | None = None
 
 
 class VerifyResult(BaseModel):
@@ -75,6 +79,8 @@ class VerifyResult(BaseModel):
     failures: list[Failure]  # charged to the run
     pre_existing: list[Failure] = []  # Pre-existing failures seen again, excluded
     test_totals: TestTotals | None = None
+    # The test files that ran; None when every test ran (or the runner didn't say).
+    test_files_run: list[str] | None = None
 
     def failing_files(self) -> list[str]:
         return sorted({f.file for f in self.failures if f.file is not None})
@@ -112,7 +118,7 @@ def with_args(command: str, args: list[str]) -> str:
 
 def _run_one(
     name: VerifyName, command: str, inp: VerifyInput, runner: CommandRunner
-) -> tuple[CommandOutcome, list[Failure], TestTotals | None]:
+) -> tuple[CommandOutcome, list[Failure], TestTotals | None, list[str] | None]:
     ws = inp.workspace
     root = str(ws.resolve())
     inp.log_dir.mkdir(parents=True, exist_ok=True)
@@ -125,9 +131,10 @@ def _run_one(
         run_command = with_args(command, ["-f", "json", "-o", str(json_out)])
     elif name == "test" and inp.runner == "jest":
         json_out = (inp.log_dir / f"{inp.label}-jest.json").resolve()
-        run_command = with_args(
-            command, ["--json", f"--outputFile={json_out}", "--testLocationInResults"]
-        )
+        args = ["--json", f"--outputFile={json_out}", "--testLocationInResults"]
+        if inp.related_to is not None:
+            args += ["--passWithNoTests", "--findRelatedTests", *inp.related_to]
+        run_command = with_args(command, args)
     elif name == "test" and inp.runner == "vitest":
         # Vitest's JSON reporter writes the same shape as Jest's (not yet exercised by a case).
         json_out = (inp.log_dir / f"{inp.label}-vitest.json").resolve()
@@ -138,6 +145,7 @@ def _run_one(
     result: CommandResult = runner.run(run_command, ws, log_file=log)
     failures: list[Failure] = []
     totals: TestTotals | None = None
+    suites: list[str] | None = None
     parsed_with = "exit code"
     if name == "typecheck":
         failures, parsed_with = parse_tsc(result.output, root), "tsc"
@@ -152,9 +160,10 @@ def _run_one(
                 "eslint text",
             )
     elif json_out is not None and json_out.is_file():
-        failures, totals = parse_jest_json(
-            json_out.read_text("utf-8"), root, lambda p: (ws / p).is_file()
-        )
+        text = json_out.read_text("utf-8")
+        failures, totals = parse_jest_json(text, root, lambda p: (ws / p).is_file())
+        if inp.related_to is not None:
+            suites = jest_suite_files(text, root)
         parsed_with = f"{inp.runner} json"
 
     if not result.ok and not failures:
@@ -175,7 +184,7 @@ def _run_one(
         parsed_with=parsed_with,
         log=log.name,
     )
-    return outcome, failures, totals
+    return outcome, failures, totals, suites
 
 
 def verify(inp: VerifyInput, runner: CommandRunner) -> VerifyResult:
@@ -185,17 +194,23 @@ def verify(inp: VerifyInput, runner: CommandRunner) -> VerifyResult:
     charged: list[Failure] = []
     seen_again: list[Failure] = []
     totals: TestTotals | None = None
+    suites: list[str] | None = None
     for name in VERIFY_ORDER:
         command = getattr(inp.commands, name)
         if not command:
             continue
-        outcome, failures, cmd_totals = _run_one(name, command, inp, runner)
+        outcome, failures, cmd_totals, cmd_suites = _run_one(name, command, inp, runner)
         outcomes.append(outcome)
         totals = cmd_totals or totals
+        suites = cmd_suites if cmd_suites is not None else suites
         for failure in failures:
             (seen_again if failure.key() in known else charged).append(failure)
     return VerifyResult(
-        commands=outcomes, failures=charged, pre_existing=seen_again, test_totals=totals
+        commands=outcomes,
+        failures=charged,
+        pre_existing=seen_again,
+        test_totals=totals,
+        test_files_run=suites,
     )
 
 

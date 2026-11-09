@@ -214,6 +214,12 @@ def subject_file(test_file: str, exists: Callable[[str], bool]) -> str:
     return next((c for c in subject_candidates(test_file) if exists(c)), test_file)
 
 
+def jest_suite_files(text: str, workspace: str | None) -> list[str]:
+    """The test files a Jest ``--json`` report ran."""
+    data = json.loads(text)
+    return sorted(_relative(s["name"], workspace) for s in data.get("testResults", []))
+
+
 def parse_jest_json(
     text: str, workspace: str | None, exists: Callable[[str], bool]
 ) -> tuple[list[Failure], TestTotals]:
