@@ -14,6 +14,11 @@
   worst case and refuses to send it over a cap (``CostGuard``), and its ``on_llm_end``
   callback writes one ledger row per call, with the cache tokens taken from
   langchain-anthropic's breakdown fields.
+- Tracing (LangSmith, from environment variables only): the call's config is merged
+  explicitly into the graph node's, so the model run is a child of the run's trace,
+  inherits its metadata and is named ``repair <file> · attempt <n>``. (A plain model
+  called with its own ``callbacks`` list leaves the trace; the tool-bound model happens
+  to merge configs itself, and the explicit merge does not rely on that.)
 - Server-side refusal fallbacks are deliberately not enabled: a fallback model is
   priced differently (and may not be in the pinned table), which would break the
   worst-case check. A refusal ends the attempt and hands the file off.
@@ -31,6 +36,8 @@ from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 from langchain_core.outputs import LLMResult
+from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables.config import ensure_config, merge_configs
 from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
@@ -133,6 +140,7 @@ class GuardedModel:
         case: str | None,
         max_tokens: int = MAX_TOKENS,
         tags: Sequence[str] = (),
+        configuration: str | None = None,
     ):
         self.factory = factory
         self.guard = guard
@@ -142,6 +150,7 @@ class GuardedModel:
         self.case = case
         self.max_tokens = max_tokens
         self.tags = list(tags)
+        self.configuration = configuration
         self._models: dict[str, Any] = {}
         # The tool definitions as sent, for the input estimate (fixed order).
         self._tool_json = json.dumps([convert_to_openai_tool(t, strict=True) for t in self.tools])
@@ -181,19 +190,23 @@ class GuardedModel:
             requested_model=model,
         )
         started = time.monotonic()
-        message = self._bound(model).invoke(
-            [system_message(system), *messages],
-            config={
-                "callbacks": [callback],
-                "tags": [*self.tags, f"attempt:{attempt}"],
-                "metadata": {
-                    "thread_id": self.run_id,
-                    "case": self.case,
-                    "file": file,
-                    "attempt": attempt,
-                },
-                "run_name": "repair-agent",
+        ours: RunnableConfig = {
+            "callbacks": [callback],
+            "tags": [*self.tags, f"attempt:{attempt}", *([f"file:{file}"] if file else [])],
+            "metadata": {
+                "thread_id": self.run_id,
+                "run_id": self.run_id,
+                "case": self.case,
+                "configuration": self.configuration,
+                "file": file,
+                "attempt": attempt,
+                "requested_model": model,
             },
+            "run_name": f"repair {file or '?'} · attempt {attempt}",
+        }
+        # Merged into the graph node's config: the call stays inside the run's trace.
+        message = self._bound(model).invoke(
+            [system_message(system), *messages], config=merge_configs(ensure_config(), ours)
         )
         if not isinstance(message, AIMessage):
             raise TypeError(f"the model returned {type(message).__name__}, not an AIMessage")
