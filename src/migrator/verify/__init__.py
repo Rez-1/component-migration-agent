@@ -187,6 +187,17 @@ def _run_one(
     return outcome, failures, totals, suites
 
 
+def _order(f: Failure) -> tuple[int, str, int, str, str, str]:
+    return (
+        VERIFY_ORDER.index(f.source),
+        f.file or "",
+        f.line or 0,
+        f.test_file or "",
+        f.test_name or "",
+        f.message,
+    )
+
+
 def verify(inp: VerifyInput, runner: CommandRunner) -> VerifyResult:
     """Run every configured verify command, in order, and collect the Failures."""
     known = {f.key() for f in inp.pre_existing}
@@ -207,8 +218,9 @@ def verify(inp: VerifyInput, runner: CommandRunner) -> VerifyResult:
             (seen_again if failure.key() in known else charged).append(failure)
     return VerifyResult(
         commands=outcomes,
-        failures=charged,
-        pre_existing=seen_again,
+        # Sorted: Jest runs suites in parallel and reports them in finishing order.
+        failures=sorted(charged, key=_order),
+        pre_existing=sorted(seen_again, key=_order),
         test_totals=totals,
         test_files_run=suites,
     )
