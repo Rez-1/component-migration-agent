@@ -145,7 +145,7 @@ _Avoid_: gotcha, pitfall
 How a run handled one trap: Expected (the expected layer handled it; for a human trap, it was handed off), Other layer, or Missed.
 
 **Configuration**:
-Everything an experiment varies: model, effort, repair prompt, retrieval mode, max attempts and which rules are on. The baseline is the configuration with repair turned off.
+Everything an experiment varies: model per attempt, effort, repair prompt, retrieval mode, max attempts, cost caps and which rules are on. The baseline is the configuration with repair turned off.
 _Avoid_: variant, arm, settings
 
 **Split**:
@@ -171,6 +171,10 @@ A file with at least one usage before the run.
 **Outcome**:
 How one affected file ends a run: Migrated by rules, Migrated by agent, Migrated by human, Handed off, or Unmigrated.
 _Avoid_: status, result (for a file)
+
+**Clean run**:
+A run whose final verify finds no failures outside handed-off files.
+_Avoid_: passing run, green run, verify pass
 
 **Scorecard**:
 The measured results of one run, including the count of each outcome.
