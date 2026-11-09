@@ -353,6 +353,36 @@ def _repair_outcome(record: Any, file_failures: list[Failure]) -> tuple[Outcome,
     return "Unmigrated", record.reason or "not repaired"
 
 
+def _patch_owner(path: str, records: dict[str, Any], layers: dict[str, Layer]) -> Any:
+    """The repair whose patch still changes ``path`` (a local import it edited), if any.
+
+    Only when the file is still changed after Rules: a patch that was reverted (a
+    hand-off) no longer owns it. The last repair to touch it wins."""
+    if layers.get(path) not in ("agent", "human"):
+        return None
+    owners = [r for r in records.values() if path in r.touched and r.path != path]
+    return owners[-1] if owners else None
+
+
+def _quiet_outcome(path: str, layer: Layer | None, records: dict[str, Any]) -> tuple[Outcome, str]:
+    """The outcome of an affected file with no repair record of its own and no failure
+    or old usage left: credited to the last layer that changed it. A file the repair
+    agent changed while repairing another file is that repair's work: Migrated by agent
+    if the repair passed, Handed off if it is part of a hand-off still in the workspace
+    (kept at Review), Migrated by human if a human changed it at Review."""
+    if layer == "rules":
+        return "Migrated by rules", ""
+    if layer is None:
+        return "Unmigrated", "not changed by any layer"
+    owner = _patch_owner(path, records, {path: layer})
+    via = f"changed while repairing {owner.path}" if owner is not None else ""
+    if layer == "human" or (owner is not None and owner.migrated_by_human):
+        return "Migrated by human", via or "changed at Review"
+    if owner is not None and owner.outcome == "Handed off" and not owner.migrated_by_human:
+        return "Handed off", f"part of the handed-off patch for {owner.path}"
+    return "Migrated by agent", via
+
+
 def build_scorecard(inp: ReportInput) -> Scorecard:
     affected = inp.usage.affected_files()
     rules_ok = inp.rules is not None and inp.rules.status == "ok"
@@ -404,16 +434,13 @@ def build_scorecard(inp: ReportInput) -> Scorecard:
             note = ", ".join(f"{n} {k}" for k, n in sorted(kinds.items()))
             if path in regressions:
                 note = "regression: " + note
+            if (owner := _patch_owner(path, records, layers)) is not None:
+                note = f"{note}; changed while repairing {owner.path}"
             outcome = "Unmigrated"
         elif left:
             outcome, note = "Unmigrated", f"{left} old usages left"
         else:
-            outcome, note = (
-                ("Migrated by rules" if layers.get(path) == "rules" else "Unmigrated"),
-                "",
-            )
-            if outcome == "Unmigrated":
-                note = "not changed by any layer"
+            outcome, note = _quiet_outcome(path, layers.get(path), records)
         files.append(
             FileResult(
                 path=path,

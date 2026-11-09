@@ -94,14 +94,8 @@ def test_the_hard_reference_fixes_score_every_agent_trap_expected(
     assert h.clean_run
     assert card.verify is not None and card.verify.failures == []
     assert (h.hand_offs, h.regressions, h.cheating_check_hits) == (0, 0, 0)
-    # Known scoring gap (report.build_scorecard): an affected file that the agent changed
-    # only while repairing another file (theme.ts for Board, LabelPicker for IssueDetail,
-    # DurationInput for NewIssueDialog) has no repair record of its own, and its layer is
-    # "agent", so it falls through to "Unmigrated: not changed by any layer". Every file
-    # is in fact migrated (the run is clean, no old usages left). When the scorecard
-    # counts such files as Migrated by agent, this becomes 12 of 12.
-    gap = {"src/theme.ts", "src/components/LabelPicker.tsx", "src/components/DurationInput.tsx"}
-    unmigrated = {f.path for f in card.files if f.outcome == "Unmigrated"}
-    assert unmigrated == gap
-    assert (h.migrated_without_human.count, h.migrated_without_human.total) == (9, 12)
+    # theme.ts, LabelPicker and DurationInput have no repair record of their own (each is
+    # fixed during a screen's repair); they still count as Migrated by agent.
+    assert {f.outcome for f in card.files} == {"Migrated by rules", "Migrated by agent"}
+    assert h.migrated_without_human.count == h.migrated_without_human.total == 12
     assert card.cost.model_calls == len(script)

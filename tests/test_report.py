@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from migrator.checks import Layer
 from migrator.config import Trap, TrapList, TrapLocation
 from migrator.migrations import MigrationSpec
+from migrator.repair.records import FileRepair, RepairReport
 from migrator.report import (
     ReportInput,
     RunMeta,
@@ -258,3 +261,117 @@ def test_schema_2_scorecards_still_load() -> None:
         data["cost"].pop(key)
     card = Scorecard.model_validate(data)
     assert card.regressions == [] and card.repair is None
+
+
+# ------------------------------------------- files changed while repairing another file
+
+
+def _companion_card(
+    card_input: ReportInput,
+    owner: FileRepair,
+    later: dict[str, Layer],
+    failures: list[Failure] | None = None,
+) -> dict[str, tuple[str, str]]:
+    """Outcomes when src/Tested.tsx's repair also edits src/Clean.tsx (a local import
+    with no failure and so no repair record of its own)."""
+    inp = card_input.model_copy(
+        update={
+            "verify": VerifyResult(commands=[], failures=failures or []),
+            "repair": RepairReport(
+                enabled=True,
+                files=[owner],
+                review_list=[owner.path] if owner.outcome == "Handed off" else [],
+            ),
+            "later_layers": later,
+        }
+    )
+    card = build_scorecard(inp)
+    return {f.path: (f.outcome, f.note) for f in card.files}
+
+
+def _owner(**kw: Any) -> FileRepair:
+    return FileRepair.model_validate(
+        {"path": "src/Tested.tsx", "touched": ["src/Tested.tsx", "src/Clean.tsx"], **kw}
+    )
+
+
+def test_an_import_fixed_during_another_repair_is_migrated_by_agent(
+    card_input: ReportInput,
+) -> None:
+    out = _companion_card(
+        card_input,
+        _owner(outcome="Migrated by agent"),
+        {"src/Tested.tsx": "agent", "src/Clean.tsx": "agent"},
+    )
+    assert out["src/Tested.tsx"][0] == "Migrated by agent"
+    assert out["src/Clean.tsx"] == (
+        "Migrated by agent",
+        "changed while repairing src/Tested.tsx",
+    )
+
+
+def test_an_import_changed_during_a_passing_repair_but_still_failing_is_unmigrated(
+    card_input: ReportInput,
+) -> None:
+    clean_fails = Failure(source="typecheck", file="src/Clean.tsx", line=1, message="bad")
+    out = _companion_card(
+        card_input,
+        _owner(outcome="Migrated by agent"),
+        {"src/Tested.tsx": "agent", "src/Clean.tsx": "agent"},
+        failures=[clean_fails],
+    )
+    outcome, note = out["src/Clean.tsx"]
+    assert outcome == "Unmigrated"
+    assert "changed while repairing src/Tested.tsx" in note
+
+
+def test_an_import_reverted_with_a_hand_off_keeps_its_rules_outcome(
+    card_input: ReportInput,
+) -> None:
+    # Reverted at Review: the file is back to its after-Rules text, so no later layer.
+    out = _companion_card(
+        card_input,
+        _owner(outcome="Handed off", review="revert", touched=[]),
+        {},
+        failures=[TEST_FAIL],
+    )
+    assert out["src/Tested.tsx"][0] == "Handed off"
+    assert out["src/Clean.tsx"] == ("Migrated by rules", "")
+
+
+def test_an_import_kept_as_part_of_a_hand_off_is_handed_off(card_input: ReportInput) -> None:
+    out = _companion_card(
+        card_input,
+        _owner(outcome="Handed off", review="keep"),
+        {"src/Tested.tsx": "agent", "src/Clean.tsx": "agent"},
+        failures=[TEST_FAIL],
+    )
+    assert out["src/Clean.tsx"] == (
+        "Handed off",
+        "part of the handed-off patch for src/Tested.tsx",
+    )
+
+
+def test_an_import_in_a_hand_off_a_human_fixed_is_migrated_by_human(
+    card_input: ReportInput,
+) -> None:
+    out = _companion_card(
+        card_input,
+        _owner(outcome="Handed off", review="edit", migrated_by_human=True),
+        {"src/Tested.tsx": "human", "src/Clean.tsx": "agent"},
+    )
+    assert out["src/Tested.tsx"][0] == "Migrated by human"
+    assert out["src/Clean.tsx"][0] == "Migrated by human"
+
+
+def test_an_affected_file_nobody_changed_is_still_unmigrated(card_input: ReportInput) -> None:
+    inp = card_input.model_copy(
+        update={
+            "rules": card_input.rules.model_copy(update={"changed_files": ["package.json"]})
+            if card_input.rules
+            else None,
+            "verify": VerifyResult(commands=[], failures=[]),
+        }
+    )
+    out = {f.path: (f.outcome, f.note) for f in build_scorecard(inp).files}
+    assert out["src/Clean.tsx"] == ("Unmigrated", "not changed by any layer")
