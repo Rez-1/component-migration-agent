@@ -534,3 +534,96 @@ def test_tool_results_are_returned_for_every_call(tmp_path: Path, spec: Migratio
             if isinstance(m, AIMessage) and m.tool_calls:
                 answered = {t.tool_call_id for t in messages[i + 1 :] if isinstance(t, ToolMessage)}
                 assert {c["id"] for c in m.tool_calls} <= answered
+
+
+# --------------------------------------------------------------------------- hand-off isolation
+
+BROKEN = "export function Dashboard() {\n  return <Paper>;\n}"  # unclosed JSX
+
+
+def _shell_toolchain() -> FakeToolchain:
+    """ProfileCard's suite loads Dashboard through the app shell (test-utils -> App), so a
+    syntax error in Dashboard makes it fail to load, as Search broke Settings in the
+    first Haiku run. ProfileCard's own fix is a typed makeStyles callback."""
+    from tests.fakes import TEST_RULES, TestRule
+
+    def card_failing(ws: Path) -> bool:
+        dash_broken = "<Paper>;" in (ws / DASH).read_text()
+        text = (ws / CARD).read_text()
+        untyped = "makeStyles((theme) =>" in text
+        return "@mui/" in text and (dash_broken or untyped)  # passes on v4 (Pre-check)
+
+    card = TestRule(
+        "src/screens/__tests__/ProfileCard.test.tsx",
+        "shows the card",
+        CARD,
+        card_failing,
+        "SyntaxError: Unexpected token (suite failed to load)",
+        deps=["src/test-utils.tsx", "src/App.tsx", DASH],
+    )
+    return FakeToolchain(test_rules=[card, *TEST_RULES[1:]])
+
+
+def _break_and_hand_off() -> list[AIMessage]:
+    return [
+        ai(
+            call(
+                "apply_edit",
+                path=DASH,
+                old_text="export function Dashboard() {\n  return <Paper />;\n}",
+                new_text=BROKEN,
+            ),
+            call("hand_off", reason="not sure how spacing works now"),
+        )
+    ]
+
+
+def _fix_card() -> list[AIMessage]:
+    return [
+        ai(
+            call(
+                "apply_edit",
+                path=CARD,
+                old_text="makeStyles((theme) =>",
+                new_text="makeStyles((theme: Theme) =>",
+            ),
+            call("run_verify", note="type the theme"),
+        )
+    ]
+
+
+def test_a_handed_off_patch_is_set_aside_until_review(tmp_path: Path, spec: MigrationSpec) -> None:
+    script = {THEME: fix_theme(), DASH: _break_and_hand_off(), CARD: _fix_card()}
+    result, model, _, _ = run(
+        tmp_path, spec, script, toolchain=_shell_toolchain(), keep_workspace=True
+    )
+    card = card_of(result)
+    # ProfileCard was repaired in a workspace without Dashboard's broken patch.
+    assert outcomes(card)[CARD] == "Migrated by agent"
+    assert record_of(card, CARD).attempts[0].result == "passed"
+    assert [r["file"] for r in model.requests].count(CARD) == 1
+    assert outcomes(card)[DASH] == "Handed off"
+    assert isinstance(result, RunResult) and result.workspace is not None
+    assert BROKEN not in (result.workspace / DASH).read_text()  # the eval reverted it
+
+
+def test_keep_at_review_puts_the_set_aside_patch_back(tmp_path: Path, spec: MigrationSpec) -> None:
+    script = {THEME: fix_theme(), DASH: _break_and_hand_off(), CARD: _fix_card()}
+    reviewer = Recorder(["keep"])
+    result, _, _, _ = run(
+        tmp_path,
+        spec,
+        script,
+        toolchain=_shell_toolchain(),
+        reviewer=reviewer,
+        mode="cli",
+        keep_workspace=True,
+    )
+    assert "<Paper>;" in reviewer.seen[0].diff  # the human sees the agent's patch
+    assert isinstance(result, RunResult) and result.workspace is not None
+    assert BROKEN in (result.workspace / DASH).read_text()
+    card = result.scorecard
+    # Kept, the broken patch fails ProfileCard's suite again at the final verify. It is
+    # not a Regression (ProfileCard failed after Rules too), but it is not migrated.
+    users = next(f for f in card.files if f.path == CARD)
+    assert users.outcome == "Unmigrated" and "final verify" in users.note

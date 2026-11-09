@@ -40,6 +40,12 @@ class FileRepair(BaseModel):
     review: ReviewChoice | None = None  # the human's (or the eval's) answer at Review
     migrated_by_human: bool = False
     conversation: str | None = None  # run-folder path of the saved conversation
+    # A handed-off file's patch is set aside until Review, so the rest of Repair runs
+    # without it: the touched files' text with the patch, and as the repair found them.
+    set_aside: dict[str, str] = {}
+    originals: dict[str, str] = {}
+    failures_at_hand_off: list[str] = []
+    restored_for_review: bool = False
 
     @property
     def tool_calls(self) -> int:

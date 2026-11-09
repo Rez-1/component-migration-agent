@@ -126,6 +126,7 @@ class RunState(TypedDict, total=False):
     rules_done: bool
     verify: dict[str, Any] | None  # the Verify after Rules
     known_failures: list[dict[str, Any]]  # latest known failures (Failure)
+    file_start_failures: list[dict[str, Any]]  # known failures when this file's repair began
     test_files: dict[str, str]
     queue: list[str]  # failing files still to repair, in order
     current: dict[str, Any] | None  # SessionState of the file being repaired
@@ -489,7 +490,12 @@ class RunGraph:
                 f"the failure is in a Test file ({tests[path]}), which only a human may change"
             )
             record.attempts = []
-            return {"queue": queue, "current": session.model_dump(mode="json"), "messages": []}
+            return {
+                "queue": queue,
+                "current": session.model_dump(mode="json"),
+                "messages": [],
+                "file_start_failures": state.get("known_failures") or [],
+            }
         usage = UsageReport.model_validate_json(Path(state["usage_path"]).read_text("utf-8"))
         file_usages = usage.file(path)
         symbols = [u.symbol.split(".")[0] for u in file_usages.old_usages] if file_usages else []
@@ -517,6 +523,7 @@ class RunGraph:
             "queue": queue,
             "current": session.model_dump(mode="json"),
             "messages": [HumanMessage(content=text)],
+            "file_start_failures": state.get("known_failures") or [],
         }
 
     def route_start_file(self, state: RunState) -> str:
@@ -656,12 +663,14 @@ class RunGraph:
         report = self.report_of(state)
         workspace = self.workspace(state)
         review_queue = list(state.get("review_queue") or [])
+        updates: RunState = {}
         if session.ended == "cost_cap":
             # No half-done patch lands: put the file back as this repair found it.
             for rel, text in session.originals.items():
                 (workspace / rel).write_text(text, "utf-8")
             record.touched = []
             record.patch_lines = {}
+            updates["known_failures"] = state.get("file_start_failures") or []
         elif session.ended == "passed" and d.mode == "cli":
             after = self.after_rules(state)
             hits = [
@@ -679,6 +688,20 @@ class RunGraph:
         if record.outcome == "Handed off":
             review_queue.append(record.path)
             report.review_list.append(record.path)
+            if session.originals:
+                # Set the patch aside until Review: the next files are repaired in a
+                # workspace without it (a broken patch must not fail their tests).
+                known = _failures(state.get("known_failures"))
+                record.failures_at_hand_off = [
+                    describe_failure(f, record.path) for f in known if f.file == record.path
+                ]
+                record.originals = dict(session.originals)
+                record.set_aside = {
+                    rel: (workspace / rel).read_text("utf-8") for rel in session.originals
+                }
+                for rel, text in session.originals.items():
+                    (workspace / rel).write_text(text, "utf-8")
+                updates["known_failures"] = state.get("file_start_failures") or []
         messages = list(state.get("messages") or [])
         if messages:
             conv = self.run_dir(state) / "repair" / f"{_slug(record.path)}.json"
@@ -693,6 +716,7 @@ class RunGraph:
             f"{record.path}: {record.outcome}" + (f" ({record.reason})" if record.reason else ""),
         )
         return {
+            **updates,
             "current": None,
             "messages": [],
             "repair": report.model_dump(mode="json"),
@@ -710,12 +734,21 @@ class RunGraph:
         record = report.record(path) or FileRepair(path=path)
         workspace = self.workspace(state)
         after = self.after_rules(state)
+        known = _failures(state.get("known_failures"))
+        failures = [describe_failure(f, path) for f in known if f.file == path]
+        updates: RunState = {}
+        if record.set_aside and not record.restored_for_review:
+            # Put the patch back for the human to see (and edit); Revert removes it.
+            for rel, text in record.set_aside.items():
+                (workspace / rel).write_text(text, "utf-8")
+            record.restored_for_review = True
+            failures = record.failures_at_hand_off
+            updates["repair"] = report.model_dump(mode="json")
         diff = "".join(
             unified_diff(rel, after.get(rel), (workspace / rel).read_text("utf-8"))
             for rel in record.touched
             if (workspace / rel).is_file()
         )
-        known = _failures(state.get("known_failures"))
         attempts = [
             f"attempt {a.number} ({a.model}, {a.tool_calls} tool calls): {a.result or '—'}"
             + (f", {a.failures_left} failures left" if a.failures_left is not None else "")
@@ -726,13 +759,13 @@ class RunGraph:
             path=path,
             reason=record.reason or "handed off",
             attempts=attempts,
-            failures=[describe_failure(f, path) for f in known if f.file == path],
+            failures=failures,
             diff=diff,
             workspace=str(workspace),
             hashes=code_hashes(workspace),
             remaining=len(queue) - 1,
         )
-        return {"review": payload.model_dump(mode="json")}
+        return {**updates, "review": payload.model_dump(mode="json")}
 
     def route_prepare_review(self, state: RunState) -> str:
         return "review" if state.get("review") else "final_verify"
@@ -765,8 +798,9 @@ class RunGraph:
             for rel in record.touched:
                 if rel in changed:
                     continue  # a human changed it while paused: theirs wins
-                if rel in after:
-                    (workspace / rel).write_text(after[rel], "utf-8")
+                before = record.originals.get(rel, after.get(rel))
+                if before is not None:
+                    (workspace / rel).write_text(before, "utf-8")
             record.touched = [rel for rel in record.touched if rel in changed]
             queue.pop(0)
         elif answer.choice == "keep":
