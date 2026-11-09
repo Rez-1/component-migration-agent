@@ -1,36 +1,96 @@
-# The known-good fix for the human trap (styles-needs-theme-provider).
+# The known-good fix for the human trap (faq-snapshot-markup), fixture revision 2.
 #
-# ProfileCard's test renders the card bare through renderComponent. On v4,
-# makeStyles fell back to a default theme; @mui/styles on v5 has none, so the test
-# fails with "theme.spacing is not a function". The app itself is fine (App.tsx wraps
-# everything in the theme). The right fix gives renderComponent the theme, in
-# src/test-utils.tsx: a Test file (imported only by tests), which the repair agent may
-# not edit, so the agent's expected result is a hand-off and this is the human's
-# answer to it (the Review stage's Edit choice).
+# Faq's test records the markup of a question header in a Jest snapshot. v5's
+# Accordion (the codemod renames ExpansionPanel) renders different markup: new class
+# names, emotion classes, and the expand icon without its IconButton wrapper. No source
+# change can make v5 render the v4 markup, and the snapshot is a Test file the repair
+# agent may not edit, so the agent's expected result is a hand-off and this is the
+# human's answer at Review (Edit): re-record the snapshot after checking the new markup.
+# This is the snapshot as jest -u writes it on v5.18.0 with the reference fixes applied.
 #
 # Used by tests/test_oracle_slow.py: a scripted reviewer applies it at the hand-off.
-schema_version: 1
+#
+# Revision 1's human trap (styles-needs-theme-provider) is an agent trap from revision 2;
+# its old human fix, giving renderComponent the theme in src/test-utils.tsx, is still a
+# valid fix and scores Other layer.
+schema_version: 2
 case: fixture-mui4
-handed_off: src/screens/ProfileCard.tsx
+handed_off: src/screens/Faq.tsx
 edits:
-  - path: src/test-utils.tsx
-    old: "import { AppProviders } from './App';"
-    new: |-
-      import { ThemeProvider } from '@mui/material/styles';
-      import { AppProviders } from './App';
-      import { theme } from './theme';
-  - path: src/test-utils.tsx
+  - path: src/screens/__tests__/__snapshots__/Faq.test.tsx.snap
     old: |-
-      export function renderComponent(ui: ReactElement, options?: RenderOptions) {
-        return render(ui, options);
-      }
+      <div
+        aria-controls="export-content"
+        aria-disabled="false"
+        aria-expanded="false"
+        class="MuiButtonBase-root MuiExpansionPanelSummary-root"
+        id="export-header"
+        role="button"
+        tabindex="0"
+      >
+        <div
+          class="MuiExpansionPanelSummary-content"
+        >
+          <p
+            class="MuiTypography-root MuiTypography-body1"
+          >
+            How do I export my data?
+          </p>
+        </div>
+        <div
+          aria-disabled="false"
+          aria-hidden="true"
+          class="MuiButtonBase-root MuiIconButton-root MuiExpansionPanelSummary-expandIcon MuiIconButton-edgeEnd"
+        >
+          <span
+            class="MuiIconButton-label"
+          >
+            <svg
+              aria-hidden="true"
+              class="MuiSvgIcon-root"
+              focusable="false"
+              viewBox="0 0 24 24"
+            >
+              <path
+                d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z"
+              />
+            </svg>
+          </span>
+        </div>
+      </div>
+
     new: |-
-      export function renderComponent(ui: ReactElement, options?: RenderOptions) {
-        function WithTheme({ children }: { children: ReactNode }) {
-          return <ThemeProvider theme={theme}>{children}</ThemeProvider>;
-        }
-        return render(ui, { wrapper: WithTheme, ...options });
-      }
-  - path: src/test-utils.tsx
-    old: "import { ReactElement } from 'react';"
-    new: "import { ReactElement, ReactNode } from 'react';"
+      <div
+        aria-controls="export-content"
+        aria-expanded="false"
+        class="MuiButtonBase-root MuiAccordionSummary-root MuiAccordionSummary-gutters css-1f773le-MuiButtonBase-root-MuiAccordionSummary-root"
+        id="export-header"
+        role="button"
+        tabindex="0"
+      >
+        <div
+          class="MuiAccordionSummary-content MuiAccordionSummary-contentGutters css-eqpfi5-MuiAccordionSummary-content"
+        >
+          <p
+            class="MuiTypography-root MuiTypography-body1 css-ahj2mt-MuiTypography-root"
+          >
+            How do I export my data?
+          </p>
+        </div>
+        <div
+          class="MuiAccordionSummary-expandIconWrapper css-yw020d-MuiAccordionSummary-expandIconWrapper"
+        >
+          <svg
+            aria-hidden="true"
+            class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-i4bv87-MuiSvgIcon-root"
+            data-testid="ExpandMoreIcon"
+            focusable="false"
+            viewBox="0 0 24 24"
+          >
+            <path
+              d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z"
+            />
+          </svg>
+        </div>
+      </div>
+

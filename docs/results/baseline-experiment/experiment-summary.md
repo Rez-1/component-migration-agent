@@ -2,19 +2,19 @@
 
 1 case (fixture-mui4) × 2 runs · configuration `baseline` (73a3262d088d) · experiment `dev/baseline` · total $0
 
-**Migrated without a human: 25% (runs: 25% / 25%). Clean runs: 0 of 2.** Cost per clean run: — (no clean runs) (cost per run: $0).
+**Migrated without a human: 17% (runs: 17% / 17%). Clean runs: 0 of 2.** Cost per clean run: — (no clean runs) (cost per run: $0).
 
 | Metric | baseline (run 1 / run 2) | Mean |
 |---|---|---|
 | Clean runs | no / no | 0 of 2 |
-| Migrated without a human | 25% / 25% | 25% |
+| Migrated without a human | 17% / 17% | 17% |
 | Hand-offs | 0 / 0 | 0 |
 | Regressions | 0 / 0 | 0 |
 | Cheating-check hits | 0 / 0 | 0 |
 | Cheating-check warnings | 0 / 0 | 0 |
-| Repair traps expected (of 8) | 0 / 0 | 0 |
+| Repair traps expected (of 9) | 0 / 0 | 0 |
 | Codemod TODOs left | 0 / 0 | 0 |
-| Failures (final verify) | 15 / 15 | 15 |
+| Failures (final verify) | 16 / 16 | 16 |
 | Cost per run | $0 / $0 | $0 |
 
 With 2 runs, the spread is shown as both values, not a standard deviation.
@@ -43,9 +43,10 @@ With 2 runs, the spread is shown as both values, not a standard deviation.
 | Button color "default" passed as an expression (`button-color-expression`) | agent | Missed | Missed |
 | Button label slot removed; theme override on MuiButton.label is dead (`button-label-override`) | agent | Missed | Missed |
 | Select onChange event type is SelectChangeEvent (`select-event-type`) | agent | Missed | Missed |
-| @mui/styles makeStyles has no default theme (`styles-needs-theme-provider`) | human | Missed | Missed |
+| @mui/styles makeStyles has no default theme (`styles-needs-theme-provider`) | agent | Missed | Missed |
+| Accordion markup changed; the question header snapshot must be re-recorded (`faq-snapshot-markup`) | human | Missed | Missed |
 | Switch default colour changed from secondary to primary (`switch-default-color`) | visual-only | Not scored | Not scored |
 
-Over all runs: 24 Expected, 18 Missed, 2 Not scored.
+Over all runs: 24 Expected, 20 Missed, 2 Not scored.
 
 Source: `experiment-summary.json` (this file is rendered from it).

@@ -3,7 +3,7 @@
 A scripted model makes exactly the edits in ``evals/cases/fixture-mui4/reference/`` via
 ``apply_edit``, on the real fixture with the real codemods, tsc, ESLint and Jest (Node
 and npm needed; no LLM). It is the M2 audit's missing oracle: the harness must score it
-as a clean run with all 8 agent traps Expected and the human trap handed off, and the
+as a clean run with all 9 agent traps Expected and the human trap handed off, and the
 guardrails must not trip on legitimate fixes. A second run answers the hand-off with
 the human fix (the Review stage's Edit), which leaves no failure at all.
 """
@@ -29,7 +29,7 @@ from tests.fakes import ScriptedChatModel, ai, call, factory_for
 from tests.test_graph import configuration
 
 REFERENCE = FIXTURE_CASE / "reference"
-HANDED_OFF = "src/screens/ProfileCard.tsx"
+HANDED_OFF = "src/screens/Faq.tsx"
 
 pytestmark = [
     pytest.mark.slow,
@@ -50,7 +50,7 @@ def oracle_script() -> dict[str, list[AIMessage]]:
         ai(
             call(
                 "hand_off",
-                reason="the test renders the card without a theme; the fix is in test-utils",
+                reason="the header snapshot records v4 markup; it must be re-recorded",
             )
         )
     ]
@@ -106,13 +106,13 @@ def test_the_reference_fixes_score_every_agent_trap_expected(
         ("visual-only", "Not scored"),
     }
     assert card.headline.traps is not None
-    assert (card.headline.traps.expected, card.headline.traps.missed) == (21, 0)
+    assert (card.headline.traps.expected, card.headline.traps.missed) == (22, 0)
 
     h = card.headline
     assert h.clean_run  # the only failure left is the handed-off file's
     assert {f.file for f in card.verify.failures} == {HANDED_OFF}  # type: ignore[union-attr]
     assert (h.hand_offs, h.regressions, h.cheating_check_hits) == (1, 0, 0)
-    assert (h.outcomes["Migrated by rules"], h.outcomes["Migrated by agent"]) == (3, 8)
+    assert (h.outcomes["Migrated by rules"], h.outcomes["Migrated by agent"]) == (2, 9)
     assert h.outcomes["Handed off"] == 1
     assert (h.migrated_without_human.count, h.migrated_without_human.total) == (11, 12)
     assert card.cost.model_calls == len(script)
@@ -143,8 +143,9 @@ def test_the_human_fix_at_review_leaves_no_failure(tmp_path: Path, spec: Migrati
     assert card.headline.clean_run
     assert card.headline.outcomes["Migrated by human"] == 1
     assert card.cheating is not None and card.cheating.hits == []
-    assert any(n.file == "src/test-utils.tsx" and n.layer == "human" for n in card.cheating.notes)
-    assert card.headline.traps is not None and card.headline.traps.expected == 21
+    snap = "src/screens/__tests__/__snapshots__/Faq.test.tsx.snap"
+    assert any(n.file == snap and n.layer == "human" for n in card.cheating.notes)
+    assert card.headline.traps is not None and card.headline.traps.expected == 22
 
 
 def test_the_reference_patches_are_minimal() -> None:

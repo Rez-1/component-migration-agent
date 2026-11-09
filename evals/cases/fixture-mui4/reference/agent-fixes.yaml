@@ -1,4 +1,5 @@
-# Known-good fixes for the 8 agent traps, as the repair agent would make them.
+# Known-good fixes for the 9 agent traps (fixture revision 2), as the repair agent
+# would make them.
 #
 # Each entry is one failing file (in the order the Migrator repairs them) and the
 # find-and-replace edits that fix it, applied to the workspace as the Rules stage
@@ -6,12 +7,12 @@
 # failing file or a local file it imports, adds no escape hatch and is far below the
 # hand-off size limit, so replaying them through apply_edit trips no guardrail.
 #
-# The human trap (styles-needs-theme-provider) is not here: its file,
-# src/screens/ProfileCard.tsx, is handed off. Its fix is in human-fix.yaml.
+# The human trap (faq-snapshot-markup) is not here: its file, src/screens/Faq.tsx, is
+# handed off. Its fix, re-recording a snapshot, is in human-fix.yaml.
 #
 # Used by tests/test_oracle_slow.py, which replays these with a scripted model
-# through the whole graph and checks the scorecard: all 8 agent traps Expected.
-schema_version: 1
+# through the whole graph and checks the scorecard: all 9 agent traps Expected.
+schema_version: 2
 case: fixture-mui4
 
 files:
@@ -137,3 +138,34 @@ files:
       - path: src/screens/Settings.tsx
         old: "color={dirty ? 'primary' : 'default'}"
         new: "color={dirty ? 'primary' : 'inherit'}"
+
+  - path: src/screens/ProfileCard.tsx
+    traps: [styles-needs-theme-provider]
+    note: >-
+      v4's makeStyles from @material-ui/core fell back to a default theme and
+      @mui/styles' has none; give makeStyles that default theme back. (This is the fix
+      Opus 5.5 found in fixture revision 1, where the trap was meant to be human-only.)
+    edits:
+      - path: src/screens/ProfileCard.tsx
+        old: |-
+          import { Theme } from '@mui/material/styles';
+
+          import makeStyles from '@mui/styles/makeStyles';
+
+          const useStyles = makeStyles((theme: Theme) => ({
+        new: |-
+          import { createTheme, Theme } from '@mui/material/styles';
+
+          import makeStyles from '@mui/styles/makeStyles';
+
+          // v4's makeStyles fell back to the default theme; @mui/styles' doesn't.
+          const defaultTheme = createTheme();
+
+          const useStyles = makeStyles((theme: Theme) => ({
+      - path: src/screens/ProfileCard.tsx
+        old: |2-
+            },
+          }));
+        new: |2-
+            },
+          }), { defaultTheme });

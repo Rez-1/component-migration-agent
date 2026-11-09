@@ -8,24 +8,26 @@ This README lives here, outside the fixture, on purpose: everything in `fixtures
 
 - `src/screens/`: 10 screens (Dashboard, UsersTable, Settings, AccountDialog, ProfileCard, Search, Faq, Notifications, ResponsiveNav, ProfileForm), written the way a v4 app was: `makeStyles` JSS, theme `props`/`overrides`, `Grid`, `Box` system props, `Autocomplete` from the lab.
 - `src/theme.ts`, `src/App.tsx` (with `AppProviders`, the theme shell), `src/index.tsx`, `src/data/`.
-- `src/screens/__tests__/`: one Testing Library behaviour test file per screen (19 tests).
+- `src/screens/__tests__/`: one Testing Library behaviour test file per screen (20 tests, one of them a snapshot under `__snapshots__/`).
 - `src/test-utils.tsx`: test helpers (`renderScreen` inside the app shell, `renderComponent` bare, `mockViewportWidth`). It is imported only by tests, so it counts as a **Test file** and the repair agent can't edit it.
 - `CODEOWNERS`: teams for the usage report.
 
 ## Traps
 
-22 planted traps, each one instance of a breaking change from the official v4 → v5 guide, with the layer expected to handle it:
+23 planted traps (fixture revision 2), each one instance of a breaking change from the official v4 → v5 guide, with the layer expected to handle it:
 
 | Expected layer | Count | What it means |
 |---|---|---|
 | Rules | 12 | The four official codemods fix it |
-| Agent | 8 | The codemods miss or mishandle it, and verify fails after the Baseline (type-check or a test) |
-| Human | 1 | The fix belongs in a Test file, so the repair agent should hand it off |
+| Agent | 9 | The codemods miss or mishandle it, and verify fails after the Baseline (type-check or a test) |
+| Human | 1 | The fix belongs in a Test file and no honest source fix exists, so the repair agent should hand it off |
 | Visual only | 1 | No check catches it; not scored |
 
 The full list, with guide sections, locations, what catches each one and the results of a hand-run Baseline preview, is in [`traps.yaml`](traps.yaml). Don't move code around in the fixture without updating the line numbers there.
 
-The known-good fixes are in [`reference/`](reference/): one find-and-replace patch per agent trap (`agent-fixes.yaml`) and the human fix in the Test file (`human-fix.yaml`). The oracle test replays them through the whole graph with a scripted model (`tests/test_oracle_slow.py`).
+**Revision 2** (after the first Opus 5.5 experiment, `docs/results/opus-low-fixture-r1/`): revision 1's human trap, `styles-needs-theme-provider` (ProfileCard's test renders without a theme), turned out to have a legitimate source fix, makeStyles' `defaultTheme` option, which the agent found in both runs. It is now an agent trap. The new human trap, `faq-snapshot-markup`, is a Jest snapshot of a Faq question header: v5's Accordion renders different markup, no source change can bring v4's back, and re-recording a snapshot is a Test-file change only a human may make.
+
+The known-good fixes are in [`reference/`](reference/): one find-and-replace patch per agent trap (`agent-fixes.yaml`) and the human fix, the re-recorded snapshot (`human-fix.yaml`). The oracle test replays them through the whole graph with a scripted model (`tests/test_oracle_slow.py`).
 
 ## Running the fixture
 

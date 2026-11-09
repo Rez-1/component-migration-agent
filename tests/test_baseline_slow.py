@@ -65,16 +65,17 @@ def test_baseline_dry_run_on_the_fixture(tmp_path: Path, spec: MigrationSpec) ->
     assert [f for f in failures if f.source == "lint"] == []
     totals = card.verify.test_totals
     assert totals is not None
-    assert (totals.tests_total, totals.tests_failed, totals.suites_failed) == (19, 7, 5)
+    assert (totals.tests_total, totals.tests_failed, totals.suites_failed) == (20, 8, 6)
     assert card.precheck.test_totals is not None
-    assert card.precheck.test_totals.tests_total == 19
+    assert card.precheck.test_totals.tests_total == 20
+    assert card.precheck.test_totals.snapshots_total == 1
 
     h = card.headline
-    assert (h.failures, h.failing_files) == (15, 9)
+    assert (h.failures, h.failing_files) == (16, 10)
     assert not h.clean_run
     migrated = sorted(f.path for f in card.files if f.outcome == "Migrated by rules")
-    assert migrated == ["src/App.tsx", "src/screens/Faq.tsx", "src/screens/UsersTable.tsx"]
-    assert (h.migrated_without_human.count, h.migrated_without_human.total) == (3, 12)
+    assert migrated == ["src/App.tsx", "src/screens/UsersTable.tsx"]
+    assert (h.migrated_without_human.count, h.migrated_without_human.total) == (2, 12)
 
     assert card.traps is not None
     by_layer: dict[str, set[str]] = {}

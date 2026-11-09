@@ -14,6 +14,12 @@ describe('Faq', () => {
     expect(screen.getByText(/This cannot be undone/)).toBeVisible();
   });
 
+  it('renders a question header with its expand icon', () => {
+    renderScreen(<Faq />);
+
+    expect(screen.getByRole('button', { name: 'How do I export my data?' })).toMatchSnapshot();
+  });
+
   it('links to support', () => {
     renderScreen(<Faq />);
 

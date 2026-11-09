@@ -77,9 +77,10 @@ def test_fixture_case_loads() -> None:
 def test_fixture_traps_load() -> None:
     traps = load_traps(FIXTURE_CASE / "traps.yaml")
     layers = [t.expected_layer for t in traps.traps]
-    assert len(traps.traps) == 22
+    assert len(traps.traps) == 23  # fixture revision 2
     assert layers.count("rules") == 12
-    assert layers.count("agent") == 8
+    assert layers.count("agent") == 9
     assert layers.count("human") == 1
+    assert layers.count("visual-only") == 1
     search = next(t for t in traps.traps if t.id == "autocomplete-render-option")
     assert search.checks()[0] == "typecheck"
