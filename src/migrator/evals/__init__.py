@@ -41,7 +41,7 @@ from migrator.cost import CostPreflight, Ledger, LedgerPreflight, PlannedExperim
 from migrator.execs import CommandRunner, RunTimeoutError, Sandbox
 from migrator.migrations import MigrationSpec, available_specs
 from migrator.pipeline import RunError, RunOptions, RunResult, dry_run, new_run_id
-from migrator.report import Scorecard
+from migrator.report import Scorecard, is_silent_miss
 
 MANIFEST_VERSION = 1
 DEFAULT_REPEATS = 2
@@ -62,6 +62,13 @@ METRICS: list[dict[str, Any]] = [
         "better": "lower",
     },
     {"id": "regressions", "label": "Regressions", "kind": "float", "scale": 10, "better": "lower"},
+    {
+        "id": "silent_misses",
+        "label": "Silent misses",
+        "kind": "float",
+        "scale": 10,
+        "better": "lower",
+    },
 ]
 PERF_FIELDS: list[dict[str, str]] = [
     {"id": "cost_usd", "label": "Cost", "unit": "$"},
@@ -173,6 +180,8 @@ def grade(card: Scorecard) -> dict[str, float]:
             out["repair_traps_expected"] = round(expected / len(agent), 4)
     out["cheating_hits"] = float(h.cheating_check_hits)
     out["regressions"] = float(h.regressions)
+    if card.traps is not None:
+        out["silent_misses"] = float(sum(is_silent_miss(t) for t in card.traps))
     return out
 
 
@@ -472,11 +481,30 @@ def run_experiment(
         cases = [c for c in plan.cases if c.id in case_ids]
         if len(cases) != len(case_ids):
             raise EvalError(f"{manifest.experiment} has cases that no longer exist")
+        done_rows = read_rows(variant)
     else:
+        cases, repeats, done_rows = plan.cases, plan.repeats, []
+    done = {(r.prompt_id, r.rep) for r in done_rows}
+    todo = [(c, rep) for c in cases for rep in range(repeats) if (c.id, rep) not in done]
+    # The pre-flight runs before a new round's folder exists, so a refused round leaves
+    # nothing behind (an empty v<N> would look like a round and bump the next number).
+    pre = (preflight or LedgerPreflight(Ledger())).check(
+        PlannedExperiment(
+            configuration=config.name,
+            uses_llm=config.uses_llm,
+            runs=len(todo),
+            max_cost_usd=plan.max_cost_usd,
+            attempt_models=config.repair.attempt_models,
+            month_cap_usd=config.cost.max_month_usd,
+            advisor_model=config.repair.advisor.model if config.repair.advisor else None,
+        )
+    )
+    if not pre.ok:
+        raise EvalError(f"cost pre-flight refused the experiment: {pre.reason}")
+    if plan.resume is None:
         flow.mkdir(parents=True, exist_ok=True)
         variant = flow / _next_variant(flow, config)
         variant.mkdir()
-        cases, repeats = plan.cases, plan.repeats
         manifest = Manifest(
             experiment=f"{plan.split}/{variant.name}",
             split=plan.split,
@@ -492,22 +520,6 @@ def run_experiment(
         _write_state(flow)
         _write_variant_header(variant, config, plan.baseline_configuration)
 
-    done_rows = read_rows(variant)
-    done = {(r.prompt_id, r.rep) for r in done_rows}
-    todo = [(c, rep) for c in cases for rep in range(repeats) if (c.id, rep) not in done]
-    pre = (preflight or LedgerPreflight(Ledger())).check(
-        PlannedExperiment(
-            configuration=config.name,
-            uses_llm=config.uses_llm,
-            runs=len(todo),
-            max_cost_usd=plan.max_cost_usd,
-            attempt_models=config.repair.attempt_models,
-            month_cap_usd=config.cost.max_month_usd,
-            advisor_model=config.repair.advisor.model if config.repair.advisor else None,
-        )
-    )
-    if not pre.ok:
-        raise EvalError(f"cost pre-flight refused the experiment: {pre.reason}")
     # --max-cost is the experiment's budget: each run's cap is what is left of it
     # (never more than the configuration's own run cap).
     # Spend is read back from the ledger, so a run that failed after paying counts too.

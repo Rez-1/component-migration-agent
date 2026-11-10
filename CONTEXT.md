@@ -144,6 +144,9 @@ _Avoid_: gotcha, pitfall
 **Trap result**:
 How a run handled one trap: Expected (the expected layer handled it; for a human trap, it was handed off), Other layer, or Missed.
 
+**Silent miss**:
+A Missed agent or human trap whose checks all pass at the final verify, so verify can't show it. Either the breaking change is still in the code with no check covering it, or it was fixed in a different file than the trap's. Only a human reading the diff can tell which; counted on its own in every scorecard and experiment summary.
+
 **Configuration**:
 Everything an experiment varies: model per attempt, effort, repair prompt, retrieval mode, max attempts, cost caps and which rules are on. The baseline is the configuration with repair turned off.
 _Avoid_: variant, arm, settings

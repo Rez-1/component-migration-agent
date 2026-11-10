@@ -28,7 +28,7 @@ from migrator.evals import (
     read_manifest,
     read_rows,
 )
-from migrator.report import Scorecard, usd
+from migrator.report import Scorecard, is_silent_miss, usd
 
 SCHEMA_VERSION = 1
 
@@ -123,6 +123,7 @@ METRIC_LABELS: list[tuple[str, str, Unit]] = [
     ("cheating_hits", "Cheating-check hits", "count"),
     ("cheating_warnings", "Cheating-check warnings", "count"),
     ("repair_traps_expected", "Repair traps expected", "count"),
+    ("silent_misses", "Silent misses (a human should look)", "count"),
     ("codemod_todos", "Codemod TODOs left", "count"),
     ("failures", "Failures (final verify)", "count"),
     ("cost_usd", "Cost per run", "usd"),
@@ -150,6 +151,8 @@ def _per_run_values(row: ResultRow, card: Scorecard) -> dict[str, float]:
     }
     if agent_expected is not None:
         values["repair_traps_expected"] = float(agent_expected)
+    if card.traps is not None:
+        values["silent_misses"] = float(sum(is_silent_miss(t) for t in card.traps))
     return values
 
 

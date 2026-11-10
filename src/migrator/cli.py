@@ -63,7 +63,7 @@ from migrator.pipeline import (
     write_usage_report,
 )
 from migrator.pr import PrError, open_pr, plan_pr
-from migrator.report import Scorecard, usd
+from migrator.report import Scorecard, traps_line, usd
 from migrator.review import AutoReviewer, Reviewer, RichReviewer
 from migrator.tracing import describe, flush, tracing_settings
 from migrator.workspace import RUN_FILES_DIR, run_files_ignored
@@ -166,12 +166,7 @@ def _print_scorecard(card: Scorecard, run_dir: Path) -> None:
     table.add_row("Regressions", str(h.regressions))
     table.add_row("Codemod TODOs", str(h.codemod_todos))
     if h.traps:
-        t = h.traps
-        table.add_row(
-            "Traps",
-            f"{t.expected} expected · {t.other_layer} other layer · {t.missed} missed · "
-            f"{t.not_scored} not scored",
-        )
+        table.add_row("Traps", traps_line(h.traps))
     console.print(table)
     console.print(f"Scorecard: {run_dir / 'scorecard.md'}")
 

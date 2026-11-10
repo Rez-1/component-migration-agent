@@ -13,6 +13,7 @@ from migrator.report import (
     ReportInput,
     RunMeta,
     build_scorecard,
+    is_silent_miss,
     render_scorecard,
     score_trap,
     stable_view,
@@ -243,6 +244,27 @@ def test_a_crashed_suite_fires_the_trap_check_and_untouched_files_miss() -> None
     quiet = _trap("quiet", "agent", "src/Other.tsx", ["typecheck"])
     assert score_trap(quiet, [], {}, set(), rules_ok=True).result == "Missed"
     assert score_trap(quiet, [], {"src/Other.tsx": "rules"}, set(), True).result == "Other layer"
+
+
+def test_a_missed_trap_is_silent_only_when_no_check_fires() -> None:
+    # The cascade case: the agent fixed the screen, not the helper the trap lives in,
+    # so the helper's test passes and nothing in verify points at the trap.
+    trap = _trap("spread", "agent", "src/helper.ts", ["src/__tests__/Tested.test.tsx › focus"])
+    silent = score_trap(trap, [], {}, set(), rules_ok=True)
+    assert silent.result == "Missed" and is_silent_miss(silent)
+    failing = Failure(
+        source="test",
+        file="src/Tested.tsx",
+        message="expected focus",
+        test_file="src/__tests__/Tested.test.tsx",
+        test_name="focus",
+    )
+    caught = score_trap(trap, [failing], {}, set(), rules_ok=True)
+    assert caught.result == "Missed" and not is_silent_miss(caught)
+    fixed = score_trap(trap, [], {"src/helper.ts": "agent"}, set(), rules_ok=True)
+    assert fixed.result == "Expected" and not is_silent_miss(fixed)
+    rules_trap = _trap("rule", "rules", "src/helper.ts", ["typecheck"])
+    assert not is_silent_miss(score_trap(rules_trap, [], {}, set(), rules_ok=False))
 
 
 def test_schema_2_scorecards_still_load() -> None:

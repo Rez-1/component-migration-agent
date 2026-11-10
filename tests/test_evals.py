@@ -13,7 +13,7 @@ from migrator.checks import CheatingReport, Finding
 from migrator.cli import app
 from migrator.config import load_case
 from migrator.configuration import BASELINE, Configuration
-from migrator.cost import RunCost, Usage
+from migrator.cost import NoLedgerPreflight, RunCost, Usage
 from migrator.evals import (
     METRICS,
     EvalError,
@@ -150,6 +150,7 @@ def test_experiment_writes_the_build_eval_layout(
         "repair_traps_expected",
         "cheating_hits",
         "regressions",
+        "silent_misses",
     ]
     assert row.model is None and row.cost_usd == 0.0 and row.tags == ["fixture", "dev"]
     assert (variant.parent / row.meta["scorecard"]).is_file()
@@ -217,6 +218,24 @@ def test_resume_refuses_a_changed_configuration(
         run_experiment(
             _plan(tmp_path, changed, resume="dev/baseline"), run=FakeRuns(card_input, [])
         )
+
+
+def test_a_round_the_preflight_refuses_leaves_no_folder(
+    tmp_path: Path,
+    card_input: ReportInput,  # noqa: F811
+) -> None:
+    """A refused round must not leave a v<N> folder behind: it would look like a round
+    that ran and push the next round's number up."""
+    runs = FakeRuns(card_input, [])
+    with pytest.raises(EvalError, match="pre-flight refused"):
+        run_experiment(
+            _plan(tmp_path, OPUS, max_cost_usd=1.0), preflight=NoLedgerPreflight(), run=runs
+        )
+    flow = tmp_path / "evals" / "dev"
+    assert not list(flow.glob("v*")) and runs.calls == []
+    rules_only = BASELINE.model_copy(update={"name": "rules-only"})
+    out = run_experiment(_plan(tmp_path, rules_only), run=FakeRuns(card_input, ["dirty"] * 2))
+    assert out.path.name == "v1"  # the refused round took no number
 
 
 def test_a_cheating_hit_fails_the_run(

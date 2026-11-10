@@ -55,6 +55,9 @@ class TrapCounts(BaseModel):
     other_layer: int
     missed: int
     not_scored: int
+    # Missed traps whose checks all pass at the final verify (see is_silent_miss).
+    # Defaults to 0 so scorecards written before it existed still load.
+    silent: int = 0
 
 
 class Headline(BaseModel):
@@ -257,6 +260,19 @@ def failures_for_check(check: str, trap: Trap, failures: list[Failure]) -> list[
         and f.test_name is not None
         and (f.test_name in (name, "(suite)") or f.test_name.endswith(f" › {name}"))
     ]
+
+
+def is_silent_miss(t: TrapResult) -> bool:
+    """A Missed agent or human trap whose checks all pass at the final verify.
+
+    Verify can't show it: either the trap is still in the code and no check covers
+    it, or it was fixed somewhere the scorer doesn't look (another file). Only a
+    human reading the diff can tell which, so it is counted on its own."""
+    return (
+        t.result == "Missed"
+        and t.expected_layer in ("agent", "human")
+        and not any(c.fired for c in t.checks)
+    )
 
 
 def describe(f: Failure) -> str:
@@ -477,6 +493,7 @@ def build_scorecard(inp: ReportInput) -> Scorecard:
             other_layer=tc["Other layer"],
             missed=tc["Missed"],
             not_scored=tc["Not scored"],
+            silent=sum(is_silent_miss(t) for t in trap_results),
         )
 
     headline = Headline(
@@ -636,12 +653,12 @@ def _duration(seconds: float) -> str:
     return f"{minutes} min {secs} s" if minutes else f"{secs} s"
 
 
-def _traps_line(t: TrapCounts | None) -> str:
+def traps_line(t: TrapCounts | None) -> str:
     if t is None:
         return "—"
     return (
-        f"{t.expected} expected · {t.other_layer} other layer · {t.missed} missed · "
-        f"{t.not_scored} not scored"
+        f"{t.expected} expected · {t.other_layer} other layer · {t.missed} missed"
+        f"{f' ({t.silent} silent)' if t.silent else ''} · {t.not_scored} not scored"
     )
 
 
@@ -806,7 +823,7 @@ def render_scorecard(card: Scorecard) -> str:
         f"| Regressions | {h.regressions} |",
         f"| Cheating-check hits | {_cheating_cell(card)} |",
         f"| Codemod TODOs left | {h.codemod_todos} |",
-        f"| Traps | {_traps_line(h.traps)} |",
+        f"| Traps | {traps_line(h.traps)} |",
         f"| Cost / time | {usd(card.cost.total_usd)} · {_duration(m.duration_s)} |",
         "",
         "## Files",
@@ -868,7 +885,7 @@ def render_scorecard(card: Scorecard) -> str:
             if t.expected_layer in ("agent", "human") and not any(c.fired for c in t.checks)
         ]
         fixed = [t.id for t in quiet if t.result in ("Expected", "Other layer")]
-        uncaught = [t.id for t in quiet if t.result not in ("Expected", "Other layer")]
+        uncaught = [t.id for t in quiet if is_silent_miss(t)]
         if not quiet:
             lines += ["", "Every agent and human trap's check still fails at the final verify."]
         if fixed:
@@ -879,7 +896,8 @@ def render_scorecard(card: Scorecard) -> str:
         if uncaught:
             lines += [
                 "",
-                f"Missed without a failing check (verify did not catch them): "
+                f"Silent misses (no check fails, so verify can't show them; the fix "
+                f"is missing or was made in another file, so a human should look): "
                 f"{', '.join(uncaught)}.",
             ]
 
@@ -979,7 +997,7 @@ def render_pr_body(card: Scorecard) -> str:
         f"| Codemod TODOs left | {h.codemod_todos} |",
     ]
     if h.traps:
-        lines.append(f"| Traps (fixture) | {_traps_line(h.traps)} |")
+        lines.append(f"| Traps (fixture) | {traps_line(h.traps)} |")
     lines += [f"| Cost / time | {usd(card.cost.total_usd)} · {_duration(m.duration_s)} |", ""]
 
     # The checklist: what a human must finish before merging.
