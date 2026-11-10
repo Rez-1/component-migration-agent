@@ -1,0 +1,29 @@
+# M6, the configuration for the held-out wps run: m6-opus-low-v3 plus the owner's
+# option D and the $2 per-run stop (10 November). A flagged passing patch goes first to a
+# reviewer on a different model than the repair agent (Claude Sonnet 5.5): v5_required
+# keeps it migrated with a review note, fits_old_test makes it a test-fitting hand-off.
+# stop_run_usd is a hard limit the cost guard enforces per call; max_run_usd stays the cap
+# the worst-case reservation is checked against.
+schema_version = 1
+name = "m6-opus-low-v4"
+description = "m6-opus-low-v3 plus a Sonnet 5.5 reviewer on flagged patches and a $2 per-run stop."
+
+[repair]
+enabled = true
+attempt_models = ["claude-opus-5-5", "claude-opus-5-5", "claude-opus-5-5"]
+effort = "low"
+prompt_version = "v3"
+retrieval = "keyword"
+max_attempts = 3
+shared_causes = true
+test_fitting_hand_off = true
+reviewer_model = "claude-sonnet-5-5"
+
+[cost]
+max_run_usd = 8.0
+max_month_usd = 50.0
+reserve_attempt_usd = 0.15
+stop_run_usd = 2.0
+
+[rules]
+skip = []

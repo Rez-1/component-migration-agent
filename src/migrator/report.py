@@ -204,6 +204,9 @@ class FileRepairSummary(BaseModel):
     parse_warnings: int = 0  # prompt v2's apply_edit warnings (M5)
     suggested_test_change: str | None = None  # prompt v3: for a human, never applied (M6)
     test_fitting_hand_off: bool = False  # handed off because the test-fitting flag fired
+    reviewed_by: str | None = None  # the reviewer model on a flagged patch (M6 option D)
+    review_verdict: str | None = None
+    review_reason: str | None = None
 
 
 class RepairSummary(BaseModel):
@@ -676,6 +679,9 @@ def _repair_summary(repair: RepairReport, files: list[FileResult]) -> RepairSumm
                 parse_warnings=r.parse_warnings,
                 suggested_test_change=r.suggested_test_change,
                 test_fitting_hand_off=r.test_fitting_hand_off,
+                reviewed_by=r.reviewed_by,
+                review_verdict=r.review_verdict,
+                review_reason=r.review_reason,
                 review=r.review,
                 conversation=r.conversation,
             )
@@ -1135,6 +1141,15 @@ def _m6_review_section(card: Scorecard) -> list[str]:
             f"- `{_md_cell(r.line, 120)}` in {len(r.files)} files: check whether it belongs "
             "in one shared place"
             for r in card.repeated_edits
+        ]
+    reviewed = [f for f in (card.repair.files if card.repair else []) if f.reviewed_by]
+    if reviewed:
+        out += ["", "## Flagged patches reviewed by a second model", ""]
+        out += [
+            f"- `{f.path}`: {f.review_verdict} ({f.reviewed_by}): "
+            + _md_cell(f.review_reason or "", 300)
+            + (" Stays migrated; check it." if f.review_verdict == "v5_required" else "")
+            for f in reviewed
         ]
     suggested = [f for f in (card.repair.files if card.repair else []) if f.suggested_test_change]
     if suggested:

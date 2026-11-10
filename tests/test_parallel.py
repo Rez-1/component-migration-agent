@@ -80,3 +80,56 @@ def test_reservations_of_running_runs_count_against_the_month(tmp_path: Path) ->
     release_run("a")
     assert reserve_run("b", 6.0, 8.0, 10.0, ledger)[0] is True  # 10 - 2 spent
     release_run("b")
+
+
+def test_a_cached_precheck_gives_the_same_scorecard_without_rerunning(
+    tmp_path: Path, monkeypatch: object, spec: object
+) -> None:
+    """Speed-up 2: the second run clones the cached install and reuses the Pre-check."""
+    import pytest
+
+    from migrator.pipeline import start_run
+    from migrator.report import stable_view
+    from tests.conftest import FakeRunner
+    from tests.fakes import FakeToolchain, ScriptedChatModel, factory_for, make_mini_repo
+    from tests.test_graph import GOOD, configuration
+
+    mp = pytest.MonkeyPatch()
+    mp.setenv("MIGRATOR_CACHE_DIR", str(tmp_path / "cache"))
+    try:
+        repo = make_mini_repo(tmp_path / "repo")
+        cards, commands = [], []
+        for n in (1, 2):
+            runner = FakeRunner(FakeToolchain())
+            result = start_run(
+                RunOptions.model_validate(
+                    {
+                        "repo": repo,
+                        "spec": spec,
+                        "run_dir": tmp_path / f"run{n}",
+                        "configuration": configuration(),
+                        "tools_cache": tmp_path / "tools",
+                        "run_id": f"r{n}",
+                        "precheck_cache": True,
+                    }
+                ),
+                runner,
+                model_factory=factory_for(ScriptedChatModel(script=GOOD)),
+                ledger=Ledger(tmp_path / f"ledger{n}.jsonl"),
+            )
+            assert isinstance(result, RunResult)
+            cards.append(stable_view(result.scorecard))
+            commands.append(runner.commands)
+        assert cards[0] == cards[1]
+        first_install = commands[0].index(
+            next(c for c in commands[0] if " ci" in c or "install" in c)
+        )
+        assert first_install >= 0
+        # The second run's commands start after the Pre-check: no install before Rules.
+        precheck_part = commands[1][
+            : commands[1].index(next(c for c in commands[1] if "codemod" in c))
+        ]
+        assert not any("--version" in c or c.startswith("npm ci") for c in precheck_part)
+        assert (tmp_path / "run2" / "logs" / "precheck-from-cache.json").is_file()
+    finally:
+        mp.undo()

@@ -442,3 +442,61 @@ def test_a_base_url_import_makes_a_component_a_source_file_not_a_test_file() -> 
     tests = find_test_files(files, set(files), TestFileRules())
     assert "src/components/SidePanel.tsx" not in tests  # kubeflow: was "imported only by tests"
     assert "src/components/SidePanel.test.tsx" in tests
+
+
+class _FakeStructured:
+    def __init__(self, verdict: str) -> None:
+        self.verdict = verdict
+        self.seen: list[object] = []
+
+    def with_structured_output(self, schema: type, **kw: object) -> _FakeStructured:
+        assert kw.get("method") == "json_schema" and kw.get("include_raw") is True
+        self.schema = schema
+        return self
+
+    def invoke(self, messages: object, config: object = None) -> dict[str, object]:
+        from langchain_core.messages import AIMessage
+
+        self.seen.append(messages)
+        raw = AIMessage(
+            content="{}",
+            usage_metadata={"input_tokens": 3000, "output_tokens": 100, "total_tokens": 3100},
+            response_metadata={"model_name": "claude-sonnet-5-5"},
+        )
+        return {
+            "raw": raw,
+            "parsed": self.schema(verdict=self.verdict, reason="r"),
+            "parsing_error": None,
+        }
+
+
+def test_the_reviewer_is_one_capped_ledgered_call_on_another_model(tmp_path: Path) -> None:
+    from migrator.cost import CostCapError, CostGuard, Ledger
+    from migrator.repair.reviewer import review_patch
+
+    ledger = Ledger(tmp_path / "ledger.jsonl")
+    fake = _FakeStructured("fits_old_test")
+    review = review_patch(
+        "prompt", model="claude-sonnet-5-5", guard=CostGuard(2.0, 50.0, ledger), ledger=ledger,
+        run_id="r1", case="c", path="src/A.tsx", run_spent_usd=0.0,
+        factory=lambda m, e, t: fake,  # type: ignore[arg-type,return-value]
+    )  # fmt: skip
+    assert (review.verdict, review.model) == ("fits_old_test", "claude-sonnet-5-5")
+    rows = ledger.rows()
+    assert len(rows) == 1 and rows[0].file == "review src/A.tsx" and rows[0].cost_usd > 0
+    assert review.call.cost_usd == rows[0].cost_usd
+    with pytest.raises(CostCapError):  # the guard runs before the call, as for repair
+        review_patch(
+            "prompt", model="claude-sonnet-5-5", guard=CostGuard(2.0, 50.0, ledger),
+            ledger=ledger, run_id="r1", case="c", path="src/A.tsx", run_spent_usd=1.999,
+            factory=lambda m, e, t: fake,  # type: ignore[arg-type,return-value]
+        )  # fmt: skip
+
+
+def test_m6_v4_adds_a_sonnet_reviewer_and_a_two_dollar_stop() -> None:
+    v4 = find_configuration("m6-opus-low-v4", CONFIGS)
+    v3 = find_configuration("m6-opus-low-v3", CONFIGS)
+    assert v4.repair.reviewer_model == "claude-sonnet-5-5"
+    assert v4.repair.reviewer_model not in v4.repair.attempt_models
+    assert v4.cost.stop_run_usd == 2.0 and v4.cost.max_run_usd == 8.0
+    assert v4.repair.model_copy(update={"reviewer_model": None}) == v3.repair

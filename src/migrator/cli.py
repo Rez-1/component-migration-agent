@@ -548,6 +548,13 @@ def eval_run(
             "container; 2 suits a 10-core machine).",
         ),
     ] = 2,
+    precheck_cache: Annotated[
+        bool,
+        typer.Option(
+            help="Reuse each case's install and Pre-check across runs (cached under "
+            "~/.cache/migrator/precheck, keyed on the repo's files, config and Node image)."
+        ),
+    ] = False,
 ) -> None:
     """Run an experiment: every case in a split under one configuration, N runs each."""
     base = _repo_root(root)
@@ -578,6 +585,7 @@ def eval_run(
             ceiling_s=timeout_s,
             sandbox=_resolve_sandbox(sandbox, allow_auto=False),
             parallel=parallel,
+            precheck_cache=precheck_cache,
         )
     except (ConfigurationError, ConfigError, EvalError) as exc:
         raise _fail(str(exc)) from exc

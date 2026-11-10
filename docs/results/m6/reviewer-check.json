@@ -1,0 +1,74 @@
+[
+  {
+    "case": "opossum describeChild 1",
+    "expected": "fits_old_test",
+    "verdict": "fits_old_test",
+    "ok": true,
+    "reason": "Adding describeChild to MuiTooltip changes which accessibility attribute the child gets (title instead of aria-label) just so the old getByTitle query matches, when v5 intentionally changed this and the test should be updated instead.",
+    "cost_usd": 0.004122
+  },
+  {
+    "case": "opossum describeChild 2",
+    "expected": "fits_old_test",
+    "verdict": "fits_old_test",
+    "ok": true,
+    "reason": "Adding describeChild changes the Tooltip's accessibility so the child gets title=\"Test\" to satisfy the old getByTitle query, whereas v5 intentionally uses aria-label by default, so the test should be updated instead.",
+    "cost_usd": 0.004146
+  },
+  {
+    "case": "opossum aria-label removal",
+    "expected": "fits_old_test",
+    "verdict": "fits_old_test",
+    "ok": true,
+    "reason": "The patch removes the aria-label from the FolderOpenIcon so that the old queryByLabelText('open file') query finds only one element, which changes accessibility to satisfy the test rather than reflecting any v5 requirement, and neither guide section requires it.",
+    "cost_usd": 0.00684
+  },
+  {
+    "case": "kubeflow SidePanel wrapper (SidePanel.tsx, rep0)",
+    "expected": "v5_required",
+    "verdict": "v5_required",
+    "ok": true,
+    "reason": "Resizable is a class component that cannot hold the ref v5's Slide needs (hence the getBoundingClientRect TypeError), so wrapping it in a <div> is the required migration fix, not an accommodation of an old accessibility or DOM assertion.",
+    "cost_usd": 0.004464
+  },
+  {
+    "case": "kubeflow SidePanel wrapper (PipelineDetailsV2.tsx, rep0)",
+    "expected": "v5_required",
+    "verdict": "v5_required",
+    "ok": true,
+    "reason": "The patch wraps the Resizable child of Slide in a <div> because v5's Slide needs a child that forwards its ref to a DOM node (the error node.getBoundingClientRect is not a function comes from that), so the wrapper is needed for Slide to work and not to satisfy an old test.",
+    "cost_usd": 0.009596
+  },
+  {
+    "case": "kubeflow SidePanel wrapper (RunDetailsV2.tsx, rep0)",
+    "expected": "v5_required",
+    "verdict": "v5_required",
+    "ok": true,
+    "reason": "The tests fail with 'node.getBoundingClientRect is not a function' because Slide in v5 needs a child that can hold a ref and a DOM node, and Resizable (a class component) cannot, so the wrapper <div> around it is required by v5 rather than added to satisfy an old test.",
+    "cost_usd": 0.011676
+  },
+  {
+    "case": "kubeflow SidePanel wrapper (SidePanel.tsx, rep1)",
+    "expected": "v5_required",
+    "verdict": "v5_required",
+    "ok": true,
+    "reason": "v5's Slide needs its child to forward a ref to a real DOM node (it calls getBoundingClientRect), so wrapping the class component Resizable in a forwardRef that exposes its DOM element is required for Slide to work, not a change made to satisfy an old test.",
+    "cost_usd": 0.007868
+  },
+  {
+    "case": "kubeflow SidePanel wrapper (PipelineDetailsV2.tsx, rep1)",
+    "expected": "v5_required",
+    "verdict": "v5_required",
+    "ok": true,
+    "reason": "The error 'node.getBoundingClientRect is not a function' comes from v5's Slide needing a child that can hold a ref, and the class component Resizable cannot, so the wrapper <div> is required for Slide to work as in v4 rather than to satisfy an old test.",
+    "cost_usd": 0.00944
+  },
+  {
+    "case": "kubeflow SidePanel wrapper (RunDetailsV2.tsx, rep1)",
+    "expected": "v5_required",
+    "verdict": "v5_required",
+    "ok": true,
+    "reason": "Slide's child must hold a DOM ref (the error is node.getBoundingClientRect not being a function because Resizable doesn't forward refs), so wrapping Resizable in a <div> is required by v5 and does not alter behaviour to suit an old test.",
+    "cost_usd": 0.011768
+  }
+]

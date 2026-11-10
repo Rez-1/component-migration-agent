@@ -51,6 +51,10 @@ class FileRepair(BaseModel):
     suggested_test_change: str | None = None
     # Handed off because the test-fitting flag fired on a passing patch (M6).
     test_fitting_hand_off: bool = False
+    # The test-fitting reviewer's answer on a flagged patch (M6 option D), and its model.
+    reviewed_by: str | None = None
+    review_verdict: str | None = None
+    review_reason: str | None = None
 
     @property
     def tool_calls(self) -> int:

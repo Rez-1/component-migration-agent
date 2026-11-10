@@ -39,6 +39,7 @@ _DIGEST_OPTIONAL = {
     "advisor": None,
     "shared_causes": False,
     "test_fitting_hand_off": False,
+    "reviewer_model": None,
 }
 
 # Rule steps a configuration may switch off. Install, dependencies and format are not
@@ -85,6 +86,9 @@ class RepairSettings(_Model):
     # M6: a passed patch the free test-fitting flag fires on becomes a hand-off
     # ("possible test-fitting: ..."), its patch set aside like any other hand-off.
     test_fitting_hand_off: bool = False
+    # M6 option D: a flagged patch goes to this model (not the repair model) first; it
+    # says v5_required (stays migrated, a review note) or fits_old_test (a hand-off).
+    reviewer_model: str | None = None
 
     def effort_for(self, attempt: int) -> Effort | None:
         """The effort of attempt ``attempt`` (1-based; past the list, the last one)."""
@@ -129,6 +133,9 @@ class CostCaps(_Model):
     # worst case, every failing file x max_attempts x this, from what is left of the run
     # and month caps. None (every configuration before M6): no reservation.
     reserve_attempt_usd: float | None = Field(default=None, gt=0)
+    # A hard stop per run (M6, the owner's $2): the cost guard refuses any call past it,
+    # whatever the run cap and the reservation allow. None: the run cap is the stop.
+    stop_run_usd: float | None = Field(default=None, gt=0)
 
 
 class RulesSettings(_Model):
@@ -158,8 +165,9 @@ class Configuration(_Model):
         for key, off in _DIGEST_OPTIONAL.items():
             if repair.get(key) == off:
                 repair.pop(key)
-        if data["cost"].get("reserve_attempt_usd") is None:
-            data["cost"].pop("reserve_attempt_usd", None)
+        for key in ("reserve_attempt_usd", "stop_run_usd"):
+            if data["cost"].get(key) is None:
+                data["cost"].pop(key, None)
         blob = json.dumps(data, sort_keys=True).encode()
         return hashlib.sha256(blob).hexdigest()[:12]
 

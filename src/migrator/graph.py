@@ -63,9 +63,24 @@ from migrator.checks import (
 )
 from migrator.config import CaseConfig, ResolvedRepoConfig, TrapList
 from migrator.configuration import Configuration
-from migrator.cost import CallRecord, CostCapError, Ledger, release_run, reserve_run, run_cost
-from migrator.execs import CommandRunner
+from migrator.cost import (
+    CallRecord,
+    CostCapError,
+    CostGuard,
+    Ledger,
+    release_run,
+    reserve_run,
+    run_cost,
+)
+from migrator.execs import CommandRunner, node_image
 from migrator.migrations import MigrationSpec
+from migrator.precheck_cache import (
+    CachedPrecheck,
+    PrecheckCache,
+    cache_key,
+    clone_tree,
+    restore_logs,
+)
 from migrator.repair.context import local_imports, unified_diff
 from migrator.repair.guardrails import added_escape_hatches
 from migrator.repair.model import GuardedModel
@@ -76,7 +91,16 @@ from migrator.repair.prompt import (
     system_prompt,
 )
 from migrator.repair.records import AttemptRecord, FileRepair, RepairReport, ReviewAnswer
-from migrator.repair.retriever import GuideRetriever
+from migrator.repair.retriever import GuideRetriever, render_section
+from migrator.repair.reviewer import (
+    Review,
+    failing_tests_of,
+    patch_diff,
+    read_tests,
+    review_patch,
+    review_prompt,
+)
+from migrator.repair.reviewer import default_model as default_review_model
 from migrator.repair.shared import SharedCause, find_shared_causes, shared_cause_section
 from migrator.repair.tools import (
     RepairSession,
@@ -191,6 +215,9 @@ class RunDeps:
         on_stage: StageCallback | None = None,
         worktree: Worktree | None = None,
         sandbox: str = "local",
+        precheck_cache: PrecheckCache | None = None,
+        guard_cap_usd: float | None = None,
+        reviewer_factory: Any = None,
     ):
         self.repo = repo
         self.spec = spec
@@ -212,6 +239,10 @@ class RunDeps:
         self.say = on_stage or (lambda _stage, _msg: None)
         self.worktree = worktree  # a real run's git worktree; None for a dry run
         self.sandbox = sandbox
+        self.precheck_cache = precheck_cache  # speed-up 2 (M6); None: no cache
+        # What the cost guard enforces per call: the run cap, or the lower hard stop.
+        self.guard_cap_usd = guard_cap_usd if guard_cap_usd is not None else run_cap_usd
+        self.reviewer_factory = reviewer_factory  # tests pass a fake; None: Claude
 
     @property
     def repair_on(self) -> bool:
@@ -378,15 +409,38 @@ class RunGraph:
             workspace = d.worktree.path  # a real run: the worktree on the migration branch
         else:
             parent = Path(tempfile.mkdtemp(prefix=f"migrator-{state['run_id']}-"))
-            workspace = create_dry_run_workspace(d.repo, parent / "workspace")
-        node_version = _tool_version(d.runner, "node", workspace)
-        npm_version = _tool_version(d.runner, d.config.package_manager, workspace)
-        # What the Pre-check verifies: the untouched workspace, for the cheating checks.
-        _save_files(self.snapshots(state) / "untouched.json", read_files(workspace))
-        d.say("Pre-check", "installing and verifying the untouched workspace")
-        pre = precheck(
-            PrecheckInput(workspace=workspace, config=d.config, log_dir=self.logs(state)), d.runner
-        )
+            workspace = parent / "workspace"
+        untouched = self.snapshots(state) / "untouched.json"
+        if d.precheck_cache is not None and d.worktree is None:
+            # Speed-up 2 (M6): one install and Pre-check per case, cloned into each run.
+            cache = d.precheck_cache
+            key = cache_key(d.repo, d.config, self.where())
+            with cache.locked(key):
+                hit = cache.get(key)
+                if hit is None:
+                    create_dry_run_workspace(d.repo, workspace)
+                    node_version, npm_version, pre = self.run_precheck(state, workspace)
+                    if pre.status == "ok":
+                        cache.put(
+                            key,
+                            workspace,
+                            self.logs(state),
+                            CachedPrecheck(
+                                precheck=pre, node_version=node_version, npm_version=npm_version
+                            ),
+                            untouched,
+                        )
+                else:
+                    d.say("Pre-check", "reusing this case's cached install and Pre-check")
+                    clone_tree(cache.workspace(key), workspace)
+                    restore_logs(cache, key, self.logs(state))
+                    untouched.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(cache.entry(key) / "untouched.json", untouched)
+                    node_version, npm_version, pre = hit.node_version, hit.npm_version, hit.precheck
+        else:
+            if d.worktree is None:
+                create_dry_run_workspace(d.repo, workspace)
+            node_version, npm_version, pre = self.run_precheck(state, workspace)
         d.say("Pre-check", pre.status if pre.status == "ok" else f"rejected: {pre.reason}")
         return {
             "workspace": str(workspace),
@@ -395,6 +449,64 @@ class RunGraph:
             "precheck": pre.model_dump(mode="json"),
             "timings": self.timed(state, "precheck", t0),
         }
+
+    def review_flagged(
+        self, state: RunState, record: FileRepair, flagged: str, model: str
+    ) -> Review | None:
+        """The test-fitting reviewer on one flagged patch (M6 option D); None when its
+        call doesn't fit the caps or fails (the flag then decides, as without it)."""
+        d = self.d
+        workspace = self.workspace(state)
+        after = self.after_rules(state)
+        current = {rel: (workspace / rel).read_text("utf-8") for rel in record.touched}
+        failures = failing_tests_of(record.path, _failures(state.get("file_start_failures")))
+        tests = read_tests(workspace, failures)
+        lines = flagged.removeprefix("possible test-fitting: ").split("; ")
+        query = " ".join([*re.findall(r"[A-Z][A-Za-z]+|aria-\w+|describeChild", " ".join(lines))])
+        guide = (
+            [render_section(doc, d.spec.guide.link_base) for doc in d.retriever.rank(query, k=2)]
+            if d.retriever is not None and query
+            else []
+        )
+        prompt = review_prompt(
+            record.path, patch_diff(record.touched, after, current), lines, failures, tests, guide
+        )
+        spent = sum(CallRecord.model_validate(c).cost_usd for c in state.get("calls") or [])
+        try:
+            return review_patch(
+                prompt,
+                model=model,
+                guard=CostGuard(d.guard_cap_usd, d.month_cap_usd, d.ledger),
+                ledger=d.ledger,
+                run_id=state["run_id"],
+                case=d.case.id if d.case else None,
+                path=record.path,
+                run_spent_usd=spent,
+                factory=d.reviewer_factory or default_review_model,
+            )
+        except Exception as exc:  # the flag still decides: a hand-off
+            d.say("Repair", f"{record.path}: the reviewer could not answer ({exc})")
+            return None
+
+    def where(self) -> str:
+        """Where commands run, as part of the Pre-check cache key."""
+        d = self.d
+        return f"docker:{node_image(d.config.node)}" if d.sandbox == "docker" else "local"
+
+    def run_precheck(
+        self, state: RunState, workspace: Path
+    ) -> tuple[str | None, str | None, PrecheckResult]:
+        """Install and verify the untouched workspace (the Pre-check itself)."""
+        d = self.d
+        node_version = _tool_version(d.runner, "node", workspace)
+        npm_version = _tool_version(d.runner, d.config.package_manager, workspace)
+        # What the Pre-check verifies: the untouched workspace, for the cheating checks.
+        _save_files(self.snapshots(state) / "untouched.json", read_files(workspace))
+        d.say("Pre-check", "installing and verifying the untouched workspace")
+        pre = precheck(
+            PrecheckInput(workspace=workspace, config=d.config, log_dir=self.logs(state)), d.runner
+        )
+        return node_version, npm_version, pre
 
     def rules_node(self, state: RunState) -> RunState:
         t0 = time.monotonic()
@@ -848,10 +960,28 @@ class RunGraph:
                 {rel: (workspace / rel).read_text("utf-8") for rel in record.touched},
                 _failures(state.get("file_start_failures")),
             )
+            reviewer = d.configuration.repair.reviewer_model
+            if why is not None and reviewer is not None:
+                review = self.review_flagged(state, record, why, reviewer)
+                if review is not None:
+                    updates["calls"] = [
+                        *(state.get("calls") or []),
+                        review.call.model_dump(mode="json"),
+                    ]
+                    record.reviewed_by = review.model
+                    record.review_verdict = review.verdict
+                    record.review_reason = review.reason
+                    if review.verdict == "v5_required":
+                        d.say("Repair", f"{record.path}: flagged, reviewed as v5_required")
+                        why = None  # stays migrated; the review is a note for a human
             if why is not None:
                 record.outcome = "Handed off"
                 record.test_fitting_hand_off = True
-                record.reason = why
+                record.reason = why + (
+                    f" (reviewed by {record.reviewed_by}: {record.review_reason})"
+                    if record.reviewed_by
+                    else ""
+                )
         if record.outcome == "Handed off":
             review_queue.append(record.path)
             report.review_list.append(record.path)

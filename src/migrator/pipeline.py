@@ -67,6 +67,7 @@ from migrator.graph import (
     initial_state,
 )
 from migrator.migrations import MigrationSpec, find_spec
+from migrator.precheck_cache import PrecheckCache
 from migrator.repair.model import GuardedModel, ModelFactory, anthropic_model
 from migrator.repair.prompt import load_templates, tool_text
 from migrator.repair.retriever import GuideRetriever
@@ -115,6 +116,8 @@ class RunOptions(BaseModel):
     # with one commit per stage. Never in evals.
     real: bool = False
     branch: str | None = None
+    # Reuse each case's install and Pre-check across runs (M6 speed-up 2; evals).
+    precheck_cache: bool = False
 
 
 class RunResult(BaseModel):
@@ -274,6 +277,10 @@ def build_deps(
     spec = configuration.apply_to(opts.spec)
     run_cap = opts.max_run_usd if opts.max_run_usd is not None else configuration.cost.max_run_usd
     month_cap = configuration.cost.max_month_usd
+    # The per-call guard stops at the lower of the run cap and the hard stop (M6, $2);
+    # the worst-case reservation is still checked against the run cap.
+    stop = configuration.cost.stop_run_usd
+    guard_cap = min(run_cap, stop) if stop is not None else run_cap
     model: GuardedModel | None = None
     tools: RepairTools | None = None
     retriever: GuideRetriever | None = None
@@ -291,7 +298,7 @@ def build_deps(
         retriever = GuideRetriever.from_spec(spec, mode=repair.retrieval or "keyword")
         model = GuardedModel(
             model_factory or anthropic_model,
-            CostGuard(run_cap, month_cap, ledger),
+            CostGuard(guard_cap, month_cap, ledger),
             tools.tools,
             effort=repair.effort,
             run_id=run_id,
@@ -321,6 +328,10 @@ def build_deps(
         on_stage=on_stage,
         worktree=worktree,
         sandbox=opts.sandbox,
+        guard_cap_usd=guard_cap,
+        precheck_cache=PrecheckCache(tools_cache_root() / "precheck")
+        if opts.precheck_cache and not opts.real
+        else None,
     )
 
 

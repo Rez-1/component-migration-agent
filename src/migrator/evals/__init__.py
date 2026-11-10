@@ -450,6 +450,8 @@ class ExperimentPlan(BaseModel):
     sandbox: Sandbox = "docker"
     # Repeat runs of one case at a time, each in its own workspace (M6).
     parallel: int = 1
+    # Reuse each case's install and Pre-check across runs (M6 speed-up 2).
+    precheck_cache: bool = False
 
 
 class ExperimentOutcome(BaseModel):
@@ -575,6 +577,7 @@ def run_experiment(
             max_run_usd=run_cap,
             mode="eval",
             sandbox=plan.sandbox,
+            precheck_cache=plan.precheck_cache,
         )
         started = time.monotonic()
         failure: tuple[FailureClass, str] | None = None
