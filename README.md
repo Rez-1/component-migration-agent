@@ -1,6 +1,6 @@
 # Migrator: component-library migrations with an LLM repair agent
 
-The Migrator moves a React codebase from one component-library version to the next. The first supported migration is **Material UI v4 → v5**. Known patterns go through the official codemods. An LLM repair agent (Claude, through LangChain and LangGraph) fixes only what the codemods leave broken, one failing file at a time. Nothing counts as migrated unless the repo's own type-check, lint and tests pass. Every run produces a measured **scorecard** against a codemods-only **Baseline**.
+The Migrator moves a frontend codebase from one component-library version to the next. Each migration is described in a data file ([`migration.toml`](src/migrator/migrations/mui-4-to-5/migration.toml)), not in code. The first one is **Material UI v4 → v5** (React); **Angular Material legacy → MDC** is next (M7), and needs template scanning and Angular's test and build tools. Known patterns go through the official codemods. An LLM repair agent (Claude, through LangChain and LangGraph) fixes only what the codemods leave broken, one failing file at a time. Nothing counts as migrated unless the repo's own type-check, lint and tests pass. Every run produces a measured **scorecard** against a codemods-only **Baseline**.
 
 The words used here (Run, Hand-off, Clean run, Trap, …) are defined in [`CONTEXT.md`](CONTEXT.md).
 
