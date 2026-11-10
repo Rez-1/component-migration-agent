@@ -46,7 +46,7 @@ from migrator.report import Scorecard
 JUDGE_MODEL = "claude-opus-5-5"
 JUDGE_EFFORT = "low"
 JUDGE_MAX_TOKENS = 4000
-JUDGE_PROMPT_VERSION = "j1"
+JUDGE_PROMPT_VERSION = "j2"  # j1 (10 Nov): no per-hunk kinds; 41% agreement with the owner
 CODE_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx")
 _LIBRARY_IMPORT = re.compile(
     r"""from\s+['"]@(material-ui|mui)/|require\(\s*['"]@(material-ui|mui)/"""
@@ -62,6 +62,7 @@ class ItemScore(BaseModel):
     by: Literal["deterministic", "judge"]
     reason: str
     out_of_scope_changes: list[str] = []
+    reference_hunks: list[dict[str, str]] = []  # the judge's kind for each reference hunk
     outcome: str | None  # the run's Outcome for the file, when it is an affected file
     final_failures: int
     handed_off: bool
@@ -149,61 +150,102 @@ You grade one file of an automated Material UI v4 -> MUI v5 migration against th
 migration a project's own developers made and merged (the reference).
 
 You get two unified diffs of the same file, both against the same original v4 code:
-- REFERENCE: what the developers changed;
+- REFERENCE: what the developers changed, its hunks labelled [R1], [R2], ...;
 - CANDIDATE: what the automated run changed (empty if it changed nothing).
 
-Step 1. Sort the reference's changes into migration changes and out-of-scope changes. \
-Migration changes are what moving this file from v4 to v5 requires: package and import \
-paths, renamed or removed components, props and theme keys, changed class names and \
-CSS selectors that target MUI's internal classes, changed default behaviour the \
-developers compensated for. Out-of-scope changes go beyond the migration: rewriting \
-JSS styling (makeStyles/withStyles) to styled()/sx, refactors, renames, new features, \
-unrelated fixes, formatting. Keeping makeStyles and withStyles on @mui/styles is \
-correct for the candidate, not a miss.
+Step 1. Classify every reference hunk as exactly one kind:
+- "v5-required": what v5 itself requires: package and import paths, renamed or removed \
+components, props and theme keys, changed types, class names and CSS selectors that \
+target MUI's internal classes;
+- "v5-styling": styling the developers added to make up for a v5 change, so the \
+screen looks as it did in v4: a different default size, colour, padding, margin, \
+border or class (for example `size="small"` where v5's `margin="dense"` no longer \
+shrinks an input, or a colour v5's new default would change). This is part of the \
+migration: styling is a big part of migrating a component library;
+- "unrelated": not caused by v5: rewriting JSS styling (makeStyles/withStyles) to \
+styled()/sx, refactors, renames, new features, unrelated fixes, formatting, test-only \
+changes. Keeping makeStyles and withStyles on @mui/styles is correct, not a miss.
+A hunk that mixes kinds takes the kind of its most important change; say so in `what`.
 
-Step 2. Judge the candidate against the migration changes only:
-- "matches": it makes the same migration changes, or equivalent ones (for example a \
-different but equivalent import style);
+Step 2. Judge the candidate against the v5-required and v5-styling hunks only:
+- "matches": it makes the same changes, or equivalent ones (for example a different \
+but equivalent import style);
 - "other valid fix": it differs from the reference but is still a correct v5 \
-migration that behaves the same for users;
-- "wrong": it would compile, but it behaves differently from the reference at run \
-time, or leaves out a migration change the reference made (for example a selector \
-for a v4 class name that no longer exists);
-- "untouched": the candidate diff is empty but the reference has migration changes;
-- "out of scope": the reference has no migration changes in this file at all.
+migration that looks and behaves the same for users, styling included;
+- "wrong": it behaves or looks different from the reference, or leaves out a \
+v5-required or v5-styling change, or adds a change that breaks the file;
+- "untouched": the candidate diff is empty but the reference has v5-required or \
+v5-styling hunks;
+- "out of scope": every reference hunk is unrelated.
 
-Answer with JSON only: {"verdict": ..., "reason": one or two sentences naming the \
-deciding change, "out_of_scope_changes": [short descriptions of the reference changes \
-you set aside]}.\
+Answer with JSON only: {"reference_hunks": [{"id": "R1", "kind": ..., "what": a short \
+description}], "verdict": ..., "reason": one or two sentences naming the deciding \
+hunk(s)}.\
 """
 
+HUNK_KINDS = ("v5-required", "v5-styling", "unrelated")
 JUDGE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
+        "reference_hunks": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "kind": {"type": "string", "enum": list(HUNK_KINDS)},
+                    "what": {"type": "string"},
+                },
+                "required": ["id", "kind", "what"],
+                "additionalProperties": False,
+            },
+        },
         "verdict": {
             "type": "string",
             "enum": ["matches", "other valid fix", "wrong", "untouched", "out of scope"],
         },
         "reason": {"type": "string"},
-        "out_of_scope_changes": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["verdict", "reason", "out_of_scope_changes"],
+    "required": ["reference_hunks", "verdict", "reason"],
     "additionalProperties": False,
 }
+
+
+class ReferenceHunk(BaseModel):
+    id: str
+    kind: Literal["v5-required", "v5-styling", "unrelated"]
+    what: str
 
 
 class Judgement(BaseModel):
     verdict: Verdict
     reason: str
-    out_of_scope_changes: list[str]
+    reference_hunks: list[ReferenceHunk] = []
+    out_of_scope_changes: list[str] = []  # j1 judgements; j2 derives it from the hunks
     model: str = JUDGE_MODEL
     cost_usd: float = 0.0
+
+    def set_aside(self) -> list[str]:
+        if self.reference_hunks:
+            return [f"{h.id}: {h.what}" for h in self.reference_hunks if h.kind == "unrelated"]
+        return self.out_of_scope_changes
+
+
+def label_hunks(diff_text: str) -> str:
+    """The diff with each hunk header prefixed [R1], [R2], ... for the judge to cite."""
+    out, n = [], 0
+    for line in diff_text.splitlines(keepends=True):
+        if line.startswith("@@"):
+            n += 1
+            line = f"[R{n}] {line}"
+        out.append(line)
+    return "".join(out)
 
 
 def judge_prompt(path: str, reference_diff: str, candidate_diff: str) -> str:
     return (
-        f"File: {path}\n\nREFERENCE diff:\n```diff\n{reference_diff or '(empty)'}```\n\n"
-        f"CANDIDATE diff:\n```diff\n{candidate_diff or '(empty)'}```\n"
+        f"File: {path}\n\nREFERENCE diff:\n```diff\n{label_hunks(reference_diff) or '(empty)'}"
+        f"```\n\nCANDIDATE diff:\n```diff\n{candidate_diff or '(empty)'}```\n"
     )
 
 
@@ -363,6 +405,7 @@ def score_run(
         base, ref, final = run.base.get(path), reference_file(case, path), run.final.get(path)
         key: str | None = None
         oos: list[str] = []
+        hunks: list[dict[str, str]] = []
         if final is not None and ref is not None and normalise(final) == normalise(ref):
             verdict: Verdict = "matches"
             by: Literal["deterministic", "judge"] = "deterministic"
@@ -378,12 +421,8 @@ def score_run(
                 cache.put(key, found, prompt)
                 calls += 1
                 spent += found.cost_usd
-            verdict, by, reason, oos = (
-                found.verdict,
-                "judge",
-                found.reason,
-                found.out_of_scope_changes,
-            )
+            verdict, by, reason, oos = found.verdict, "judge", found.reason, found.set_aside()
+            hunks = [h.model_dump() for h in found.reference_hunks]
             if verdict == "untouched" and final != base:
                 verdict = "wrong"  # the run did change it: an empty-diff verdict is a slip
         fails = failures.get(path, 0)
@@ -394,6 +433,7 @@ def score_run(
                 by=by,
                 reason=reason,
                 out_of_scope_changes=oos,
+                reference_hunks=hunks,
                 outcome=outcomes.get(path),
                 final_failures=fails,
                 handed_off=path in handed,

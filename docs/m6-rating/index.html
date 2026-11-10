@@ -5,16 +5,16 @@
 /* Layout: one item at a time, the two diffs side by side (stacked on a phone), verdict buttons pinned below. */
 :root {
   --bg: #f6f7f9; --panel: #ffffff; --fg: #1b1f27; --muted: #5d6676; --line: #d9dde4;
-  --accent: #2f5bd3; --add: #e3f4e8; --add-fg: #1d6b37; --del: #fbe6e6; --del-fg: #9a2a2a; --hunk: #eef1fb;
+  --accent: #2f5bd3; --add: #e3f4e8; --add-fg: #1d6b37; --del: #fbe6e6; --del-fg: #9a2a2a; --hunk: #eef1fb; --sty: #b7791f;
   --sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #12151b; --panel: #1a1e26; --fg: #e4e7ed; --muted: #98a1b2; --line: #2c323d;
-  --accent: #7d9cf0; --add: #183324; --add-fg: #8fd8a6; --del: #3a1d1f; --del-fg: #f0a2a2; --hunk: #212842; color-scheme: dark } }
+  --accent: #7d9cf0; --add: #183324; --add-fg: #8fd8a6; --del: #3a1d1f; --del-fg: #f0a2a2; --hunk: #212842; --sty: #e0a94a; color-scheme: dark } }
 :root[data-theme="dark"] {
   --bg: #12151b; --panel: #1a1e26; --fg: #e4e7ed; --muted: #98a1b2; --line: #2c323d;
-  --accent: #7d9cf0; --add: #183324; --add-fg: #8fd8a6; --del: #3a1d1f; --del-fg: #f0a2a2; --hunk: #212842; color-scheme: dark }
+  --accent: #7d9cf0; --add: #183324; --add-fg: #8fd8a6; --del: #3a1d1f; --del-fg: #f0a2a2; --hunk: #212842; --sty: #e0a94a; color-scheme: dark }
 body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--sans); }
 .wrap { max-width: 1400px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 40px; display: grid; gap: 16px; }
 h1 { font-size: 1.35rem; font-weight: 600; margin: 0; text-wrap: balance; }
@@ -37,6 +37,14 @@ h1 { font-size: 1.35rem; font-weight: 600; margin: 0; text-wrap: balance; }
 .code .d { background: var(--del); color: var(--del-fg); }
 .code .h { background: var(--hunk); color: var(--muted); }
 .code .empty { color: var(--muted); padding: 12px; white-space: normal; }
+.code .kind { white-space: normal; padding: 6px 12px; margin-top: 6px; font: 500 12px/1.4 var(--sans); border-left: 3px solid var(--line); background: var(--panel); color: var(--fg); }
+.code .kind b { font-weight: 600; margin-right: 6px; }
+.code .kind.k-req { border-left-color: var(--accent); }
+.code .kind.k-sty { border-left-color: var(--sty); }
+.code .kind.k-unr { border-left-color: var(--muted); color: var(--muted); }
+.flag { background: var(--panel); border: 1px solid var(--sty); border-radius: 6px; padding: 8px 12px; font-size: 13.5px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; background: var(--c); vertical-align: -1px; }
 .verdicts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
 .v { text-align: left; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: inherit; cursor: pointer; display: grid; gap: 2px; }
 .v b { font-weight: 600; }
@@ -55,6 +63,8 @@ textarea { width: 100%; box-sizing: border-box; min-height: 56px; padding: 8px 1
   <header style="display:grid;gap:6px">
     <h1>Rate the migration, file by file</h1>
     <p class="intro">Each item is one file from a real repo's MUI v4 → v5 migration. Left: what the project's own developers changed in their merged PR. Right: what an automated run changed, against the same v4 code. Judge only the migration; ignore extras the developers did on top (a makeStyles → sx rewrite, refactors). Which run and which configuration made the right-hand diff is hidden, and so is the LLM judge's verdict.</p>
+    <p class="intro"><b>Round 2.</b> Each reference change now carries a label saying what kind of change it is. Styling the developers added for v5 counts as part of the migration: if the run leaves it out, the item is wrong. Unrelated changes are ignored. The labels come from the judge, which may get them wrong; say so in the note if it did. Round 1 ratings are kept.</p>
+    <div class="legend"><span style="--c: var(--accent)">Needed for v5</span><span style="--c: var(--sty)">Styling for v5</span><span style="--c: var(--muted)">Unrelated: ignore</span></div>
   </header>
 
   <div class="bar">
@@ -67,6 +77,7 @@ textarea { width: 100%; box-sizing: border-box; min-height: 56px; padding: 8px 1
       <div class="file" id="file"></div>
       <div class="meta" id="meta"></div>
     </div>
+    <div class="flag" id="flag" hidden>Please rate this one again with the labels: the reference adds styling for v5 here.</div>
     <div class="diffs">
       <div class="diff"><h2>Reference: the developers' PR</h2><div class="code" id="ref"></div></div>
       <div class="diff"><h2>Candidate: the automated run</h2><div class="code" id="cand"></div></div>
@@ -95,11 +106,24 @@ const VERDICTS = [
 const $ = (id) => document.getElementById(id);
 let db = null, items = [], ratings = {}, at = 0, choice = null;
 
-function renderDiff(el, text) {
+const KIND = { "v5-required": ["k-req", "Needed for v5"], "v5-styling": ["k-sty", "Styling for v5"], "unrelated": ["k-unr", "Unrelated"] };
+function renderDiff(el, text, hunks) {
   el.textContent = "";
+  let n = 0;
   if (!text) { const p = document.createElement("div"); p.className = "empty"; p.textContent = "(no changes)"; el.append(p); return; }
   for (const line of text.split("\n")) {
     if (line.startsWith("---") || line.startsWith("+++")) continue;
+    if (hunks && line.startsWith("@@")) {
+      n += 1;
+      const h = hunks.find((x) => x.id === "R" + n);
+      if (h && KIND[h.kind]) {
+        const k = document.createElement("div");
+        k.className = "kind " + KIND[h.kind][0];
+        const b = document.createElement("b"); b.textContent = `R${n} · ${KIND[h.kind][1]}`;
+        k.append(b, document.createTextNode(h.what || ""));
+        el.append(k);
+      }
+    }
     const d = document.createElement("div");
     d.className = line.startsWith("@@") ? "h" : line.startsWith("+") ? "a" : line.startsWith("-") ? "d" : "";
     d.textContent = line || " ";
@@ -109,7 +133,7 @@ function renderDiff(el, text) {
 
 function render() {
   const done = items.filter((it) => ratings[it.id]).length;
-  $("progress").textContent = items.length ? `${done} of ${items.length} rated` : "No items yet";
+  $("progress").textContent = items.length ? `Round 2: ${done} of ${items.length} rated` : "No items yet";
   const dots = $("dots"); dots.textContent = "";
   items.forEach((it, i) => {
     const b = document.createElement("button");
@@ -123,7 +147,8 @@ function render() {
   $("item").hidden = false; $("empty").hidden = true;
   $("file").textContent = it.path;
   $("meta").textContent = `Item ${at + 1} · ${it.repo}`;
-  renderDiff($("ref"), it.reference_diff);
+  renderDiff($("ref"), it.reference_diff, it.reference_hunks || []);
+  $("flag").hidden = !it.priority;
   renderDiff($("cand"), it.candidate_diff);
   const vs = $("verdicts"); vs.textContent = "";
   for (const [key, label, help] of VERDICTS) {
@@ -153,7 +178,7 @@ async function save() {
   const body = { verdict: choice, note: $("note").value.trim(), at: new Date().toISOString() };
   $("status").textContent = "Saving…";
   try {
-    await db.doc("ratings/" + it.id).set(body);
+    await db.doc("ratings2/" + it.id).set(body);
     ratings[it.id] = body; $("status").textContent = "Saved"; return true;
   } catch (e) {
     $("status").textContent = e && e.code === "not_granted" || e?.code === "permission_denied"
@@ -172,7 +197,7 @@ function showEmpty(text) { $("item").hidden = true; const e = $("empty"); e.hidd
   const timer = setTimeout(() => { if (!items.length) showEmpty("The items didn't load. Reopen the page in a minute."); }, 10000);
   db = await claude.use("db");
   if (!db) { clearTimeout(timer); showEmpty("This page keeps its items and your ratings in its own database, which needs you signed in to claude.ai."); return; }
-  db.collection("ratings").onSnapshot((snap) => {
+  db.collection("ratings2").onSnapshot((snap) => {
     ratings = {}; for (const d of snap.docs) ratings[d.id] = d.data();
     if (items.length) render();
   });
