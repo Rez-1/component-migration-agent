@@ -25,9 +25,11 @@ from __future__ import annotations
 import difflib
 import json
 import re
+import threading
 import time
 import traceback
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -446,6 +448,8 @@ class ExperimentPlan(BaseModel):
     tools_cache: Path | None = None
     # Evals run commands in Docker by default (ticket #15); "local" opts out.
     sandbox: Sandbox = "docker"
+    # Repeat runs of one case at a time, each in its own workspace (M6).
+    parallel: int = 1
 
 
 class ExperimentOutcome(BaseModel):
@@ -536,42 +540,29 @@ def run_experiment(
         return done_spent + sum(r.cost_usd for r in ledger.rows() if r.run_id in run_ids)
 
     (variant / "traces").mkdir(exist_ok=True)
-    scored = errors = 0
-    for case, rep in [(c, r) for c in cases for r in range(repeats)]:
-        if (case.id, rep) in done:
-            emit(RunEvent(case=case.id, rep=rep, kind="skipped", message="already scored"))
-            continue
+    counts = {"scored": 0, "errors": 0}
+    lock = threading.Lock()  # results files, counters and run ids, across parallel runs
+
+    def one(case: CaseConfig, rep: int, run_cap: float | None) -> None:
         key = f"{case.id}_rep{rep}"
         run_dir = variant / "runs" / key
-        run_cap: float | None = None
-        if config.uses_llm and plan.max_cost_usd is not None:
-            left = round(plan.max_cost_usd - spent(), 6)
-            if left <= 0:
-                emit(
-                    RunEvent(
-                        case=case.id,
-                        rep=rep,
-                        kind="skipped",
-                        message=f"the experiment's ${plan.max_cost_usd:.2f} budget is used",
-                    )
-                )
-                continue
-            run_cap = min(config.cost.max_run_usd, left)
         emit(RunEvent(case=case.id, rep=rep, kind="start"))
         spec = spec_for(case)
         run_id = new_run_id()
-        run_ids.add(run_id)
+        with lock:
+            run_ids.add(run_id)
         try:
             repo = case_repo(case, plan.root)
         except Exception as exc:  # a clone that failed: not a failure of the system
-            errors += 1
-            _append(
-                variant / "errors.jsonl",
-                ErrorRow(prompt_id=case.id, rep=rep, failure_class="harness",
-                         message=f"fetching the case failed: {exc}", at=now()),
-            )  # fmt: skip
+            with lock:
+                counts["errors"] += 1
+                _append(
+                    variant / "errors.jsonl",
+                    ErrorRow(prompt_id=case.id, rep=rep, failure_class="harness",
+                             message=f"fetching the case failed: {exc}", at=now()),
+                )  # fmt: skip
             emit(RunEvent(case=case.id, rep=rep, kind="error", message=f"fetch: {exc}"))
-            continue
+            return
         opts = RunOptions(
             repo=repo,
             spec=spec,
@@ -603,21 +594,22 @@ def run_experiment(
             )
         scorecard_path = f"{variant.name}/runs/{key}/scorecard.json"
         if failure is not None:
-            errors += 1
-            _append(
-                variant / "errors.jsonl",
-                ErrorRow(
-                    prompt_id=case.id,
-                    rep=rep,
-                    failure_class=failure[0],
-                    message=failure[1],
-                    at=now(),
-                    meta={
-                        "elapsed_s": round(time.monotonic() - started, 1),
-                        "scorecard": scorecard_path if card is not None else None,
-                    },
-                ),
-            )
+            with lock:
+                counts["errors"] += 1
+                _append(
+                    variant / "errors.jsonl",
+                    ErrorRow(
+                        prompt_id=case.id,
+                        rep=rep,
+                        failure_class=failure[0],
+                        message=failure[1],
+                        at=now(),
+                        meta={
+                            "elapsed_s": round(time.monotonic() - started, 1),
+                            "scorecard": scorecard_path if card is not None else None,
+                        },
+                    ),
+                )
             emit(
                 RunEvent(
                     case=case.id,
@@ -626,18 +618,19 @@ def run_experiment(
                     message=f"{failure[0]}: {failure[1].splitlines()[0]}",
                 )
             )
-            continue
+            return
         assert card is not None
         prompt = case_prompt(case, spec)
         (variant / "traces" / f"{key}.json").write_text(
             json.dumps(trace_turns(card, config, prompt), indent=2, ensure_ascii=False) + "\n",
             "utf-8",
         )
-        _append(
-            variant / "results.jsonl",
-            result_row(case, spec, rep, card, scorecard_path, run_dir),
-        )
-        scored += 1
+        with lock:
+            _append(
+                variant / "results.jsonl",
+                result_row(case, spec, rep, card, scorecard_path, run_dir),
+            )
+            counts["scored"] += 1
         h = card.headline
         emit(
             RunEvent(
@@ -649,6 +642,44 @@ def run_experiment(
                 f"without a human, {h.cheating_check_hits} cheating-check hits",
             )
         )
+
+    # The repeats of one case run in parallel, ``plan.parallel`` at a time, each in its
+    # own workspace (M6). Each run's cap is its share of what is left of the experiment
+    # budget when its group starts, so the group's caps never add up to more than the
+    # budget; with parallel = 1 this is the old one-run-at-a-time cap.
+    width = max(1, plan.parallel)
+    for case in cases:
+        reps = []
+        for rep in range(repeats):
+            if (case.id, rep) in done:
+                emit(RunEvent(case=case.id, rep=rep, kind="skipped", message="already scored"))
+            else:
+                reps.append(rep)
+        for i in range(0, len(reps), width):
+            group = reps[i : i + width]
+            run_cap: float | None = None
+            if config.uses_llm and plan.max_cost_usd is not None:
+                left = round(plan.max_cost_usd - spent(), 6)
+                if left <= 0:
+                    for rep in group:
+                        emit(
+                            RunEvent(
+                                case=case.id,
+                                rep=rep,
+                                kind="skipped",
+                                message=f"the experiment's ${plan.max_cost_usd:.2f} budget is used",
+                            )
+                        )
+                    continue
+                run_cap = min(config.cost.max_run_usd, round(left / len(group), 6))
+            if len(group) == 1:
+                one(case, group[0], run_cap)
+                continue
+            with ThreadPoolExecutor(max_workers=len(group)) as pool:
+                futures = [pool.submit(one, case, rep, run_cap) for rep in group]
+                for future in futures:
+                    future.result()
+    scored, errors = counts["scored"], counts["errors"]
     return ExperimentOutcome(
         experiment=manifest.experiment,
         path=variant,

@@ -539,6 +539,15 @@ def eval_run(
             "<root>/evals/m6-cases)."
         ),
     ] = None,
+    parallel: Annotated[
+        int,
+        typer.Option(
+            min=1,
+            max=4,
+            help="Repeat runs of one case at the same time (each in its own workspace and "
+            "container; 2 suits a 10-core machine).",
+        ),
+    ] = 2,
 ) -> None:
     """Run an experiment: every case in a split under one configuration, N runs each."""
     base = _repo_root(root)
@@ -568,6 +577,7 @@ def eval_run(
             max_cost_usd=max_cost,
             ceiling_s=timeout_s,
             sandbox=_resolve_sandbox(sandbox, allow_auto=False),
+            parallel=parallel,
         )
     except (ConfigurationError, ConfigError, EvalError) as exc:
         raise _fail(str(exc)) from exc

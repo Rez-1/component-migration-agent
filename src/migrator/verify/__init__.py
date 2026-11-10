@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
@@ -36,6 +37,8 @@ from migrator.verify.parsers import (
     parse_tsc,
 )
 from migrator.workspace import install_command, record_install
+
+_INSTALL_LOCK = threading.Lock()
 
 __all__ = [
     "CommandOutcome",
@@ -257,7 +260,10 @@ def install(
 ) -> CommandResult:
     """Install the workspace's packages and record what was installed."""
     command = install_command(config.package_manager, frozen, config.install_flags)
-    result = runner.run(command, workspace, env=config.install_env or None, log_file=log_file)
+    # One install at a time in this process: parallel runs share the package cache
+    # volume, and yarn v1's cache is not safe for concurrent writers.
+    with _INSTALL_LOCK:
+        result = runner.run(command, workspace, env=config.install_env or None, log_file=log_file)
     if result.ok:
         record_install(workspace, config.lockfile)
     return result

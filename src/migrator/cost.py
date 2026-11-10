@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import threading
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
@@ -410,6 +411,9 @@ class LedgerRow(BaseModel):
     cost_usd: float
 
 
+_LEDGER_LOCK = threading.Lock()
+
+
 class Ledger:
     """The per-machine ledger: one JSON line per model call."""
 
@@ -418,7 +422,7 @@ class Ledger:
 
     def append(self, row: LedgerRow) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8") as fh:
+        with _LEDGER_LOCK, self.path.open("a", encoding="utf-8") as fh:
             fh.write(row.model_dump_json() + "\n")
 
     def rows(self) -> list[LedgerRow]:
@@ -448,6 +452,45 @@ class Ledger:
             first.setdefault(key, r.requested_model)
             per[key] += r.cost_usd
         return {k: v for k, v in per.items() if first[k] == model}
+
+
+# --------------------------------------------------------------------------- reservations
+
+# Runs must finish (M6), also when several run at once in one process (parallel repeat
+# runs): each run's worst-case reservation is held here until it ends, and a run may
+# only reserve what the month cap leaves after the other runs' outstanding reservations
+# (what each has reserved, less what it has already spent, which month_spent counts).
+_RESERVED: dict[str, float] = {}
+_RESERVE_LOCK = threading.Lock()
+
+
+def reserve_run(
+    run_id: str, worst_usd: float, run_cap_usd: float, month_cap_usd: float, ledger: Ledger
+) -> tuple[bool, float]:
+    """Reserve ``worst_usd`` for ``run_id`` if it fits; (reserved, what was available)."""
+    with _RESERVE_LOCK:
+        rows = ledger.rows()
+        month = _month(now_utc())
+        spent_by: dict[str, float] = defaultdict(float)
+        for r in rows:
+            if _month(r.at) == month:
+                spent_by[r.run_id] += r.cost_usd
+        others = sum(
+            max(0.0, usd - spent_by.get(rid, 0.0))
+            for rid, usd in _RESERVED.items()
+            if rid != run_id
+        )
+        month_left = month_cap_usd - sum(spent_by.values()) - others
+        available = round(min(run_cap_usd, month_left), 2)
+        if worst_usd > available:
+            return False, available
+        _RESERVED[run_id] = worst_usd
+        return True, available
+
+
+def release_run(run_id: str) -> None:
+    with _RESERVE_LOCK:
+        _RESERVED.pop(run_id, None)
 
 
 # --------------------------------------------------------------------------- the cap

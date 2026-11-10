@@ -63,7 +63,7 @@ from migrator.checks import (
 )
 from migrator.config import CaseConfig, ResolvedRepoConfig, TrapList
 from migrator.configuration import Configuration
-from migrator.cost import CallRecord, CostCapError, Ledger, run_cost
+from migrator.cost import CallRecord, CostCapError, Ledger, release_run, reserve_run, run_cost
 from migrator.execs import CommandRunner
 from migrator.migrations import MigrationSpec
 from migrator.repair.context import local_imports, unified_diff
@@ -542,16 +542,17 @@ class RunGraph:
             paid = [p for p in order if p not in tests]
             attempts = d.configuration.repair.max_attempts
             worst = round(len(paid) * attempts * reserve, 2)
-            month_left = round(d.month_cap_usd - d.ledger.month_spent(), 2)
-            available = round(min(d.run_cap_usd, month_left), 2)
+            ok, available = reserve_run(
+                state["run_id"], worst, d.run_cap_usd, d.month_cap_usd, d.ledger
+            )
             report = self.report_of(state)
             report.reserved_usd = worst
-            if worst > available:
+            if not ok:
                 why = (
                     f"the worst case ({len(paid)} files x {attempts} attempts x ${reserve:.2f} "
                     f"= ${worst:.2f}) is more than the ${available:.2f} available (run cap "
-                    f"${d.run_cap_usd:.2f}, ${month_left:.2f} left this month), so repair "
-                    "did not start"
+                    f"${d.run_cap_usd:.2f}, less what this month and other running runs have "
+                    "spent or reserved), so repair did not start"
                 )
                 report.stopped_by_cost_cap = True
                 report.cost_cap_reason = why
@@ -1228,6 +1229,7 @@ class RunGraph:
                 meta=meta,
             )
         )
+        release_run(state["run_id"])  # this run's worst-case reservation ends here
         write_json(card, run_dir / "scorecard.json")
         (run_dir / "scorecard.md").write_text(render_scorecard(card), "utf-8")
         # The PR body, rendered from the same JSON; written for every run, opened as a PR
