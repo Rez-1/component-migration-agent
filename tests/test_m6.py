@@ -220,3 +220,46 @@ def test_coverage_from_a_vitest_report_without_a_summary(tmp_path: Path) -> None
         "src/B.tsx": False,
         "src/c.ts": True,
     }
+
+
+def test_a_shared_cause_groups_one_error_on_one_wrapper() -> None:
+    from migrator.repair.shared import find_shared_causes, shared_cause_section
+
+    wrapper = "export function IconButton(props: { title: string }) { return null; }\n"
+    caller = (
+        "import { IconButton } from '../IconButton/IconButton';\n"
+        "export const X = () => (\n  <IconButton\n    title='a'\n    size=\"large\"\n  />\n);\n"
+    )
+    files = {"src/IconButton/IconButton.tsx": wrapper}
+    failures = []
+    for name in ("A", "B", "C"):
+        files[f"src/{name}/{name}.tsx"] = caller
+        failures.append(
+            Failure(source="typecheck", file=f"src/{name}/{name}.tsx", line=5, column=5,
+                    code="TS2322", message="Type '{ size: string; }' is not assignable")
+        )  # fmt: skip
+    causes = find_shared_causes(failures, files, {})
+    assert [(c.source, c.symbol, len(c.callers)) for c in causes] == [
+        ("src/IconButton/IconButton.tsx", "IconButton", 3)
+    ]
+    assert find_shared_causes(failures[:2], files, {}) == []  # two callers are not enough
+    assert "appears in 3 files" in shared_cause_section(causes[0], "src/IconButton/IconButton.tsx")
+    assert "2 other files" in shared_cause_section(causes[0], "src/A/A.tsx")
+
+
+def test_repeated_edits_flag_a_line_added_to_three_files() -> None:
+    from migrator.report import repeated_edits
+
+    after = {f"src/{n}.tsx": "<IconButton\n/>\n" for n in "ABCD"}
+    final = {p: '<IconButton\n  size="medium"\n/>\n' for p in after}
+    flags = repeated_edits(
+        after, final, dict.fromkeys(["src/A.tsx", "src/B.tsx", "src/C.tsx"], "agent")
+    )
+    assert [(f.line, len(f.files)) for f in flags] == [('+ size="medium"', 3)]
+    assert repeated_edits(after, final, {"src/A.tsx": "agent", "src/B.tsx": "rules"}) == []
+
+
+def test_m6_v2_configuration_turns_both_changes_on() -> None:
+    v2 = find_configuration("m6-opus-low-v2", CONFIGS)
+    assert v2.repair.shared_causes and v2.repair.prompt_version == "v3"
+    assert v2.digest() != find_configuration("m6-opus-low", CONFIGS).digest()

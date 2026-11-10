@@ -84,6 +84,8 @@ class SessionState(BaseModel):
     baseline_keys: list[str] = []  # failures known when the file's repair started
     originals: dict[str, str] = {}  # touched file -> its text when this repair started
     record: FileRepair
+    # A shared-cause task (M6): the callers' (file, code) failures this task also owns.
+    target_keys: list[tuple[str, str]] = []
 
 
 class RunVerifyOutcome(BaseModel):
@@ -263,7 +265,8 @@ class RepairSession:
 
     def narrow_verify(self, label: str) -> tuple[list[Failure], list[Failure], list[str] | None]:
         """(failures in the failing file, new failures elsewhere, test files that ran)."""
-        related = sorted({self.state.path, *self.record.touched})
+        targets = set(self.state.target_keys)
+        related = sorted({self.state.path, *self.record.touched, *(f for f, _ in targets)})
         result = verify(
             VerifyInput(
                 workspace=self.workspace,
@@ -281,11 +284,15 @@ class RepairSession:
             ran = []  # the report did not say which tests ran: assume none were refreshed
         self.known_failures[:] = update_known(self.known_failures, result.failures, ran)
         baseline = set(self.state.baseline_keys)
-        left = [f for f in result.failures if f.file == self.state.path]
+        left = [
+            f for f in result.failures if f.file == self.state.path or (f.file, f.code) in targets
+        ]
         elsewhere = [
             f
             for f in result.failures
-            if f.file != self.state.path and failure_key(f) not in baseline
+            if f.file != self.state.path
+            and (f.file, f.code) not in targets
+            and failure_key(f) not in baseline
         ]
         return left, elsewhere, ran
 
@@ -327,9 +334,12 @@ class RepairSession:
             self.state.tool_calls = 0
         return text
 
-    def hand_off_tool(self, reason: str) -> str:
+    def hand_off_tool(self, reason: str, suggested_test_change: str = "") -> str:
         self.current_attempt.note = reason.strip().splitlines()[0] if reason.strip() else ""
         self.hand_off(f"the repair agent handed off: {self.current_attempt.note}")
+        if suggested_test_change.strip():
+            # Shown to the human in the hand-off checklist; never applied (M6).
+            self.record.suggested_test_change = suggested_test_change.strip()
         return "Handed off. A human will see this file and your reason; its repair ends here."
 
 
@@ -359,7 +369,9 @@ class RepairTools:
                 path, old_text, new_text
             ),
             "run_verify": lambda note: self._s().run_verify(note),
-            "hand_off": lambda reason: self._s().hand_off_tool(reason),
+            "hand_off": lambda reason, suggested_test_change="": self._s().hand_off_tool(
+                reason, suggested_test_change
+            ),
         }
         for name in TOOL_ORDER:
             entries = dict(text[name])

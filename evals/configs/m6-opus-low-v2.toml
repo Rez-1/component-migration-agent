@@ -1,0 +1,26 @@
+# M6, after OpossumUI: m6-opus-low with the two repair-agent changes the owner approved
+# on 10 November. A new file, so m6-opus-low's results stay attached to its digest.
+# - shared_causes: one error on one imported name in 3+ files becomes one task for the
+#   file that defines it, repaired first (OpossumUI's IconButton wrapper).
+# - prompt v3: outdated tests are handed off with a suggested test change (never
+#   applied) instead of changing the component to fit them (IconButton describeChild).
+schema_version = 1
+name = "m6-opus-low-v2"
+description = "m6-opus-low plus shared-cause tasks and prompt v3 (hand off outdated tests with a suggested test change)."
+
+[repair]
+enabled = true
+attempt_models = ["claude-opus-5-5", "claude-opus-5-5", "claude-opus-5-5"]
+effort = "low"
+prompt_version = "v3"
+retrieval = "keyword"
+max_attempts = 3
+shared_causes = true
+
+[cost]
+max_run_usd = 8.0
+max_month_usd = 50.0
+reserve_attempt_usd = 0.15
+
+[rules]
+skip = []

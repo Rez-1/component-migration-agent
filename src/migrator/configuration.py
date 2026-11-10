@@ -34,7 +34,7 @@ Retrieval = Literal["keyword", "keyword-imports", "keyword-context", "embeddings
 # Fields added after configurations were first digested (M5). They are left out of the
 # digest while they hold their "off" value, so every configuration written before them
 # keeps its digest and its experiments stay resumable and comparable.
-_DIGEST_OPTIONAL = {"attempt_efforts": None, "advisor": None}
+_DIGEST_OPTIONAL = {"attempt_efforts": None, "advisor": None, "shared_causes": False}
 
 # Rule steps a configuration may switch off. Install, dependencies and format are not
 # optional: without the dependency bump a run is not a migration at all (and would
@@ -74,6 +74,9 @@ class RepairSettings(_Model):
     attempt_efforts: list[Effort] | None = None
     # The advisor tool (a stronger model the attempt's model may consult), or None.
     advisor: AdvisorSettings | None = None
+    # M6: group one error on one imported name in 3+ files into one task for the file
+    # that defines it, repaired first (migrator.repair.shared).
+    shared_causes: bool = False
 
     def effort_for(self, attempt: int) -> Effort | None:
         """The effort of attempt ``attempt`` (1-based; past the list, the last one)."""

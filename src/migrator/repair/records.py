@@ -47,6 +47,8 @@ class FileRepair(BaseModel):
     originals: dict[str, str] = {}
     failures_at_hand_off: list[str] = []
     restored_for_review: bool = False
+    # The agent's suggested change to an outdated test, for a human; never applied (M6).
+    suggested_test_change: str | None = None
 
     @property
     def tool_calls(self) -> int:

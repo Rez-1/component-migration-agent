@@ -101,6 +101,16 @@ class SnapshotUpdate(BaseModel):
     stage: str  # "verify" (after Rules) or "final"
 
 
+class RepeatedEdit(BaseModel):
+    """One line the later layers (the repair agent, a human) added to, or removed from,
+    3 or more files (``+ line`` / ``- line``):
+    a sign of a fix made in every caller where one shared definition was the cause (M6).
+    A review flag, not a failure."""
+
+    line: str
+    files: list[str]
+
+
 class StepSummary(BaseModel):
     kind: str
     name: str
@@ -178,6 +188,7 @@ class FileRepairSummary(BaseModel):
     review: str | None
     conversation: str | None
     parse_warnings: int = 0  # prompt v2's apply_edit warnings (M5)
+    suggested_test_change: str | None = None  # prompt v3: for a human, never applied (M6)
 
 
 class RepairSummary(BaseModel):
@@ -232,6 +243,7 @@ class Scorecard(BaseModel):
     # M6 sections; None (and left out of the stable view) on runs that don't use them.
     coverage: CoverageSummary | None = None
     snapshots_to_review: list[SnapshotUpdate] | None = None
+    repeated_edits: list[RepeatedEdit] | None = None
     cost: RunCost
     meta: RunMeta
 
@@ -255,6 +267,7 @@ class ReportInput(BaseModel):
     # Who changed each file after Rules ("agent" or "human"); None: nobody did.
     later_layers: dict[str, Layer] | None = None
     snapshots_to_review: list[SnapshotUpdate] | None = None
+    repeated_edits: list[RepeatedEdit] | None = None
     meta: RunMeta
 
 
@@ -602,6 +615,7 @@ def build_scorecard(inp: ReportInput) -> Scorecard:
         regressions=regressions,
         coverage=coverage,
         snapshots_to_review=inp.snapshots_to_review,
+        repeated_edits=inp.repeated_edits,
         cost=inp.cost,
         meta=inp.meta,
     )
@@ -639,6 +653,7 @@ def _repair_summary(repair: RepairReport, files: list[FileResult]) -> RepairSumm
                 edits_applied=r.edits_applied,
                 edits_rejected=r.edits_rejected,
                 parse_warnings=r.parse_warnings,
+                suggested_test_change=r.suggested_test_change,
                 review=r.review,
                 conversation=r.conversation,
             )
@@ -668,7 +683,29 @@ def stable_view(scorecard: Scorecard | dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-_M6_KEYS = ("coverage", "snapshots_to_review")
+_M6_KEYS = ("coverage", "snapshots_to_review", "repeated_edits")
+
+
+def repeated_edits(
+    after_rules: dict[str, str], final: dict[str, str], layers: dict[str, Layer], min_files: int = 3
+) -> list[RepeatedEdit]:
+    """Lines the later layers added to ``min_files`` or more files (see RepeatedEdit)."""
+    import difflib
+
+    by_line: dict[str, set[str]] = {}
+    for path, layer in layers.items():
+        if layer == "rules" or path not in final:
+            continue
+        old = after_rules.get(path, "").splitlines()
+        for line in difflib.ndiff(old, final[path].splitlines()):
+            text = line[2:].strip()
+            if line[:2] in ("+ ", "- ") and len(text) >= 6 and any(c.isalnum() for c in text):
+                by_line.setdefault(f"{line[0]} {text}", set()).add(path)
+    return [
+        RepeatedEdit(line=line, files=sorted(paths))
+        for line, paths in sorted(by_line.items())
+        if len(paths) >= min_files
+    ]
 
 
 def write_json(model: BaseModel, path: Path) -> None:
@@ -1045,6 +1082,11 @@ def render_pr_body(card: Scorecard) -> str:
     reasons = {f.path: f.reason for f in card.repair.files} if card.repair else {}
     failures = card.verify.failures if card.verify else []
     handed = [f for f in card.files if f.outcome == "Handed off"]
+    suggested = {
+        r.path: r.suggested_test_change
+        for r in (card.repair.files if card.repair else [])
+        if r.suggested_test_change
+    }
     lines += ["## Hand-offs: for a human to finish", ""]
     if not handed:
         lines.append("None: no file was handed off.")
@@ -1061,6 +1103,18 @@ def render_pr_body(card: Scorecard) -> str:
             lines.append(
                 f"  - {fail.source}{f' {where}' if where else ''}: {_md_cell(fail.message)}"
             )
+        if f.path in suggested:
+            lines.append(
+                f"  - Suggested test change (not applied; approve or edit): "
+                f"{_md_cell(suggested[f.path], 600)}"
+            )
+    if card.repeated_edits:
+        lines += ["", "Review flag: the same line added or removed in 3 or more files (one shared fix?):", ""]
+        lines += [
+            f"- `{_md_cell(r.line, 120)}` in {len(r.files)} files: "
+            + ", ".join(f"`{p}`" for p in r.files)
+            for r in card.repeated_edits
+        ]
     unmigrated = [f for f in card.files if f.outcome == "Unmigrated"]
     if unmigrated:
         lines += ["", "Unmigrated (no layer finished them):", ""]

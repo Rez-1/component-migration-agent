@@ -77,6 +77,7 @@ from migrator.repair.prompt import (
 )
 from migrator.repair.records import AttemptRecord, FileRepair, RepairReport, ReviewAnswer
 from migrator.repair.retriever import GuideRetriever
+from migrator.repair.shared import SharedCause, find_shared_causes, shared_cause_section
 from migrator.repair.tools import (
     RepairSession,
     RepairTools,
@@ -90,6 +91,7 @@ from migrator.report import (
     build_scorecard,
     render_pr_body,
     render_scorecard,
+    repeated_edits,
     usd,
     write_json,
 )
@@ -159,6 +161,7 @@ class RunState(TypedDict, total=False):
     scorecard_path: str | None
     commits: list[dict[str, Any]]  # StageCommit, one per stage that changed files (real runs)
     snapshot_updates: list[dict[str, Any]]  # SnapshotUpdate: snapshots the Migrator rewrote
+    shared_causes: list[dict[str, Any]]  # SharedCause (M6): one task per shared definition
 
 
 class RunDeps:
@@ -519,6 +522,17 @@ class RunGraph:
         if not d.repair_on:
             return {"test_files": tests, "queue": [], "review_queue": []}
         order = repair_order(failing, after)
+        causes: list[SharedCause] = []
+        if d.configuration.repair.shared_causes:
+            causes = find_shared_causes(result.failures, after, tests)
+            sources = [c.source for c in causes if c.source in after]
+            order = [*dict.fromkeys(sources), *[p for p in order if p not in sources]]
+            for c in causes:
+                d.say(
+                    "Repair",
+                    f"shared cause: {c.code} on {c.symbol} from {c.source} in "
+                    f"{len(c.callers)} files; repairing {c.source} first",
+                )
         d.say("Repair", f"{len(order)} failing files to repair: {', '.join(order) or 'none'}")
         reserve = d.configuration.cost.reserve_attempt_usd
         if reserve is not None and order:
@@ -549,8 +563,15 @@ class RunGraph:
                 "review_queue": [],
                 "messages": [],
                 "repair": report.model_dump(mode="json"),
+                "shared_causes": [c.model_dump(mode="json") for c in causes],
             }
-        return {"test_files": tests, "queue": order, "review_queue": [], "messages": []}
+        return {
+            "test_files": tests,
+            "queue": order,
+            "review_queue": [],
+            "messages": [],
+            "shared_causes": [c.model_dump(mode="json") for c in causes],
+        }
 
     def next_file_node(self, state: RunState) -> RunState:
         report = self.report_of(state)
@@ -562,6 +583,15 @@ class RunGraph:
                 )
             self.d.say("Repair", f"cost cap: {len(queue)} files not attempted")
             return {"queue": [], "repair": report.model_dump(mode="json")}
+        if self.d.configuration.repair.shared_causes and queue:
+            # After a shared definition was repaired, only callers that still fail stay.
+            known = {f.file for f in _failures(state.get("known_failures"))}
+            sources = {c["source"] for c in state.get("shared_causes") or []}
+            kept = [p for p in queue if p in known or p in sources]
+            if kept != queue:
+                gone = [p for p in queue if p not in kept]
+                self.d.say("Repair", f"no longer failing, skipped: {', '.join(gone)}")
+                return {"queue": kept}
         return {}
 
     def route_next_file(self, state: RunState) -> str:
@@ -577,6 +607,14 @@ class RunGraph:
         tests = state.get("test_files") or {}
         known = _failures(state.get("known_failures"))
         mine = [f for f in known if f.file == path]
+        causes = [SharedCause.model_validate(c) for c in state.get("shared_causes") or []]
+        owned = [c for c in causes if c.source == path]
+        calling = [c for c in causes if path in c.callers and c.source != path]
+        target_keys: list[tuple[str, str]] = []
+        for c in owned:
+            still = [f for f in known if (f.file, f.code) in c.failure_keys()]
+            mine += [f for f in still if f not in mine]
+            target_keys += [(str(f.file), str(f.code)) for f in still]
         first_model = d.configuration.repair.attempt_models[0]
         record = FileRepair(path=path, attempts=[AttemptRecord(number=1, model=first_model)])
         session = SessionState(
@@ -585,6 +623,7 @@ class RunGraph:
             allowed_imports=[p for p in local_imports(path, after) if p not in tests],
             baseline_keys=[failure_key(f) for f in known],
             record=record,
+            target_keys=sorted(set(target_keys)),
         )
         d.say("Repair", f"{path}: {len(mine)} failures")
         if path in tests:
@@ -623,6 +662,9 @@ class RunGraph:
             test_files=tests,
             symbols=list(dict.fromkeys(s for s in symbols if s != "*")),
         )
+        if owned or calling:
+            sections = [shared_cause_section(c, path) for c in [*owned, *calling]]
+            text += "\n\n### Shared cause\n\n" + "\n\n".join(sections)
         return {
             "queue": queue,
             "current": session.model_dump(mode="json"),
@@ -1145,6 +1187,11 @@ class RunGraph:
                 cost=cost,
                 repair=report if d.configuration.repair.enabled else None,
                 later_layers=layers,
+                repeated_edits=repeated_edits(
+                    self.after_rules(state), read_files(self.workspace(state)), layers
+                )
+                if layers is not None and d.configuration.repair.shared_causes
+                else None,
                 snapshots_to_review=[
                     SnapshotUpdate.model_validate(r) for r in state.get("snapshot_updates") or []
                 ]
