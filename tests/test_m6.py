@@ -309,3 +309,61 @@ def test_test_fitting_flags_aria_props_and_a_changed_element_but_not_other_edits
         {"a.tsx", "b.tsx", "c.tsx"},
     )
     assert [f.file for f in flags] == ["a.tsx", "b.tsx"]
+
+
+FP_BEFORE = """import MuiIconButton from '@material-ui/core/IconButton';
+import { IconButton } from '../IconButton/IconButton';
+import OpenIcon from '@material-ui/icons/OpenInNew';
+
+export const Row = () => (
+  <div>
+    <MuiIconButton onClick={go}>
+      <OpenIcon />
+    </MuiIconButton>
+    <IconButton tooltipTitle="open" icon={<OpenIcon className="x" />} />
+  </div>
+);
+"""
+# What preset-safe writes: size="large" on every element named like an IconButton.
+FP_AFTER = (
+    FP_BEFORE.replace("@material-ui/core/IconButton", "@mui/material/IconButton")
+    .replace("@material-ui/icons/OpenInNew", "@mui/icons-material/OpenInNew")
+    .replace("<MuiIconButton onClick={go}>", '<MuiIconButton onClick={go} size="large">')
+    .replace(
+        'icon={<OpenIcon className="x" />} />', 'icon={<OpenIcon className="x" />} size="large" />'
+    )
+)
+
+
+def test_only_the_repos_own_wrapper_has_the_codemod_change_undone() -> None:
+    from migrator.false_positives import revert_false_positives
+    from migrator.migrations import find_spec
+
+    usage = find_spec("mui@4", "mui@5").usage
+    text, found = revert_false_positives(
+        "src/Row.tsx", FP_BEFORE, FP_AFTER, lambda m: usage.is_old(m) or usage.is_new(m), []
+    )
+    assert [(f.element, f.imported_from) for f in found] == [
+        ("IconButton", "../IconButton/IconButton")
+    ]
+    assert '<MuiIconButton onClick={go} size="large">' in text  # MUI's own keeps the change
+    assert '<IconButton tooltipTitle="open" icon={<OpenIcon className="x" />} />' in text
+    assert "@mui/material/IconButton" in text  # import rewrites are untouched
+
+
+def test_an_installed_package_and_an_unchanged_file_are_left_alone() -> None:
+    from migrator.false_positives import revert_false_positives
+
+    before = (
+        "import { Grid } from '@devexpress/dx-react-grid-material-ui';\n"
+        "const g = <Grid rows={r} />;\n"
+    )
+    after = before.replace("rows={r}", 'rows={r} size="large"')
+    lib = lambda m: m.startswith(("@material-ui/", "@mui/"))  # noqa: E731
+    assert (
+        revert_false_positives(
+            "a.tsx", before, after, lib, ["@devexpress/dx-react-grid-material-ui"]
+        )[1]
+        == []
+    )
+    assert revert_false_positives("a.tsx", before, before, lib, [])[1] == []

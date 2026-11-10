@@ -120,6 +120,10 @@ _Avoid_: spec (for a file)
 A FIXME or TODO comment the official codemods leave in a file, marking work they could not do.
 _Avoid_: codemod warning
 
+**Codemod false positive**:
+A codemod change to a component that comes from the repo's own code rather than from the library being migrated (the codemods match by name), which the Rules stage undoes and lists for a human. On OpossumUI: `size="large"` added to the repo's own `IconButton` wrapper.
+_Avoid_: codemod bug, wrong codemod change
+
 ### Evals
 
 **Case**:
@@ -145,7 +149,7 @@ _Avoid_: gotcha, pitfall
 How a run handled one trap: Expected (the expected layer handled it; for a human trap, it was handed off), Other layer, or Missed.
 
 **Silent miss**:
-A Missed agent or human trap whose checks all pass at the final verify, so verify can't show it. Either the breaking change is still in the code with no check covering it, or it was fixed in a different file than the trap's. Only a human reading the diff can tell which; counted on its own in every scorecard and experiment summary.
+A Missed agent or human trap whose checks all pass at the final verify, so verify can't show it. Either the breaking change is still in the code with no check covering it, or it was fixed in a different file than the trap's. Only a human reading the diff can tell which; counted on its own in every scorecard and experiment summary. On a real repo, scored against its migration PR: a scoring item judged *wrong* or *untouched* whose file has no failure at the final verify and was not handed off.
 
 **Configuration**:
 Everything an experiment varies: model per attempt, effort, repair prompt, retrieval mode, max attempts, cost caps and which rules are on. The baseline is the configuration with repair turned off.

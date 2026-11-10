@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict
 
 from migrator.config import ResolvedRepoConfig, all_dependencies, read_package_json
 from migrator.execs import CommandResult, CommandRunner
+from migrator.false_positives import CodemodFalsePositive, revert_false_positives
 from migrator.migrations import (
     CodemodStep,
     DependenciesStep,
@@ -76,6 +77,8 @@ class RulesResult(BaseModel):
     steps: list[RuleStepResult]
     changed_files: list[str]  # every file a rule step changed, package files included
     codemod_todos: list[CodemodTodo] = []
+    # Codemod changes to the repo's own components, undone after the codemods (M6).
+    false_positives: list[CodemodFalsePositive] = []
 
 
 class ToolsError(RuntimeError):
@@ -342,6 +345,32 @@ def find_codemod_todos(
     return todos
 
 
+def undo_false_positives(
+    inp: RulesInput, originals: dict[str, bytes], sources: list[str]
+) -> list[CodemodFalsePositive]:
+    """Undo the codemods' changes to the repo's own components (``false_positives``)."""
+    usage = inp.spec.usage
+    packages = all_dependencies(read_package_json(inp.workspace))
+    found: list[CodemodFalsePositive] = []
+    for rel in sources:
+        path = inp.workspace / rel
+        before = originals.get(rel)
+        if before is None or not path.is_file():
+            continue
+        after = path.read_text("utf-8")
+        text, fps = revert_false_positives(
+            rel,
+            before.decode("utf-8", "replace"),
+            after,
+            lambda m: usage.is_old(m) or usage.is_new(m),
+            packages,
+        )
+        if fps:
+            path.write_text(text, "utf-8")
+            found += fps
+    return found
+
+
 def apply_rules(inp: RulesInput, runner: CommandRunner) -> RulesResult:
     """Run the rule steps in order; stop at the first failed step (a Rules failure)."""
     inp.log_dir.mkdir(parents=True, exist_ok=True)
@@ -349,6 +378,7 @@ def apply_rules(inp: RulesInput, runner: CommandRunner) -> RulesResult:
     originals = {p: (inp.workspace / p).read_bytes() for p in state.sources}
     results: list[RuleStepResult] = []
     reason: str | None = None
+    false_positives: list[CodemodFalsePositive] = []
     for index, step in enumerate(inp.spec.rule_steps, start=1):
         state.index = index
         before = state.snap()
@@ -369,6 +399,18 @@ def apply_rules(inp: RulesInput, runner: CommandRunner) -> RulesResult:
         if status == "failed":
             reason = f"rule step {index} ({step.kind} {step.name}) failed: {detail}"
             break
+        steps = inp.spec.rule_steps
+        if step.kind == "codemod" and not any(s.kind == "codemod" for s in steps[index:]):
+            # After the last codemod: undo its changes to the repo's own components.
+            found = undo_false_positives(inp, originals, state.sources)
+            false_positives += found
+            if found:
+                # A file the undo restored completely no longer counts as changed.
+                state.changed = {
+                    p
+                    for p in state.changed
+                    if p not in originals or (inp.workspace / p).read_bytes() != originals[p]
+                }
     sources_changed = sorted(f for f in state.changed if f in originals)
     todos = find_codemod_todos(
         originals, inp.workspace, sources_changed, inp.spec.codemod_todo_markers
@@ -379,4 +421,5 @@ def apply_rules(inp: RulesInput, runner: CommandRunner) -> RulesResult:
         steps=results,
         changed_files=sorted(state.changed),
         codemod_todos=todos,
+        false_positives=false_positives,
     )

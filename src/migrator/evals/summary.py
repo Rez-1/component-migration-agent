@@ -125,6 +125,7 @@ METRIC_LABELS: list[tuple[str, str, Unit]] = [
     ("repair_traps_expected", "Repair traps expected", "count"),
     ("silent_misses", "Silent misses (a human should look)", "count"),
     ("test_fitting", "Possible test-fitting edits (a human should look)", "count"),
+    ("codemod_false_positives", "Codemod false positives undone by Rules", "count"),
     ("codemod_todos", "Codemod TODOs left", "count"),
     ("failures", "Failures (final verify)", "count"),
     ("cost_usd", "Cost per run", "usd"),
@@ -156,6 +157,8 @@ def _per_run_values(row: ResultRow, card: Scorecard) -> dict[str, float]:
         values["silent_misses"] = float(sum(is_silent_miss(t) for t in card.traps))
     if card.test_fitting is not None:
         values["test_fitting"] = float(len(card.test_fitting))
+    if card.rules is not None and card.status == "completed":
+        values["codemod_false_positives"] = float(len(card.codemod_false_positives or []))
     return values
 
 

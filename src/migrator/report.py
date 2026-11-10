@@ -20,6 +20,7 @@ from migrator.checks import CheatingReport, Finding, Layer
 from migrator.config import Trap, TrapList
 from migrator.configuration import DEFAULT_MAX_MONTH_USD, DEFAULT_MAX_RUN_USD
 from migrator.cost import RunCost
+from migrator.false_positives import CodemodFalsePositive
 from migrator.repair.records import RepairReport
 from migrator.rules import CodemodTodo, RulesResult
 from migrator.scan import UsageReport
@@ -103,10 +104,10 @@ class SnapshotUpdate(BaseModel):
 
 
 class RepeatedEdit(BaseModel):
-    """One line the later layers (the repair agent, a human) added to, or removed from,
-    3 or more files (``+ line`` / ``- line``):
-    a sign of a fix made in every caller where one shared definition was the cause (M6).
-    A review flag, not a failure."""
+    """A hint (M6): one line the later layers (the repair agent, a human) added to, or
+    removed from, 3 or more files (``+ line`` / ``- line``). It may belong in one shared
+    place, or be right in every file, as on OpossumUI, where the developers made the
+    same one-line fix in each caller. Never a failure."""
 
     line: str
     files: list[str]
@@ -258,6 +259,8 @@ class Scorecard(BaseModel):
     snapshots_to_review: list[SnapshotUpdate] | None = None
     repeated_edits: list[RepeatedEdit] | None = None
     test_fitting: list[TestFittingFlag] | None = None
+    # Codemod changes to the repo's own components that Rules undid (M6); None: none.
+    codemod_false_positives: list[CodemodFalsePositive] | None = None
     cost: RunCost
     meta: RunMeta
 
@@ -632,6 +635,7 @@ def build_scorecard(inp: ReportInput) -> Scorecard:
         snapshots_to_review=inp.snapshots_to_review,
         repeated_edits=inp.repeated_edits,
         test_fitting=inp.test_fitting,
+        codemod_false_positives=(inp.rules.false_positives or None) if inp.rules else None,
         cost=inp.cost,
         meta=inp.meta,
     )
@@ -699,7 +703,13 @@ def stable_view(scorecard: Scorecard | dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-_M6_KEYS = ("coverage", "snapshots_to_review", "repeated_edits", "test_fitting")
+_M6_KEYS = (
+    "coverage",
+    "snapshots_to_review",
+    "repeated_edits",
+    "test_fitting",
+    "codemod_false_positives",
+)
 
 
 def repeated_edits(
@@ -1110,9 +1120,20 @@ def _m6_review_section(card: Scorecard) -> list[str]:
             + "; ".join(f"`{_md_cell(x, 100)}`" for x in t.lines[:4])
             for t in card.test_fitting
         ]
+    if card.codemod_false_positives:
+        out += ["", "## Codemod false positives (undone by Rules)", ""]
+        out += [
+            f"- `{f.file}` line {f.line}: `<{f.element}>` is the repo's own (from "
+            f"`{f.imported_from}`); undid `{_md_cell(f.reverted, 160)}`"
+            for f in card.codemod_false_positives
+        ]
     if card.repeated_edits:
-        out += ["", "## Review flag: the same line changed in 3 or more files", ""]
-        out += [f"- `{_md_cell(r.line, 120)}` in {len(r.files)} files" for r in card.repeated_edits]
+        out += ["", "## Hint: the same change repeated in several files", ""]
+        out += [
+            f"- `{_md_cell(r.line, 120)}` in {len(r.files)} files: check whether it belongs "
+            "in one shared place"
+            for r in card.repeated_edits
+        ]
     suggested = [f for f in (card.repair.files if card.repair else []) if f.suggested_test_change]
     if suggested:
         out += ["", "## Suggested test changes (not applied)", ""]
@@ -1212,15 +1233,20 @@ def render_pr_body(card: Scorecard) -> str:
             + "; ".join(f"`{_md_cell(x, 100)}`" for x in t.lines[:4])
             for t in card.test_fitting
         ]
-    if card.repeated_edits:
+    if card.codemod_false_positives:
+        lines += ["", "Codemod false positives, undone by Rules (check them):", ""]
         lines += [
-            "",
-            "Review flag: the same line added or removed in 3 or more files (one shared fix?):",
-            "",
+            f"- [ ] `{f.file}` line {f.line}: `<{f.element}>` from `{f.imported_from}` is the "
+            "repo's own; the codemod's change was undone"
+            for f in card.codemod_false_positives
         ]
+    if card.repeated_edits:
+        lines += ["", "Hint: the same change repeated in several files:", ""]
         lines += [
-            f"- `{_md_cell(r.line, 120)}` in {len(r.files)} files: "
+            f"- `{_md_cell(r.line, 120)}`, the same change repeated in {len(r.files)} files: "
+            "check whether it belongs in one shared place ("
             + ", ".join(f"`{p}`" for p in r.files)
+            + ")"
             for r in card.repeated_edits
         ]
     unmigrated = [f for f in card.files if f.outcome == "Unmigrated"]
