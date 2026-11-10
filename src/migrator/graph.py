@@ -92,6 +92,7 @@ from migrator.report import (
     render_pr_body,
     render_scorecard,
     repeated_edits,
+    test_fitting_flags,
     usd,
     write_json,
 )
@@ -1191,6 +1192,14 @@ class RunGraph:
                     self.after_rules(state), read_files(self.workspace(state)), layers
                 )
                 if layers is not None and d.configuration.repair.shared_causes
+                else None,
+                test_fitting=test_fitting_flags(
+                    self.after_rules(state),
+                    read_files(self.workspace(state)),
+                    [(f.path, f.touched) for f in report.files if f.touched],
+                    {f.file for f in post_rules.failures if f.source == "test" and f.file},
+                )
+                if layers is not None and post_rules is not None and d.configuration.repair.enabled
                 else None,
                 snapshots_to_review=[
                     SnapshotUpdate.model_validate(r) for r in state.get("snapshot_updates") or []

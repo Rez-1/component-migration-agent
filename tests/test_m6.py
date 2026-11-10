@@ -263,3 +263,49 @@ def test_m6_v2_configuration_turns_both_changes_on() -> None:
     v2 = find_configuration("m6-opus-low-v2", CONFIGS)
     assert v2.repair.shared_causes and v2.repair.prompt_version == "v3"
     assert v2.digest() != find_configuration("m6-opus-low", CONFIGS).digest()
+
+
+ICON_BUTTON_AFTER_RULES = """      <MuiTooltip
+        classes={{ tooltip: classes.tooltip }}
+        title={props.tooltipTitle}
+        placement={props.placement}
+      >
+"""
+# OpossumUI run v3 rep0: Opus added describeChild so a v4 `title` test would pass.
+ICON_BUTTON_FINAL = ICON_BUTTON_AFTER_RULES.replace(
+    "        placement=", "        describeChild\n        placement="
+)
+
+
+def test_the_opossum_describe_child_edit_is_flagged_as_possible_test_fitting() -> None:
+    from migrator.report import test_fitting_flags
+
+    path = "src/Frontend/Components/IconButton/IconButton.tsx"
+    flags = test_fitting_flags(
+        {path: ICON_BUTTON_AFTER_RULES}, {path: ICON_BUTTON_FINAL}, [(path, [path])], {path}
+    )
+    assert [(f.file, f.lines) for f in flags] == [(path, ["+ describeChild"])]
+    # The same edit for a file whose failures were not tests is not flagged.
+    assert (
+        test_fitting_flags(
+            {path: ICON_BUTTON_AFTER_RULES}, {path: ICON_BUTTON_FINAL}, [(path, [path])], set()
+        )
+        == []
+    )
+
+
+def test_test_fitting_flags_aria_props_and_a_changed_element_but_not_other_edits() -> None:
+    from migrator.report import test_fitting_flags
+
+    old = "<Button onClick={go}>\n  Go\n</Button>\n"
+    flags = test_fitting_flags(
+        {"a.tsx": old, "b.tsx": old, "c.tsx": old},
+        {
+            "a.tsx": old.replace("onClick={go}", 'onClick={go} aria-disabled="false"'),
+            "b.tsx": old.replace("<Button", "<MenuItem").replace("</Button>", "</MenuItem>"),
+            "c.tsx": old.replace("onClick={go}", "onClick={run}"),
+        },
+        [("a.tsx", ["a.tsx"]), ("b.tsx", ["b.tsx"]), ("c.tsx", ["c.tsx"])],
+        {"a.tsx", "b.tsx", "c.tsx"},
+    )
+    assert [f.file for f in flags] == ["a.tsx", "b.tsx"]

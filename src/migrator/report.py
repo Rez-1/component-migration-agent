@@ -9,6 +9,7 @@ and the run id live in ``meta``.
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Any, Literal
@@ -109,6 +110,18 @@ class RepeatedEdit(BaseModel):
 
     line: str
     files: list[str]
+
+
+class TestFittingFlag(BaseModel):
+    """A possible fit to a test (M6): the agent changed accessibility props or the
+    rendered element in a patch for a file that failed a test. Behaviour the test sees
+    changed, which is fine when v5 needs it and wrong when it only makes an outdated
+    test pass (OpossumUI: ``describeChild`` added so a v4 ``title`` test passes). It
+    blocks nothing; a human checks it. No model call."""
+
+    file: str  # the file the edit is in
+    repaired_for: str  # the failing file whose repair made it
+    lines: list[str]  # the flagged added (+) and removed (-) lines
 
 
 class StepSummary(BaseModel):
@@ -244,6 +257,7 @@ class Scorecard(BaseModel):
     coverage: CoverageSummary | None = None
     snapshots_to_review: list[SnapshotUpdate] | None = None
     repeated_edits: list[RepeatedEdit] | None = None
+    test_fitting: list[TestFittingFlag] | None = None
     cost: RunCost
     meta: RunMeta
 
@@ -268,6 +282,7 @@ class ReportInput(BaseModel):
     later_layers: dict[str, Layer] | None = None
     snapshots_to_review: list[SnapshotUpdate] | None = None
     repeated_edits: list[RepeatedEdit] | None = None
+    test_fitting: list[TestFittingFlag] | None = None
     meta: RunMeta
 
 
@@ -616,6 +631,7 @@ def build_scorecard(inp: ReportInput) -> Scorecard:
         coverage=coverage,
         snapshots_to_review=inp.snapshots_to_review,
         repeated_edits=inp.repeated_edits,
+        test_fitting=inp.test_fitting,
         cost=inp.cost,
         meta=inp.meta,
     )
@@ -683,7 +699,7 @@ def stable_view(scorecard: Scorecard | dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-_M6_KEYS = ("coverage", "snapshots_to_review", "repeated_edits")
+_M6_KEYS = ("coverage", "snapshots_to_review", "repeated_edits", "test_fitting")
 
 
 def repeated_edits(
@@ -706,6 +722,51 @@ def repeated_edits(
         for line, paths in sorted(by_line.items())
         if len(paths) >= min_files
     ]
+
+
+_A11Y_PROP = re.compile(
+    r"\baria-[a-z]+|\baria[A-Z]\w*|\brole\s*=|\btabIndex\b|\btitle\s*=|\bdescribeChild\b"
+    r"|\bcomponent\s*=|\baria-label|\bdisableInteractive\b"
+)
+_JSX_TAG = re.compile(r"<([A-Za-z][\w.]*)")
+
+
+def test_fitting_flags(
+    after_rules: dict[str, str],
+    final: dict[str, str],
+    repaired: list[tuple[str, list[str]]],
+    test_failing: set[str],
+) -> list[TestFittingFlag]:
+    """Possible test-fitting edits (see TestFittingFlag). ``repaired`` is each repaired
+    file with the files its patch touched; ``test_failing`` the files that failed a test
+    before Repair."""
+    import difflib
+
+    flags: list[TestFittingFlag] = []
+    for path, touched in repaired:
+        if path not in test_failing:
+            continue
+        for rel in touched:
+            old, new = after_rules.get(rel, ""), final.get(rel)
+            if new is None or old == new:
+                continue
+            changed = [
+                line
+                for line in difflib.ndiff(old.splitlines(), new.splitlines())
+                if line[:2] in ("+ ", "- ")
+            ]
+            hits = [line[0] + " " + line[2:].strip() for line in changed if _A11Y_PROP.search(line)]
+            added = {t for line in changed if line[0] == "+" for t in _JSX_TAG.findall(line)}
+            removed = {t for line in changed if line[0] == "-" for t in _JSX_TAG.findall(line)}
+            if added != removed:
+                hits += [
+                    line[0] + " " + line[2:].strip() for line in changed if _JSX_TAG.search(line)
+                ]
+            if hits:
+                flags.append(
+                    TestFittingFlag(file=rel, repaired_for=path, lines=list(dict.fromkeys(hits)))
+                )
+    return flags
 
 
 def write_json(model: BaseModel, path: Path) -> None:
@@ -1015,12 +1076,48 @@ def render_scorecard(card: Scorecard) -> str:
             f"| {totals.suites_failed} of {totals.suites_total} |",
             f"| Snapshots | {pre.test_totals.snapshots_total} | {totals.snapshots_total} |",
         ]
+    lines += _m6_review_section(card)
     lines += ["", "## Cost", "", _cost_line(card.cost)]
     lines += [
         "",
         f"Node {m.node_version or '?'}, npm {m.npm_version or '?'}, migrator {m.migrator_version}.",
     ]
     return "\n".join(lines) + "\n"
+
+
+def _m6_review_section(card: Scorecard) -> list[str]:
+    """M6 review flags and lists: nothing on runs that don't produce them."""
+    out: list[str] = []
+    if card.coverage is not None:
+        c = card.coverage
+        out += [
+            "",
+            "## Test coverage of the files migrated without a human",
+            "",
+            f"{len(c.covered)} covered by a test, {len(c.not_covered)} not covered"
+            + (": " + ", ".join(f"`{p}`" for p in c.not_covered) if c.not_covered else "."),
+        ]
+    if card.snapshots_to_review:
+        out += ["", "## Snapshots to review (updated by the Migrator, not the agent)", ""]
+        out += [
+            f"- `{s.snapshot_file or s.test_file}` ({s.stage}): {len(s.tests)} tests"
+            for s in card.snapshots_to_review
+        ]
+    if card.test_fitting:
+        out += ["", "## Possible test-fitting, check this", ""]
+        out += [
+            f"- `{t.file}` (repairing `{t.repaired_for}`): "
+            + "; ".join(f"`{_md_cell(x, 100)}`" for x in t.lines[:4])
+            for t in card.test_fitting
+        ]
+    if card.repeated_edits:
+        out += ["", "## Review flag: the same line changed in 3 or more files", ""]
+        out += [f"- `{_md_cell(r.line, 120)}` in {len(r.files)} files" for r in card.repeated_edits]
+    suggested = [f for f in (card.repair.files if card.repair else []) if f.suggested_test_change]
+    if suggested:
+        out += ["", "## Suggested test changes (not applied)", ""]
+        out += [f"- `{f.path}`: {_md_cell(f.suggested_test_change or '', 400)}" for f in suggested]
+    return out
 
 
 # --------------------------------------------------------------------------- PR body
@@ -1108,8 +1205,19 @@ def render_pr_body(card: Scorecard) -> str:
                 f"  - Suggested test change (not applied; approve or edit): "
                 f"{_md_cell(suggested[f.path], 600)}"
             )
+    if card.test_fitting:
+        lines += ["", "Possible test-fitting, check this (behaviour a test sees was changed):", ""]
+        lines += [
+            f"- [ ] `{t.file}` (repairing `{t.repaired_for}`): "
+            + "; ".join(f"`{_md_cell(x, 100)}`" for x in t.lines[:4])
+            for t in card.test_fitting
+        ]
     if card.repeated_edits:
-        lines += ["", "Review flag: the same line added or removed in 3 or more files (one shared fix?):", ""]
+        lines += [
+            "",
+            "Review flag: the same line added or removed in 3 or more files (one shared fix?):",
+            "",
+        ]
         lines += [
             f"- `{_md_cell(r.line, 120)}` in {len(r.files)} files: "
             + ", ".join(f"`{p}`" for p in r.files)
