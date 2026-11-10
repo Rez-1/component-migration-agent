@@ -456,6 +456,8 @@ class ExperimentPlan(BaseModel):
     run_container: bool = False
     # node_modules in a Docker volume of that container (M6 speed-up 4).
     node_modules_volume: bool = False
+    # tsc --incremental in the type-check (M6 speed-up 5).
+    incremental_typecheck: bool = False
 
 
 class ExperimentOutcome(BaseModel):
@@ -584,6 +586,7 @@ def run_experiment(
             precheck_cache=plan.precheck_cache,
             run_container=plan.run_container,
             node_modules_volume=plan.node_modules_volume,
+            incremental_typecheck=plan.incremental_typecheck,
         )
         started = time.monotonic()
         failure: tuple[FailureClass, str] | None = None

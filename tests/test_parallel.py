@@ -133,3 +133,21 @@ def test_a_cached_precheck_gives_the_same_scorecard_without_rerunning(
         assert (tmp_path / "run2" / "logs" / "precheck-from-cache.json").is_file()
     finally:
         mp.undo()
+
+
+def test_incremental_typecheck_flags_each_tsc_and_leaves_other_commands_alone() -> None:
+    """Speed-up 5: each tsc gets --incremental and a build-info file of its own."""
+    from migrator.verify import incremental_typecheck
+
+    two = "node_modules/.bin/tsc -p ./ && node_modules/.bin/tsc --noEmit -p src/ElectronBackend"
+    assert incremental_typecheck(two, two) == (
+        "node_modules/.bin/tsc --incremental --tsBuildInfoFile .migrator/tsbuildinfo-1 -p ./ && "
+        "node_modules/.bin/tsc --incremental --tsBuildInfoFile .migrator/tsbuildinfo-2 "
+        "--noEmit -p src/ElectronBackend"
+    )
+    assert incremental_typecheck("npm run typecheck", "npm run typecheck tsc --noEmit") == (
+        "npm run typecheck -- --incremental --tsBuildInfoFile .migrator/tsbuildinfo-1"
+    )
+    # A script that runs tsc twice, or no tsc at all, is left as it is.
+    assert incremental_typecheck("yarn check", "yarn check tsc -p a && tsc -p b") == "yarn check"
+    assert incremental_typecheck("yarn vue-tsc", "yarn vue-tsc vue-tsc --noEmit") == "yarn vue-tsc"

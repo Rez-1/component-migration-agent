@@ -118,6 +118,30 @@ def _script_body(workspace: Path, command: str) -> str:
     return body
 
 
+_TSC = re.compile(r"(?<![\w./-])((?:[\w./-]*/)?tsc)(?=\s|$)")
+
+
+def incremental_typecheck(command: str, body: str) -> str:
+    """``command`` with each tsc run incrementally (M6 speed-up 5), each with its own
+    build-info file under the workspace's ``.migrator/``. A tsc named in the command
+    gets the flags in place; a package script that runs a single tsc gets them appended.
+    Anything else is left as it is."""
+    count = 0
+
+    def flags(m: re.Match[str]) -> str:
+        nonlocal count
+        count += 1
+        return f"{m.group(1)} --incremental --tsBuildInfoFile .migrator/tsbuildinfo-{count}"
+
+    direct = _TSC.sub(flags, command)
+    if count:
+        return direct
+    script = body[len(command) :]
+    if len(_TSC.findall(script)) == 1:
+        return with_args(command, ["--incremental", "--tsBuildInfoFile", ".migrator/tsbuildinfo-1"])
+    return command
+
+
 def with_args(command: str, args: list[str]) -> str:
     """Append arguments to a command; ``npm run``/``npm test`` need ``--`` first."""
     sep = " -- " if command.startswith("npm ") and " -- " not in command else " "
@@ -134,6 +158,8 @@ def _run_one(
     body = _script_body(ws, command)
     json_out: Path | None = None
     run_command = command
+    if name == "typecheck" and inp.commands.typecheck_incremental:
+        run_command = incremental_typecheck(command, body)
     if name == "lint" and "eslint" in body:
         json_out = (inp.log_dir / f"{inp.label}-eslint.json").resolve()
         run_command = with_args(command, ["-f", "json", "-o", str(json_out)])

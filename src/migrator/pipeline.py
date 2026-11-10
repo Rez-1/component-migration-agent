@@ -122,6 +122,8 @@ class RunOptions(BaseModel):
     run_container: bool = False
     # node_modules in a Docker volume of the run container (M6 speed-up 4; needs 3).
     node_modules_volume: bool = False
+    # tsc --incremental in the type-check (M6 speed-up 5).
+    incremental_typecheck: bool = False
 
 
 class RunResult(BaseModel):
@@ -174,7 +176,9 @@ def check_detection(repo: Path, spec: MigrationSpec) -> None:
             raise RunError(f"{spec.id} needs {pre.package} >= {pre.min_major} (found {version})")
 
 
-def resolve_config(repo: Path, spec: MigrationSpec, case: CaseConfig | None) -> ResolvedRepoConfig:
+def resolve_config(
+    repo: Path, spec: MigrationSpec, case: CaseConfig | None, incremental: bool = False
+) -> ResolvedRepoConfig:
     override: RepoConfig | None = case.repo if case else None
     try:
         config = resolve_repo_config(repo, override, spec.source_globs, spec.exclude)
@@ -182,6 +186,9 @@ def resolve_config(repo: Path, spec: MigrationSpec, case: CaseConfig | None) -> 
         raise RunError(str(exc)) from exc
     if case is not None:
         config = config.model_copy(update={"runner": case.runner})
+    if incremental:
+        verify = config.verify.model_copy(update={"typecheck_incremental": True})
+        config = config.model_copy(update={"verify": verify})
     return config
 
 
@@ -447,7 +454,7 @@ def start_run(
     run_dir = opts.run_dir.resolve()
     run_id = opts.run_id or run_dir.name
     check_detection(repo, spec)
-    config = resolve_config(repo, spec, opts.case)
+    config = resolve_config(repo, spec, opts.case, opts.incremental_typecheck)
     branch = opts.branch or default_branch(spec)
     if opts.real:
         if opts.mode == "eval":

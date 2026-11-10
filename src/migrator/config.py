@@ -29,6 +29,9 @@ class VerifyCommands(_Model):
     typecheck: str | None = None
     lint: str | None = None
     test: str | None = None
+    # M6 speed-up 5: run each tsc in the type-check with --incremental, its build info
+    # kept in the workspace's .migrator/ folder (never committed, never scanned).
+    typecheck_incremental: bool | None = None
 
 
 class RepoConfig(_Model):
@@ -231,6 +234,7 @@ def resolve_repo_config(
         typecheck=given.typecheck or detected.typecheck,
         lint=given.lint or detected.lint,
         test=given.test or detected.test,
+        typecheck_incremental=given.typecheck_incremental,
     )
     return ResolvedRepoConfig(
         package_manager=manager,

@@ -569,6 +569,10 @@ def eval_run(
             "file share with the host."
         ),
     ] = False,
+    incremental_typecheck: Annotated[
+        bool,
+        typer.Option(help="Run the type-check's tsc with --incremental (build info kept per run)."),
+    ] = False,
 ) -> None:
     """Run an experiment: every case in a split under one configuration, N runs each."""
     base = _repo_root(root)
@@ -602,6 +606,7 @@ def eval_run(
             precheck_cache=precheck_cache,
             run_container=run_container,
             node_modules_volume=node_modules_volume,
+            incremental_typecheck=incremental_typecheck,
         )
     except (ConfigurationError, ConfigError, EvalError) as exc:
         raise _fail(str(exc)) from exc
