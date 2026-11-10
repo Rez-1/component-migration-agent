@@ -136,3 +136,47 @@ def test_judge_cache_round_trip(tmp_path: Path) -> None:
     cache.put(key, Judgement(verdict="wrong", reason="r", out_of_scope_changes=[]), "prompt")
     got = cache.get(key)
     assert got is not None and got.verdict == "wrong"
+
+
+def test_a_suite_that_cannot_load_keeps_its_real_error() -> None:
+    from migrator.verify.parsers import suite_message
+
+    text = (
+        "  ● Test suite failed to run\n\n    Jest encountered an unexpected token\n\n"
+        "    This usually means that you are trying to import a file which Jest cannot parse\n\n"
+        "    Details:\n\n    node_modules/@mui/material/Typography/Typography.js:3\n"
+        "    import _x from '@babel/runtime/helpers/esm/x';\n    ^^^^^^\n\n"
+        "    SyntaxError: Cannot use import statement outside a module\n\n"
+        "      at Runtime.createScriptFromCode (node_modules/jest-runtime/build/index.js:1:2)\n"
+        "      at Object.<anonymous> (src/List.tsx:7:1)\n"
+    )
+    message = suite_message(text)
+    assert message.startswith("Test suite failed to run: node_modules/@mui/material/Typography")
+    assert "SyntaxError: Cannot use import statement" in message
+    assert message.endswith("at src/List.tsx:7:1")
+    assert suite_message("● Test suite failed to run") == "Test suite failed to run"
+
+
+def _totals(tests: int) -> object:
+    from migrator.verify.parsers import TestTotals
+
+    return TestTotals(
+        suites_total=10, suites_failed=0, tests_total=tests, tests_passed=tests,
+        tests_failed=0, tests_skipped=0, snapshots_total=0, snapshots_unmatched=0,
+        snapshots_updated=0, snapshots_added=0, snapshots_obsolete=0,
+        snapshot_files_removed=0,
+    )  # fmt: skip
+
+
+def test_tests_lost_after_rules_are_not_charged_to_the_agent() -> None:
+    from migrator.checks import _totals_findings
+
+    pre, after_rules = _totals(587), _totals(506)
+    same = _totals_findings(pre, _totals(506), "agent", after_rules)  # type: ignore[arg-type]
+    assert [(f.layer, f.detail) for f in same] == [
+        ("rules", "tests run: 587 at the Pre-check -> 506 (already 506 after Rules)")
+    ]
+    worse = _totals_findings(pre, _totals(480), "agent", after_rules)  # type: ignore[arg-type]
+    assert [f.layer for f in worse] == ["agent"]
+    no_rules = _totals_findings(pre, _totals(506), "agent")  # type: ignore[arg-type]
+    assert [f.layer for f in no_rules] == ["agent"]

@@ -79,6 +79,47 @@ def first_line(text: str) -> str:
     return next((line.strip() for line in text.splitlines() if line.strip()), "")
 
 
+SUITE_MESSAGE_CHARS = 700
+_REPO_FRAME = re.compile(r"^at .*?\(((?!node_modules/)[^()\s]+:\d+:\d+)\)$")
+_SUITE_BOILERPLATE = (
+    "Test suite failed to run",
+    "Jest encountered an unexpected token",
+    "This usually means",
+    "By default, if Jest sees",
+    "Here's what you can do",
+    "You'll find more details",
+    "•",
+)
+
+
+def suite_message(text: str) -> str:
+    """A suite that failed outside any test (it could not load): its real error, not
+    Jest's first line. Jest puts that first line ("Test suite failed to run") and a
+    block of generic advice before the error, so keep the lines after "Details:" when
+    there are any, else the first lines that aren't boilerplate; joined with " | " and
+    bounded (M6: on a real repo the agent saw only the first line and could not act)."""
+    lines = [line.strip() for line in text.splitlines()]
+    if "Details:" in lines:
+        lines = lines[lines.index("Details:") + 1 :]
+    kept = [
+        line
+        for line in lines
+        if line and not line.startswith("●") and not line.startswith(_SUITE_BOILERPLATE)
+    ][:8]
+    body = " | ".join(kept)
+    if len(body) > SUITE_MESSAGE_CHARS:
+        body = body[: SUITE_MESSAGE_CHARS - 1] + "…"
+    # Which of the repo's files was loading when it broke: the first stack frame that
+    # is not in node_modules (the code frame above shows the line, not the file).
+    frame = next(
+        (m.group(1) for line in lines if (m := _REPO_FRAME.search(line))),
+        None,
+    )
+    if frame:
+        body = f"{body} | at {frame}"
+    return f"Test suite failed to run: {body}" if body else "Test suite failed to run"
+
+
 def _relative(path: str, workspace: str | None) -> str:
     cleaned = clean(path, workspace)
     return cleaned.removeprefix("./")
@@ -250,7 +291,7 @@ def parse_jest_json(
             t.get("status") == "failed" for t in assertions
         ):
             # The suite failed outside any test: a compile error, a crash on import.
-            message = first_line(clean(suite.get("message", ""), workspace))
+            message = suite_message(clean(suite.get("message", ""), workspace))
             failures.append(
                 Failure(
                     source="test",

@@ -359,6 +359,8 @@ class CheckInput(BaseModel):
     test_rules: TestFileRules = TestFileRules()
     precheck_totals: TestTotals | None = None
     final_totals: TestTotals | None = None
+    # The Verify right after Rules (M6): a drop already there belongs to the Rules layer.
+    rules_totals: TestTotals | None = None
 
 
 def _changed(a: Mapping[str, str], b: Mapping[str, str]) -> list[str]:
@@ -437,9 +439,9 @@ def _layer_findings(
     return findings
 
 
-def _totals_findings(pre: TestTotals, final: TestTotals, layer: Layer) -> list[Finding]:
-    """The runner's own counts against the Pre-check: lost tests by any route."""
-    rows = [
+def _totals_rows(pre: TestTotals, final: TestTotals) -> list[tuple[str, int, int, bool]]:
+    """(label, at the Pre-check, now, worse) for each of the runner's own counts."""
+    return [
         ("tests run", pre.tests_total, final.tests_total, final.tests_total < pre.tests_total),
         (
             "tests skipped",
@@ -468,19 +470,48 @@ def _totals_findings(pre: TestTotals, final: TestTotals, layer: Layer) -> list[F
             final.snapshot_files_removed > 0,
         ),
     ]
-    return [
-        Finding(
-            check="test-count",
-            file=None,
-            layer=layer,
-            severity="fail",
-            detail=f"{label}: {before} at the Pre-check -> {after}",
-            before=before,
-            after=after,
+
+
+def _totals_findings(
+    pre: TestTotals,
+    final: TestTotals,
+    layer: Layer,
+    rules: TestTotals | None = None,
+) -> list[Finding]:
+    """The runner's own counts against the Pre-check: lost tests by any route.
+
+    With the post-Rules totals, a count that is no worse at the end than it was right
+    after Rules is the Rules layer's (reported, not failing), whoever changed files
+    later: on a real repo, suites the codemods broke so that they can't load report no
+    tests, and the Baseline loses exactly the same tests (M6)."""
+    after_rules = dict((r[0], r[2]) for r in _totals_rows(pre, rules)) if rules else {}
+    findings: list[Finding] = []
+    for label, before, after, bad in _totals_rows(pre, final):
+        if not bad:
+            continue
+        owner = layer
+        if label in after_rules and _no_worse(label, after, after_rules[label]):
+            owner = "rules"
+        findings.append(
+            Finding(
+                check="test-count",
+                file=None,
+                layer=owner,
+                severity="fail",
+                detail=f"{label}: {before} at the Pre-check -> {after}"
+                + (f" (already {after_rules[label]} after Rules)" if owner != layer else ""),
+                before=before,
+                after=after,
+            )
         )
-        for label, before, after, bad in rows
-        if bad
-    ]
+    return findings
+
+
+_LOWER_IS_WORSE = {"tests run", "snapshots"}
+
+
+def _no_worse(label: str, final: int, after_rules: int) -> bool:
+    return final >= after_rules if label in _LOWER_IS_WORSE else final <= after_rules
 
 
 def run_checks(inp: CheckInput) -> CheatingReport:
@@ -498,7 +529,7 @@ def run_checks(inp: CheckInput) -> CheatingReport:
         # The totals belong to the whole run: an agent patch anywhere owns a drop;
         # without one, the Rules layer does and it is reported, not failing.
         owner: Layer = "agent" if "agent" in later.values() else "rules"
-        findings += _totals_findings(inp.precheck_totals, inp.final_totals, owner)
+        findings += _totals_findings(inp.precheck_totals, inp.final_totals, owner, inp.rules_totals)
     agent = [f for f in findings if f.layer == "agent"]
     return CheatingReport(
         hits=[f for f in agent if f.severity == "fail"],

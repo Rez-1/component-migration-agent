@@ -1052,6 +1052,9 @@ class RunGraph:
                 test_rules=read_test_rules(workspace),
                 precheck_totals=pre.test_totals,
                 final_totals=final.test_totals,
+                rules_totals=VerifyResult.model_validate(state["verify"]).test_totals
+                if state.get("verify")
+                else None,
             )
         )
         d.say("Checks", f"{len(cheating.hits)} cheating-check hits, {len(cheating.notes)} notes")
