@@ -367,3 +367,57 @@ def test_an_installed_package_and_an_unchanged_file_are_left_alone() -> None:
         == []
     )
     assert revert_false_positives("a.tsx", before, before, lib, [])[1] == []
+
+
+TOPBAR_AFTER_RULES = """      <IconButton
+        tooltipTitle="open file"
+        icon={
+          <FolderOpenIcon
+            className={classes.openFileIcon}
+            aria-label={'open file'}
+          />
+        }
+      />
+"""
+# OpossumUI run v10 rep1: the agent dropped the icon's aria-label so a test that found
+# two elements labelled "open file" (v5's Tooltip labels the button too) would pass.
+TOPBAR_FINAL = """      <IconButton
+        tooltipTitle="open file"
+        icon={<FolderOpenIcon className={classes.openFileIcon} />}
+      />
+"""
+
+
+def _test_failure_in(path: str) -> Failure:
+    return Failure(source="test", file=path, message="TestingLibraryElementError", test_file="t")
+
+
+def test_a_flagged_passing_patch_becomes_a_test_fitting_hand_off() -> None:
+    from migrator.graph import test_fitting_reason
+
+    icon = "src/Frontend/Components/IconButton/IconButton.tsx"
+    why = test_fitting_reason(
+        icon, [icon], {icon: ICON_BUTTON_AFTER_RULES}, {icon: ICON_BUTTON_FINAL},
+        [_test_failure_in(icon)],
+    )  # fmt: skip
+    assert why == f"possible test-fitting: {icon}: + describeChild"
+    top = "src/Frontend/Components/TopBar/TopBar.tsx"
+    why = test_fitting_reason(
+        top, [top], {top: TOPBAR_AFTER_RULES}, {top: TOPBAR_FINAL}, [_test_failure_in(top)]
+    )
+    assert why is not None and "- aria-label={'open file'}" in why
+    # A file whose failures were type errors only: the same edit is not test-fitting.
+    type_error = Failure(source="typecheck", file=top, message="TS2322", code="TS2322")
+    assert (
+        test_fitting_reason(
+            top, [top], {top: TOPBAR_AFTER_RULES}, {top: TOPBAR_FINAL}, [type_error]
+        )
+        is None
+    )
+
+
+def test_m6_v3_configuration_adds_test_fitting_hand_offs() -> None:
+    v3 = find_configuration("m6-opus-low-v3", CONFIGS)
+    v2 = find_configuration("m6-opus-low-v2", CONFIGS)
+    assert v3.repair.test_fitting_hand_off and not v2.repair.test_fitting_hand_off
+    assert v3.repair.model_copy(update={"test_fitting_hand_off": False}) == v2.repair

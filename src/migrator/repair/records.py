@@ -49,6 +49,8 @@ class FileRepair(BaseModel):
     restored_for_review: bool = False
     # The agent's suggested change to an outdated test, for a human; never applied (M6).
     suggested_test_change: str | None = None
+    # Handed off because the test-fitting flag fired on a passing patch (M6).
+    test_fitting_hand_off: bool = False
 
     @property
     def tool_calls(self) -> int:

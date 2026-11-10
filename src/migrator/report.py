@@ -203,6 +203,7 @@ class FileRepairSummary(BaseModel):
     conversation: str | None
     parse_warnings: int = 0  # prompt v2's apply_edit warnings (M5)
     suggested_test_change: str | None = None  # prompt v3: for a human, never applied (M6)
+    test_fitting_hand_off: bool = False  # handed off because the test-fitting flag fired
 
 
 class RepairSummary(BaseModel):
@@ -674,6 +675,7 @@ def _repair_summary(repair: RepairReport, files: list[FileResult]) -> RepairSumm
                 edits_rejected=r.edits_rejected,
                 parse_warnings=r.parse_warnings,
                 suggested_test_change=r.suggested_test_change,
+                test_fitting_hand_off=r.test_fitting_hand_off,
                 review=r.review,
                 conversation=r.conversation,
             )

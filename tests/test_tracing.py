@@ -6,6 +6,8 @@ run collector, or sent to a mocked client.
 
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -157,3 +159,46 @@ def test_the_environment_switch_traces_to_the_client_and_flushes(
     assert "migrator-run" in posted
     assert f"repair {THEME} · attempt 1" in posted
     client.flush.assert_called()
+
+
+ABSOLUTE = re.compile(r"(?:/private)?/(?:Users|home|var/folders|tmp|root)/")
+
+
+def test_a_traced_run_sends_no_absolute_local_paths(
+    tmp_path: Path, spec: MigrationSpec, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M6: LangSmith gets every run's inputs, outputs and metadata through the client's
+    hide functions; after them, nothing may name a home or temp folder."""
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+    monkeypatch.setenv("LANGSMITH_API_KEY", "test-key-not-real")
+    clear_env_cache()
+    monkeypatch.setattr(rt, "_CLIENT", None)
+    assert tracing.install_redaction([tmp_path])
+    client = rt._CLIENT
+    assert client is not None
+    monkeypatch.setenv("LANGSMITH_TRACING", "false")  # collect locally, upload nothing
+    clear_env_cache()
+    collector = RunCollectorCallbackHandler()
+    run_graph(tmp_path, spec, callbacks=[collector])
+    payloads: list[Any] = []
+    for root in collector.traced_runs:
+        for run in walk(root):
+            payloads += [run.inputs, run.outputs or {}, (run.extra or {}).get("metadata", {})]
+    raw = json.dumps(payloads, default=str)
+    assert ABSOLUTE.search(raw), "the run state should carry absolute paths to redact"
+    # The client's own hide functions, in the order the payloads were collected.
+    hides = (client._hide_run_inputs, client._hide_run_outputs, client._hide_run_metadata)
+    hidden = [hides[i % 3](p) for i, p in enumerate(payloads)]
+    leaked = ABSOLUTE.findall(json.dumps(hidden, default=str))
+    assert leaked == []
+
+
+def test_redaction_keeps_paths_useful() -> None:
+    root = Path("/Users/someone/Code/tool")
+    text = (
+        "run_dir=/Users/someone/Code/tool/runs/m6/r1 ws=/var/folders/ab/T/migrator-x/workspace/"
+        "src/A.tsx other=/Users/someone/.cache/migrator/x"
+    )
+    assert tracing.redact_text(text, [root]) == (
+        "run_dir=runs/m6/r1 ws=<workspace>/src/A.tsx other=<local path>"
+    )

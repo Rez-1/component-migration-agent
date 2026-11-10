@@ -34,7 +34,7 @@ import re
 import shutil
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, TypedDict
@@ -833,6 +833,24 @@ class RunGraph:
             if hits:  # in real use a cheating-check hit is a hand-off, not a migrated file
                 record.outcome = "Handed off"
                 record.reason = "cheating check: " + "; ".join(hits)
+        if (
+            session.ended == "passed"
+            and record.outcome == "Migrated by agent"
+            and d.configuration.repair.test_fitting_hand_off
+        ):
+            # M6: a passing patch that changes what a failing test looks at (accessibility
+            # props, the rendered element) goes to a human instead of counting as migrated.
+            why = test_fitting_reason(
+                record.path,
+                record.touched,
+                self.after_rules(state),
+                {rel: (workspace / rel).read_text("utf-8") for rel in record.touched},
+                _failures(state.get("file_start_failures")),
+            )
+            if why is not None:
+                record.outcome = "Handed off"
+                record.test_fitting_hand_off = True
+                record.reason = why
         if record.outcome == "Handed off":
             review_queue.append(record.path)
             report.review_list.append(record.path)
@@ -1351,6 +1369,28 @@ def final_layers(
         if after_rules.get(path) != final.get(path):
             layers[path] = "rules" if path in ours else "human" if path in human else "agent"
     return layers
+
+
+def test_fitting_reason(
+    path: str,
+    touched: list[str],
+    after_rules: Mapping[str, str],
+    current: Mapping[str, str],
+    start_failures: list[Failure],
+) -> str | None:
+    """The hand-off reason when a passing patch for a file that failed a test changed
+    accessibility props or the rendered element (M6), else None."""
+    flags = test_fitting_flags(
+        dict(after_rules),
+        dict(current),
+        [(path, touched)],
+        {f.file for f in start_failures if f.source == "test" and f.file},
+    )
+    if not flags:
+        return None
+    return "possible test-fitting: " + "; ".join(
+        f"{fl.file}: {', '.join(fl.lines[:3])}" for fl in flags
+    )
 
 
 def snapshot_hashes(workspace: Path) -> dict[str, str]:

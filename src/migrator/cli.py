@@ -65,7 +65,7 @@ from migrator.pipeline import (
 from migrator.pr import PrError, open_pr, plan_pr
 from migrator.report import Scorecard, traps_line, usd
 from migrator.review import AutoReviewer, Reviewer, RichReviewer
-from migrator.tracing import describe, flush, tracing_settings
+from migrator.tracing import describe, flush, install_redaction, tracing_settings
 from migrator.workspace import RUN_FILES_DIR, run_files_ignored
 
 app = typer.Typer(
@@ -271,7 +271,8 @@ def _resolve_sandbox(choice: str, *, allow_auto: bool = True) -> Sandbox:
 def _print_tracing() -> None:
     line = describe(tracing_settings())
     if line:
-        console.print(line)
+        install_redaction()  # no absolute local paths leave this machine (M6)
+        console.print(line + " Local paths are made relative before upload.")
 
 
 @app.command("init")

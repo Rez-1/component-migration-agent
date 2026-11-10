@@ -38,6 +38,7 @@ def test_shipped_configurations_load() -> None:
         "m6-baseline",
         "m6-opus-low",
         "m6-opus-low-v2",
+        "m6-opus-low-v3",
         "opus-low",
         "opus-low-context",
         "opus-low-imports",

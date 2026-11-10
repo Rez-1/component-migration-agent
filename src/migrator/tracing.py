@@ -26,7 +26,10 @@ never added to a scorecard or the ledger, so nothing is counted twice.
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+import re
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -88,6 +91,76 @@ def describe(settings: TracingSettings) -> str | None:
     if not settings.api_key_set:
         line += ". Warning: LANGSMITH_API_KEY is not set, so traces will not upload"
     return line + "."
+
+
+# --------------------------------------------------------------------------- privacy
+
+# Absolute local paths: home folders and the temp folders runs work in (macOS and Linux).
+_ABSOLUTE = re.compile(r"""(?:/private)?/(?:Users|home|var/folders|tmp|root)/[^\s"'`<>|)\]},;]*""")
+
+
+def _variants(path: Path) -> list[str]:
+    text = str(path.resolve())
+    out = {text, str(path)}
+    if text.startswith("/private/"):
+        out.add(text.removeprefix("/private"))
+    return sorted(out, key=len, reverse=True)
+
+
+def redact_text(text: str, roots: Sequence[Path] = ()) -> str:
+    """``text`` with absolute local paths made relative or dropped (M6): a path in one of
+    ``roots`` (the repo the CLI runs in) becomes relative to it, a run's workspace
+    ``<workspace>/...``, anything else ``<local path>``."""
+    anchors = [(v, root) for root in roots for v in _variants(root)]
+
+    def one(m: re.Match[str]) -> str:
+        path = m.group(0)
+        for prefix, _root in anchors:
+            if path == prefix:
+                return "."
+            if path.startswith(prefix.rstrip("/") + "/"):
+                return path[len(prefix.rstrip("/")) + 1 :]
+        marker = "/workspace"
+        if marker in path:
+            rest = path.split(marker, 1)[1]
+            return "<workspace>" + rest
+        return "<local path>"
+
+    return _ABSOLUTE.sub(one, text)
+
+
+def redact(value: Any, roots: Sequence[Path] = ()) -> Any:
+    """``redact_text`` over every string in a JSON-like value (keys included)."""
+    if isinstance(value, str):
+        return redact_text(value, roots)
+    if isinstance(value, dict):
+        return {redact(k, roots): redact(v, roots) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [redact(v, roots) for v in value]
+    return value
+
+
+def install_redaction(roots: Sequence[Path] | None = None) -> bool:
+    """When tracing is on, make LangChain's tracer use a LangSmith client that redacts
+    absolute local paths from every run's inputs, outputs and metadata before upload
+    (M6: the first public trace showed /Users/... and /var/folders/... paths). Returns
+    whether it was installed. Never fails a run."""
+    if not tracing_settings().enabled:
+        return False
+    try:
+        import langsmith
+        import langsmith.run_trees as rt
+
+        base = list(roots) if roots is not None else [Path.cwd()]
+
+        def hide(data: dict[str, Any]) -> dict[str, Any]:
+            result = redact(data, base)
+            return result if isinstance(result, dict) else data
+
+        rt._CLIENT = langsmith.Client(hide_inputs=hide, hide_outputs=hide, hide_metadata=hide)
+        return True
+    except Exception:
+        return False
 
 
 def flush() -> None:
