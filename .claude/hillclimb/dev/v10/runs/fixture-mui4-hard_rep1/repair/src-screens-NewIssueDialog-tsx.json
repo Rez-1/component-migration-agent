@@ -1,0 +1,569 @@
+[
+  {
+    "type": "human",
+    "data": {
+      "content": "## Failing file: `src/screens/NewIssueDialog.tsx`\n\nAttempt 1 of 3.\n\n### Failures in this file (2)\n\n1. **Failing test** `src/screens/__tests__/NewIssueDialog.test.tsx` › \"NewIssueDialog › assigns new issues to the signed-in user, marked in the list\": Error: expect(element).toHaveAttribute(\"aria-selected\", \"true\") // element.getAttribute(\"aria-selected\") === \"true\" (This test imports this file.)\n2. **Failing test** `src/screens/__tests__/NewIssueDialog.test.tsx` › \"NewIssueDialog › creates the issue with a tidied estimate\": Error: expect(jest.fn()).toHaveBeenCalledWith(...expected) (This test imports this file.)\n\n### What the Rules stage changed in this file\n\n```diff\n--- a/src/screens/NewIssueDialog.tsx\n+++ b/src/screens/NewIssueDialog.tsx\n@@ -8,5 +8,6 @@\n   TextField,\n-} from '@material-ui/core';\n-import { Autocomplete } from '@material-ui/lab';\n-import { makeStyles, Theme } from '@material-ui/core/styles';\n+} from '@mui/material';\n+import { Autocomplete } from '@mui/material';\n+import { Theme } from '@mui/material/styles';\n+import makeStyles from '@mui/styles/makeStyles';\n import { CURRENT_USER, Person, TEAM } from '../data/people';\n@@ -53,6 +54,7 @@\n         onClose={() => setOpen(false)}\n-        onEntered={() => titleRef.current?.focus()}\n         aria-labelledby=\"new-issue-title\"\n         fullWidth\n-      >\n+        TransitionProps={{\n+          onEntered: () => titleRef.current?.focus()\n+        }}>\n         <DialogTitle id=\"new-issue-title\">New issue</DialogTitle>\n```\n\n### The file now (107 lines)\n\n```tsx\n  1  import { useRef, useState } from 'react';\n  2  import {\n  3    Button,\n  4    Dialog,\n  5    DialogActions,\n  6    DialogContent,\n  7    DialogTitle,\n  8    TextField,\n  9  } from '@mui/material';\n 10  import { Autocomplete } from '@mui/material';\n 11  import { Theme } from '@mui/material/styles';\n 12  import makeStyles from '@mui/styles/makeStyles';\n 13  import { CURRENT_USER, Person, TEAM } from '../data/people';\n 14  import { personPickerProps } from '../components/personPicker';\n 15  import { DurationInput } from '../components/DurationInput';\n 16  \n 17  const useStyles = makeStyles((theme: Theme) => ({\n 18    field: { marginBottom: theme.spacing(2) },\n 19  }));\n 20  \n 21  export interface NewIssue {\n 22    title: string;\n 23    assignee: string | null;\n 24    reviewer: string | null;\n 25    estimate: string;\n 26  }\n 27  \n 28  export function NewIssueDialog({ onCreate }: { onCreate?: (issue: NewIssue) => void }) {\n 29    const classes = useStyles();\n 30    const [open, setOpen] = useState(false);\n 31    const [title, setTitle] = useState('');\n 32    const [assignee, setAssignee] = useState<Person | null>(CURRENT_USER);\n 33    const [reviewer, setReviewer] = useState<Person | null>(null);\n 34    const titleRef = useRef<HTMLInputElement>(null);\n 35    const estimateRef = useRef<HTMLInputElement>(null);\n 36  \n 37    const create = () => {\n 38      onCreate?.({\n 39        title: title.trim(),\n 40        assignee: assignee?.id ?? null,\n 41        reviewer: reviewer?.id ?? null,\n 42        estimate: estimateRef.current?.value ?? '',\n 43      });\n 44      setOpen(false);\n 45    };\n 46  \n 47    return (\n 48      <>\n 49        <Button variant=\"contained\" color=\"primary\" onClick={() => setOpen(true)}>\n 50          New issue\n 51        </Button>\n 52        <Dialog\n 53          open={open}\n 54          onClose={() => setOpen(false)}\n 55          aria-labelledby=\"new-issue-title\"\n 56          fullWidth\n 57          TransitionProps={{\n 58            onEntered: () => titleRef.current?.focus()\n 59          }}>\n 60          <DialogTitle id=\"new-issue-title\">New issue</DialogTitle>\n 61          <DialogContent>\n 62            <TextField\n 63              id=\"issue-title-field\"\n 64              className={classes.field}\n 65              label=\"Title\"\n 66              fullWidth\n 67              variant=\"outlined\"\n 68              inputRef={titleRef}\n 69              value={title}\n 70              onChange={(e) => setTitle(e.target.value)}\n 71            />\n 72            <Autocomplete\n 73              {...personPickerProps}\n 74              className={classes.field}\n 75              options={TEAM}\n 76              value={assignee}\n 77              onChange={(_, person) => setAssignee(person)}\n 78              renderInput={(params) => <TextField {...params} label=\"Assignee\" variant=\"outlined\" />}\n 79            />\n 80            <Autocomplete\n 81              {...personPickerProps}\n 82              className={classes.field}\n 83              options={TEAM}\n 84              value={reviewer}\n 85              onChange={(_, person) => setReviewer(person)}\n 86              renderInput={(params) => <TextField {...params} label=\"Reviewer\" variant=\"outlined\" />}\n 87            />\n 88            <TextField\n 89              id=\"issue-estimate\"\n 90              label=\"Estimate\"\n 91              placeholder=\"e.g. 90m or 1.5h\"\n 92              fullWidth\n 93              variant=\"outlined\"\n 94              inputRef={estimateRef}\n 95              InputProps={{ inputComponent: DurationInput }}\n 96            />\n 97          </DialogContent>\n 98          <DialogActions>\n 99            <Button onClick={() => setOpen(false)}>Cancel</Button>\n100            <Button color=\"primary\" disabled={!title.trim()} onClick={create}>\n101              Create\n102            </Button>\n103          </DialogActions>\n104        </Dialog>\n105      </>\n106    );\n107  }\n```\n\n### Local imports\n\n- `src/components/DurationInput.tsx`: `export function normaliseDuration(text: string): string`, `export function DurationInput(props: InputBaseComponentProps)`\n- `src/components/personPicker.ts`: `export const personPickerProps`\n- `src/data/people.ts`: `export interface Person { id: string; name: string; initials: string; }`, `export const TEAM: Person[]`, `export const CURRENT_USER: Person`\n\n### Used by\n\n- `src/App.tsx` imports `NewIssueDialog` from this file.\n\n### Guide sections (keyword lookup: `NewIssueDialog`, `toHaveAttribute`, `element.getAttribute`, `jest.fn`, `toHaveBeenCalledWith`)\n\n**Autocomplete › Rename getOptionSelected (codemod)**\n\nRename `getOptionSelected` to `isOptionEqualToValue` to better describe its purpose.\n\n```diff\n <Autocomplete\n-  getOptionSelected={(option, value) => option.title === value.title}\n+  isOptionEqualToValue={(option, value) => option.title === value.title}\n```\n\n**TablePagination › Customize labels with getItemAriaLabel prop**\n\nThe customization of the table pagination's actions labels must be done with the `getItemAriaLabel` prop.\n\nThis increases consistency with the `Pagination` component.\n\n```diff\n  <TablePagination\n-  backIconButtonText=\"Back\"\n-  nextIconButtonText=\"Next\"\n+  getItemAriaLabel={…}\n```\n\n**Still having problems?**\n\nIf you're encountering a problem not covered here, please [create a GitHub issue](https://github.com/mui/material-ui/issues/new/choose) with this title format: **[Migration] Summary of your issue**.\n\nAlso possibly relevant (`search_guide` for the text):\n\n- [Jest] SyntaxError: Unexpected token 'export'\n- Autocomplete › Rename reason arguments\n- GridList › Rename GridList props\n- TypeError: Cannot read properties of undefined (reading 'pxToRem')\n- Why you should migrate\n- ref › Fix ref type specificity\n- Dialog › Remove withMobileDialog component\n- Theme › Replace theme.breakpoints.width (codemod)",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "human",
+      "name": null,
+      "id": null
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "signature": "CAQS6AkKEAgTGAI4AUIIdGhpbmtpbmcSDBN1rAuBiT0bShWlrBoMX3FsH8dZwVLuU+zUIjBiSamDQ0acWp4Lu/erpAx8HP7GovC9RPmdUeR35Z5sKWh4QD2SLcz1LoZ0ppBmuWoqhQl+xwj+hxUjY6CeFxxi0yKV8OzVMdPTAvtOnsnnWD82cjQEqtlXGsDsHpeOsLjrnABaLO45oHLGkmC36iV4w+CTNbcs2Jj3at6igA1246371Zwg72YR8NHN15487gVJVb651Xoj13BmWoVXUPsQx7xtz5PxHK99xALxAZkMNeuYh/XlbunJRN6cPgWWyftc2hmM4ss/jJgQDE/KMY9hap/h83htEgNQ83Wn6BH1bvJG8YsO3WnXQV0hw8i3zbhnM8+eHrCsDTXJpYvSr99Z2x6C5dqriIbXul6+cqTp6My+c2BXTOn+xqlazWKdjALM5+2elKmkvNdNpVBasz5P00S800C6lLiyd956uvBoWPJw3/Gmgs6XFe4c5FhNkzDryV/0GZWeEHpsQZ9xDt7XWBfVUuR166+aV4UVY100k6NGydsuhK9YX6ULoFkh+zvUfjFdXmiGwODVQ2njMeGDhOKfeYFFD51RhfTSGEKahr72VFhnRnc1PvcJ9+y4KofWMRWxSiqXC1F0LGpGgMQk+4KeVT9JCcDujpAJUPx3AbSU2aJpiLDhcpLJq9OO9qJ1mBRUOAaK1qafSxHuTs7ySKOZn9nQP+5oNMBkicQSKtJNH5TOLpzpB/GJ0xeQPzHjZcHZd7LS0PIrGSGVgTEJrme2Kaa4iCtCcgwac3yuNFTrksLfkTcb/S9ee0mbs/fCl4ZS5RrWq83Nqq/INCfDCaHB+couB0siQ2R1n5DsMiGwgM/kGLqdOSfhpL/4SfjW4kk82+WGPGnOt6ZqSXYegFBQ4g9OCNp+gNE0//6sC+sAGubqHKevEHgjSKDpG6Ztl8V1nnIJ+Amld0EgJ5ld2EyGHECtdvlEjt7wNchLlmFcajODSfGWeZdfnbp/MPCnQ2jyOfWjvXIYANuzENNyq/mbinyEOA9xy+r1c32L1C9fthuwJRwjAu9T3eNNRqUYOoh+n0jbIvXYLFnEdG41nvsTmjhD+mp+hHeUFS2iPFvwg4LC1D9Is2VuT6NiWnyYwpaNHmhD/endvElRo3CscpQhqOu/ydInY6CBELz5aVD6lznBsvopo7nsT6L6wIZbiUN9PrH747+gmr5tMe+BONG3NFJVdp+QJx5EDR6A5qFJchRe2b+mCdi+MxOnwQS80fkY/ru3tfwTVjztONM04Eu5HdHY7OZD0kFZ1ZzR7ovm98RRGKwobjoxg60e+SnUwp05ZKfwYATVkHsJYGXT5lqgq7SFXMLg1LS4gjG4XQHeDMw3kFK13f5EElVWA2bsV3V3+bMzrwItgTZFwQIXn80UniXoLYHWoJhlSuU2kr7Hq+It5BLcty1sM9Ldugpn9AxPd/cXjLvhDGy5IGonJcnuTTiCt61Ivixj5WDknhUcN0cuZheIhUo9usLiJGwLZkN/cPFx0NNz2M8vG5Gl03QFS7ra46GSYeKow5udglgxJNS5SS1aaY6VDF+EM1G22S6dgVNt+vDSLK/1Tq//Fu6Q9/BDNXRa+bvz/ln3u3BhCdiZj1lMnS41ZnCK+atBtX51Of4HcBgB",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "id": "toolu_01NQZYEV2TAUpfsMRebGENWG",
+          "input": {
+            "path": "src/screens/__tests__/NewIssueDialog.test.tsx"
+          },
+          "name": "read_file",
+          "type": "tool_use",
+          "caller": {
+            "type": "direct"
+          },
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01LXEcGTnLSvdEoeT24GsYEp",
+          "input": {
+            "path": "src/components/personPicker.ts"
+          },
+          "name": "read_file",
+          "type": "tool_use",
+          "caller": {
+            "type": "direct"
+          },
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01EDbwH3xQ1qPpQYKbTMSDoS",
+          "input": {
+            "path": "src/components/DurationInput.tsx"
+          },
+          "name": "read_file",
+          "type": "tool_use",
+          "caller": {
+            "type": "direct"
+          },
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtMFNuNt2FdoVQeDNzd6",
+        "container": null,
+        "context_management": null,
+        "diagnostics": null,
+        "model": "claude-haiku-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 3026
+          },
+          "cache_creation_input_tokens": 3026,
+          "cache_read_input_tokens": 2654,
+          "fallback_credit": null,
+          "inference_geo": "global",
+          "input_tokens": 4,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 0,
+                "ephemeral_5m_input_tokens": 3026
+              },
+              "cache_creation_input_tokens": 3026,
+              "cache_read_input_tokens": 2654,
+              "input_tokens": 4,
+              "model": null,
+              "output_tokens": 419,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 419,
+          "output_tokens_details": {
+            "thinking_tokens": 238
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "input_transformations": null,
+        "model_name": "claude-haiku-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2fd-4b92-710b-be1d-292f49ec6552-0",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "args": {
+            "path": "src/screens/__tests__/NewIssueDialog.test.tsx"
+          },
+          "id": "toolu_01NQZYEV2TAUpfsMRebGENWG",
+          "type": "tool_call"
+        },
+        {
+          "name": "read_file",
+          "args": {
+            "path": "src/components/personPicker.ts"
+          },
+          "id": "toolu_01LXEcGTnLSvdEoeT24GsYEp",
+          "type": "tool_call"
+        },
+        {
+          "name": "read_file",
+          "args": {
+            "path": "src/components/DurationInput.tsx"
+          },
+          "id": "toolu_01EDbwH3xQ1qPpQYKbTMSDoS",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 5684,
+        "output_tokens": 419,
+        "total_tokens": 6103,
+        "input_token_details": {
+          "cache_read": 2654,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 3026,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 238
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "src/screens/__tests__/NewIssueDialog.test.tsx (56 lines)\n 1  import { fireEvent, screen, waitFor } from '@testing-library/react';\n 2  import { renderScreen } from '../../test-utils';\n 3  import { NewIssueDialog } from '../NewIssueDialog';\n 4  \n 5  async function openDialog() {\n 6    fireEvent.click(screen.getByRole('button', { name: 'New issue' }));\n 7    await screen.findByRole('dialog', { name: 'New issue' });\n 8  }\n 9  \n10  describe('NewIssueDialog', () => {\n11    it('puts the cursor in the title once the dialog is open', async () => {\n12      renderScreen(<NewIssueDialog />);\n13      await openDialog();\n14  \n15      await waitFor(() => expect(screen.getByLabelText('Title')).toHaveFocus());\n16    });\n17  \n18    it('assigns new issues to the signed-in user, marked in the list', async () => {\n19      renderScreen(<NewIssueDialog />);\n20      await openDialog();\n21      const assignee = screen.getByLabelText('Assignee');\n22      expect(assignee).toHaveValue('Grace Hopper');\n23  \n24      fireEvent.keyDown(assignee, { key: 'ArrowDown' });\n25  \n26      expect(screen.getAllByRole('option')).toHaveLength(4);\n27      expect(screen.getByRole('option', { name: 'Grace Hopper' })).toHaveAttribute(\n28        'aria-selected',\n29        'true'\n30      );\n31      expect(screen.getByRole('option', { name: 'Ada Lovelace' })).toHaveAttribute(\n32        'aria-selected',\n33        'false'\n34      );\n35    });\n36  \n37    it('creates the issue with a tidied estimate', async () => {\n38      const onCreate = jest.fn();\n39      renderScreen(<NewIssueDialog onCreate={onCreate} />);\n40      await openDialog();\n41  \n42      fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Fix flaky upload test' } });\n43      const estimate = screen.getByLabelText('Estimate');\n44      fireEvent.change(estimate, { target: { value: '90m' } });\n45      fireEvent.blur(estimate);\n46      expect(estimate).toHaveValue('1h 30m');\n47      fireEvent.click(screen.getByRole('button', { name: 'Create' }));\n48  \n49      expect(onCreate).toHaveBeenCalledWith({\n50        title: 'Fix flaky upload test',\n51        assignee: 'grace',\n52        reviewer: null,\n53        estimate: '1h 30m',\n54      });\n55    });\n56  });",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "read_file",
+      "id": null,
+      "tool_call_id": "toolu_01NQZYEV2TAUpfsMRebGENWG",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "src/components/personPicker.ts (8 lines)\n1  import { Person } from '../data/people';\n2  \n3  // Shared by every Autocomplete that picks a team member.\n4  export const personPickerProps = {\n5    getOptionLabel: (person: Person) => person.name,\n6    getOptionSelected: (option: Person, value: Person) => option.id === value.id,\n7    autoHighlight: true,\n8  };",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "read_file",
+      "id": null,
+      "tool_call_id": "toolu_01LXEcGTnLSvdEoeT24GsYEp",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "src/components/DurationInput.tsx (33 lines)\n 1  import { FocusEvent } from 'react';\n 2  import { InputBaseComponentProps } from '@mui/material';\n 3  \n 4  // \"90m\", \"1.5h\" or \"1h30\" -> \"1h 30m\"; anything else is left as typed.\n 5  export function normaliseDuration(text: string): string {\n 6    const trimmed = text.trim().toLowerCase();\n 7    const hours = trimmed.match(/^(\\d+(?:\\.\\d+)?)\\s*h$/);\n 8    const minutes = trimmed.match(/^(\\d+)\\s*m$/);\n 9    const both = trimmed.match(/^(\\d+)\\s*h\\s*(\\d+)\\s*m?$/);\n10    let total: number | null = null;\n11    if (hours) total = Math.round(Number(hours[1]) * 60);\n12    else if (minutes) total = Number(minutes[1]);\n13    else if (both) total = Number(both[1]) * 60 + Number(both[2]);\n14    if (total === null) return text;\n15    const h = Math.floor(total / 60);\n16    const m = total % 60;\n17    return [h ? `${h}h` : '', m ? `${m}m` : ''].filter(Boolean).join(' ') || '0m';\n18  }\n19  \n20  // An input that tidies the duration when the user leaves the field.\n21  export function DurationInput(props: InputBaseComponentProps) {\n22    const { inputRef, onBlur, ...other } = props;\n23    return (\n24      <input\n25        {...other}\n26        ref={inputRef}\n27        onBlur={(event: FocusEvent<HTMLInputElement>) => {\n28          event.target.value = normaliseDuration(event.target.value);\n29          onBlur?.(event);\n30        }}\n31      />\n32    );\n33  }",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "read_file",
+      "id": null,
+      "tool_call_id": "toolu_01EDbwH3xQ1qPpQYKbTMSDoS",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "id": "toolu_01QiyXYEHLpcZ1TNVMG5uzo9",
+          "input": {
+            "query": "inputComponent inputRef custom input ref"
+          },
+          "name": "search_guide",
+          "type": "tool_use",
+          "caller": {
+            "type": "direct"
+          },
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01QdcNLHo5hLoRuRrfdfnNQD",
+          "input": {
+            "query": "Autocomplete getOptionSelected isOptionEqualToValue"
+          },
+          "name": "search_guide",
+          "type": "tool_use",
+          "caller": {
+            "type": "direct"
+          },
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01KAUpRVBhJF9BTpjVhZ7T7X",
+          "input": {
+            "path": "src/data/people.ts"
+          },
+          "name": "read_file",
+          "type": "tool_use",
+          "caller": {
+            "type": "direct"
+          },
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtMFYqB5kWSDY3sFgTXx",
+        "container": null,
+        "context_management": null,
+        "diagnostics": null,
+        "model": "claude-haiku-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 2214
+          },
+          "cache_creation_input_tokens": 2214,
+          "cache_read_input_tokens": 5680,
+          "fallback_credit": null,
+          "inference_geo": "global",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 0,
+                "ephemeral_5m_input_tokens": 2214
+              },
+              "cache_creation_input_tokens": 2214,
+              "cache_read_input_tokens": 5680,
+              "input_tokens": 2,
+              "model": null,
+              "output_tokens": 3277,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 3277,
+          "output_tokens_details": {
+            "thinking_tokens": 3097
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "input_transformations": null,
+        "model_name": "claude-haiku-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2fd-54d8-76dc-9a32-a7a07b20bff6-0",
+      "tool_calls": [
+        {
+          "name": "search_guide",
+          "args": {
+            "query": "inputComponent inputRef custom input ref"
+          },
+          "id": "toolu_01QiyXYEHLpcZ1TNVMG5uzo9",
+          "type": "tool_call"
+        },
+        {
+          "name": "search_guide",
+          "args": {
+            "query": "Autocomplete getOptionSelected isOptionEqualToValue"
+          },
+          "id": "toolu_01QdcNLHo5hLoRuRrfdfnNQD",
+          "type": "tool_call"
+        },
+        {
+          "name": "read_file",
+          "args": {
+            "path": "src/data/people.ts"
+          },
+          "id": "toolu_01KAUpRVBhJF9BTpjVhZ7T7X",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 7896,
+        "output_tokens": 3277,
+        "total_tokens": 11173,
+        "input_token_details": {
+          "cache_read": 5680,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 2214,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 3097
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "**TextField › Forward ref instead of inputRef prop**\n\nChange ref forwarding expectations on custom `inputComponent`.\n\nThe component should forward the `ref` prop instead of the `inputRef` prop.\n\n```diff\n-function NumberFormatCustom(props) {\n-  const { inputRef, onChange, ...other } = props;\n+const NumberFormatCustom = React.forwardRef(function NumberFormatCustom(\n+  props,\n+  ref,\n+) {\n  const { onChange, ...other } = props;\n\n  return (\n    <NumberFormat\n      {...other}\n-     getInputRef={inputRef}\n+     getInputRef={ref}\n```\n\n---\n\n**ref › Refactor non-ref-forwarding class components**\n\nSupport for non-ref-forwarding class components in the `component` prop or as immediate `children` has been dropped.\n\nIf you were using `unstable_createStrictModeTheme` or didn't see any warnings related to `findDOMNode` in `React.StrictMode` then you don't need to take any further action.\n\nOtherwise check out the [Caveat with refs](https://v5.mui.com/material-ui/guides/composition/#caveat-with-refs) section in the Composition guide to find out how to migrate.\nThis change affects almost all components where you're using the `component` prop or passing `children` to components that require `children` to be elements (for example `<MenuList><CustomMenuItem /></MenuList>`).\n\n---\n\n**TablePagination › Move custom class on input to select**\n\nMove the custom class on `input` to `select`.\n\nThe `input` key is applied on another element.\n\n```diff\n  <TablePagination\n-  classes={{ input: 'foo' }}\n+  classes={{ select: 'foo' }}\n  />\n```",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "search_guide",
+      "id": null,
+      "tool_call_id": "toolu_01QiyXYEHLpcZ1TNVMG5uzo9",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "**Autocomplete › Rename getOptionSelected (codemod)**\n\nRename `getOptionSelected` to `isOptionEqualToValue` to better describe its purpose.\n\n```diff\n <Autocomplete\n-  getOptionSelected={(option, value) => option.title === value.title}\n+  isOptionEqualToValue={(option, value) => option.title === value.title}\n```\n\n---\n\n**Autocomplete › Update renderOption**\n\n`renderOption` should now return the full DOM structure of the option.\nIt makes customizations easier. You can recover from the change with:\n\n```diff\n <Autocomplete\n-  renderOption={(option, { selected }) => (\n-    <React.Fragment>\n+  renderOption={(props, option, { selected }) => (\n+    <li {...props}>\n       <Checkbox\n         icon={icon}\n         checkedIcon={checkedIcon}\n         style={{ marginRight: 8 }}\n         checked={selected}\n       />\n       {option.title}\n-    </React.Fragment>\n+    </li>\n   )}\n />\n```\n\n---\n\n**Autocomplete › Rename reason arguments**\n\nThe following values of the reason argument in `onChange` and `onClose` were renamed for consistency:\n\n1. `create-option` to `createOption`\n2. `select-option` to `selectOption`\n3. `remove-option` to `removeOption`\n\nChange the CSS rules that use `[data-focus=\"true\"]` to use `.Mui-focused`. The `data-focus` attribute is not set on the focused option anymore; instead, global class names are used.\n\n```diff\n-'.MuiAutocomplete-option[data-focus=\"true\"]': {\n+'.MuiAutocomplete-option.Mui-focused': {\n```",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "search_guide",
+      "id": null,
+      "tool_call_id": "toolu_01QdcNLHo5hLoRuRrfdfnNQD",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "src/data/people.ts (16 lines)\n 1  export interface Person {\n 2    id: string;\n 3    name: string;\n 4    initials: string;\n 5  }\n 6  \n 7  export const TEAM: Person[] = [\n 8    { id: 'ada', name: 'Ada Lovelace', initials: 'AL' },\n 9    { id: 'grace', name: 'Grace Hopper', initials: 'GH' },\n10    { id: 'linus', name: 'Linus Torvalds', initials: 'LT' },\n11    { id: 'margaret', name: 'Margaret Hamilton', initials: 'MH' },\n12  ];\n13  \n14  // The signed-in user, as the session endpoint returns it (a separate object from\n15  // the team list, which comes from another endpoint).\n16  export const CURRENT_USER: Person = { id: 'grace', name: 'Grace Hopper', initials: 'GH' };",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "read_file",
+      "id": null,
+      "tool_call_id": "toolu_01KAUpRVBhJF9BTpjVhZ7T7X",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "text": "The guide's \"Forward ref instead of inputRef prop\" section explains the estimate failure: v5 passes the input ref as `ref`, so `DurationInput` has to forward it. The first failure is the `getOptionSelected` key in `personPickerProps`, which the codemod missed because it sits in a plain object rather than on the JSX. I'll fix both in their local files.",
+          "type": "text"
+        },
+        {
+          "id": "toolu_013ebgEECrUpXmqtTKMcwZuQ",
+          "input": {
+            "path": "src/components/personPicker.ts",
+            "old_text": "  getOptionSelected: (option: Person, value: Person) => option.id === value.id,",
+            "new_text": "  isOptionEqualToValue: (option: Person, value: Person) => option.id === value.id,"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "caller": {
+            "type": "direct"
+          },
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01PQtDpVZSos6zsednfQ1mzq",
+          "input": {
+            "path": "src/components/DurationInput.tsx",
+            "old_text": "import { FocusEvent } from 'react';\nimport { InputBaseComponentProps } from '@mui/material';",
+            "new_text": "import { FocusEvent, forwardRef } from 'react';\nimport { InputBaseComponentProps } from '@mui/material';"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "caller": {
+            "type": "direct"
+          },
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01RF9ruwsqF7gT97rhvrEEM5",
+          "input": {
+            "path": "src/components/DurationInput.tsx",
+            "old_text": "export function DurationInput(props: InputBaseComponentProps) {\n  const { inputRef, onBlur, ...other } = props;\n  return (\n    <input\n      {...other}\n      ref={inputRef}\n      onBlur={(event: FocusEvent<HTMLInputElement>) => {\n        event.target.value = normaliseDuration(event.target.value);\n        onBlur?.(event);\n      }}\n    />\n  );\n}",
+            "new_text": "export const DurationInput = forwardRef<HTMLInputElement, InputBaseComponentProps>(\n  function DurationInput(props, ref) {\n    const { onBlur, ...other } = props;\n    return (\n      <input\n        {...other}\n        ref={ref}\n        onBlur={(event: FocusEvent<HTMLInputElement>) => {\n          event.target.value = normaliseDuration(event.target.value);\n          onBlur?.(event);\n        }}\n      />\n    );\n  }\n);"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "caller": {
+            "type": "direct"
+          },
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtMGaipPux9fCViMBxxF",
+        "container": null,
+        "context_management": null,
+        "diagnostics": null,
+        "model": "claude-haiku-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 4802
+          },
+          "cache_creation_input_tokens": 4802,
+          "cache_read_input_tokens": 7894,
+          "fallback_credit": null,
+          "inference_geo": "global",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 0,
+                "ephemeral_5m_input_tokens": 4802
+              },
+              "cache_creation_input_tokens": 4802,
+              "cache_read_input_tokens": 7894,
+              "input_tokens": 2,
+              "model": null,
+              "output_tokens": 1727,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 1727,
+          "output_tokens_details": {
+            "thinking_tokens": 853
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "input_transformations": null,
+        "model_name": "claude-haiku-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2fd-8b98-71e3-a98b-a81ea0aca122-0",
+      "tool_calls": [
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/components/personPicker.ts",
+            "old_text": "  getOptionSelected: (option: Person, value: Person) => option.id === value.id,",
+            "new_text": "  isOptionEqualToValue: (option: Person, value: Person) => option.id === value.id,"
+          },
+          "id": "toolu_013ebgEECrUpXmqtTKMcwZuQ",
+          "type": "tool_call"
+        },
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/components/DurationInput.tsx",
+            "old_text": "import { FocusEvent } from 'react';\nimport { InputBaseComponentProps } from '@mui/material';",
+            "new_text": "import { FocusEvent, forwardRef } from 'react';\nimport { InputBaseComponentProps } from '@mui/material';"
+          },
+          "id": "toolu_01PQtDpVZSos6zsednfQ1mzq",
+          "type": "tool_call"
+        },
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/components/DurationInput.tsx",
+            "old_text": "export function DurationInput(props: InputBaseComponentProps) {\n  const { inputRef, onBlur, ...other } = props;\n  return (\n    <input\n      {...other}\n      ref={inputRef}\n      onBlur={(event: FocusEvent<HTMLInputElement>) => {\n        event.target.value = normaliseDuration(event.target.value);\n        onBlur?.(event);\n      }}\n    />\n  );\n}",
+            "new_text": "export const DurationInput = forwardRef<HTMLInputElement, InputBaseComponentProps>(\n  function DurationInput(props, ref) {\n    const { onBlur, ...other } = props;\n    return (\n      <input\n        {...other}\n        ref={ref}\n        onBlur={(event: FocusEvent<HTMLInputElement>) => {\n          event.target.value = normaliseDuration(event.target.value);\n          onBlur?.(event);\n        }}\n      />\n    );\n  }\n);"
+          },
+          "id": "toolu_01RF9ruwsqF7gT97rhvrEEM5",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 12698,
+        "output_tokens": 1727,
+        "total_tokens": 14425,
+        "input_token_details": {
+          "cache_read": 7894,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 4802,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 853
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/components/personPicker.ts so far: +1 −1 lines (12% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_013ebgEECrUpXmqtTKMcwZuQ",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/components/DurationInput.tsx so far: +1 −1 lines (3% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01PQtDpVZSos6zsednfQ1mzq",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Rejected: with this edit the patch to src/components/DurationInput.tsx would be +16 −14 lines (48% of the file), past the size limit. The file goes to a human; the attempt is over.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01RF9ruwsqF7gT97rhvrEEM5",
+      "artifact": null,
+      "status": "success"
+    }
+  }
+]

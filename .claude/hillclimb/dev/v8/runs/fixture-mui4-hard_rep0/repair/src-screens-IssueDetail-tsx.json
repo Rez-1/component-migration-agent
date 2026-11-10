@@ -1,0 +1,364 @@
+[
+  {
+    "type": "human",
+    "data": {
+      "content": "## Failing file: `src/screens/IssueDetail.tsx`\n\nAttempt 1 of 3.\n\n### Failures in this file (3)\n\n1. **Failing test** `src/screens/__tests__/IssueDetail.test.tsx` › \"IssueDetail › adds a label and says so\": TestingLibraryElementError: Unable to find an accessible element with the role \"alert\" (This test imports this file.)\n2. **Failing test** `src/screens/__tests__/IssueDetail.test.tsx` › \"IssueDetail › removes a label with Backspace, and Undo brings it back\": TestingLibraryElementError: Unable to find an accessible element with the role \"alert\" (This test imports this file.)\n3. **Failing test** `src/screens/__tests__/IssueDetail.test.tsx` › \"IssueDetail › puts the cursor in the comment box once the dialog is open\": Error: expect(element).toHaveFocus() (This test imports this file.)\n\n### What the Rules stage changed in this file\n\n```diff\n--- a/src/screens/IssueDetail.tsx\n+++ b/src/screens/IssueDetail.tsx\n@@ -11,4 +11,5 @@\n   Typography,\n-} from '@material-ui/core';\n-import { makeStyles, Theme } from '@material-ui/core/styles';\n+} from '@mui/material';\n+import { Theme } from '@mui/material/styles';\n+import makeStyles from '@mui/styles/makeStyles';\n import { Issue, Label } from '../data/issues';\n```\n\n### The file now (108 lines)\n\n```tsx\n  1  import { useRef, useState } from 'react';\n  2  import {\n  3    Button,\n  4    Dialog,\n  5    DialogActions,\n  6    DialogContent,\n  7    DialogTitle,\n  8    Paper,\n  9    Snackbar,\n 10    TextField,\n 11    Typography,\n 12  } from '@mui/material';\n 13  import { Theme } from '@mui/material/styles';\n 14  import makeStyles from '@mui/styles/makeStyles';\n 15  import { Issue, Label } from '../data/issues';\n 16  import { LabelPicker } from '../components/LabelPicker';\n 17  import { focusOnOpen } from '../components/dialogFocus';\n 18  \n 19  const useStyles = makeStyles((theme: Theme) => ({\n 20    root: { padding: theme.spacing(2), margin: theme.spacing(2), maxWidth: 560 },\n 21    section: { marginTop: theme.spacing(2) },\n 22  }));\n 23  \n 24  interface IssueDetailProps {\n 25    issue: Issue;\n 26    onComment?: (text: string) => void;\n 27  }\n 28  \n 29  export function IssueDetail({ issue, onComment }: IssueDetailProps) {\n 30    const classes = useStyles();\n 31    const [labels, setLabels] = useState<Label[]>(issue.labels);\n 32    const [notice, setNotice] = useState<{ message: string; undo: Label[] } | null>(null);\n 33    const [commenting, setCommenting] = useState(false);\n 34    const [comment, setComment] = useState('');\n 35    const commentRef = useRef<HTMLTextAreaElement>(null);\n 36  \n 37    const postComment = () => {\n 38      onComment?.(comment);\n 39      setComment('');\n 40      setCommenting(false);\n 41    };\n 42  \n 43    return (\n 44      <Paper className={classes.root} component=\"article\" aria-labelledby=\"issue-title\">\n 45        <Typography id=\"issue-title\" variant=\"h5\" component=\"h1\">\n 46          #{issue.id} {issue.title}\n 47        </Typography>\n 48        <div className={classes.section}>\n 49          <LabelPicker\n 50            value={labels}\n 51            onChange={setLabels}\n 52            onAnnounce={(message) => setNotice({ message, undo: labels })}\n 53          />\n 54        </div>\n 55        <div className={classes.section}>\n 56          <Button variant=\"outlined\" onClick={() => setCommenting(true)}>\n 57            Comment\n 58          </Button>\n 59        </div>\n 60        <Dialog\n 61          open={commenting}\n 62          onClose={() => setCommenting(false)}\n 63          aria-labelledby=\"comment-title\"\n 64          fullWidth\n 65          {...focusOnOpen(commentRef)}\n 66        >\n 67          <DialogTitle id=\"comment-title\">Comment on #{issue.id}</DialogTitle>\n 68          <DialogContent>\n 69            <TextField\n 70              id=\"comment-text\"\n 71              label=\"Comment\"\n 72              multiline\n 73              rows={4}\n 74              fullWidth\n 75              variant=\"outlined\"\n 76              inputRef={commentRef}\n 77              value={comment}\n 78              onChange={(e) => setComment(e.target.value)}\n 79            />\n 80          </DialogContent>\n 81          <DialogActions>\n 82            <Button onClick={() => setCommenting(false)}>Cancel</Button>\n 83            <Button color=\"primary\" disabled={!comment.trim()} onClick={postComment}>\n 84              Post\n 85            </Button>\n 86          </DialogActions>\n 87        </Dialog>\n 88        <Snackbar\n 89          open={notice !== null}\n 90          message={notice?.message}\n 91          autoHideDuration={6000}\n 92          onClose={() => setNotice(null)}\n 93          action={\n 94            <Button\n 95              color=\"secondary\"\n 96              size=\"small\"\n 97              onClick={() => {\n 98                if (notice) setLabels(notice.undo);\n 99                setNotice(null);\n100              }}\n101            >\n102              Undo\n103            </Button>\n104          }\n105        />\n106      </Paper>\n107    );\n108  }\n```\n\n### Local imports\n\n- `src/components/LabelPicker.tsx`: `export function LabelPicker({ value, onChange, onAnnounce }: LabelPickerProps)`\n- `src/components/dialogFocus.ts`: `export function focusOnOpen(field: RefObject<HTMLElement>)`\n- `src/data/issues.ts`: `export type Status = 'open' | 'in-progress' | 'done';`, `export type Priority = 'low' | 'medium' | 'high';`, `export interface Label { id: string; name: string; }`, `export interface Issue { id: number; title: string; status: Status; priority: Priority; assignee: string | null; labels: Label[]; daysOpen: number; }`, `export const LABELS: Label[]`, `export const ISSUES: Issue[] = titles.map(…)`\n\n### Used by\n\n- `src/App.tsx` imports `IssueDetail` from this file.\n\n### Guide sections (keyword lookup: `IssueDetail`, `TestingLibraryElementError`, `toHaveFocus`)\n\n**Dialog › Remove withMobileDialog component**\n\nRemove the `withMobileDialog` higher-order component.\n\n:::warning\nThis is handled in the [preset-safe codemod](#preset-safe) by applying hard-coded function to prevent application crash, but further fixes are required.\n:::\n\nThe hook API allows a simpler and more flexible solution:\n\n```diff\n-import withMobileDialog from '@mui/material/withMobileDialog';\n+import { useTheme, useMediaQuery } from '@mui/material';\n\n function ResponsiveDialog(props) {\n-  const { fullScreen } = props;\n+  const theme = useTheme();\n+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));\n   const [open, setOpen] = React.useState(false);\n\n // ...\n\n-export default withMobileDialog()(ResponsiveDialog);\n+export default ResponsiveDialog;\n```\n\n**TablePagination › Customize labels with getItemAriaLabel prop**\n\nThe customization of the table pagination's actions labels must be done with the `getItemAriaLabel` prop.\n\nThis increases consistency with the `Pagination` component.\n\n```diff\n  <TablePagination\n-  backIconButtonText=\"Back\"\n-  nextIconButtonText=\"Next\"\n+  getItemAriaLabel={…}\n```\n\n**Update Material UI packages › Remove old packages**\n\nOnce you've installed all the necessary packages and ensured that your app still runs, you can safely remove the old `@material-ui/*` packages by running `npm uninstall @material-ui/*` or `yarn remove @material-ui/*`.\n\n:::success\nThe [preset-safe codemod](#preset-safe) (explained in more detail below) handles this automatically.\n:::\n\nAlso possibly relevant (`search_guide` for the text):\n\n- Alert › Update import (codemod)\n- Dialog › Remove disableTypography prop (codemod)\n- ExpansionPanelSummary › Rename focused to focusVisible\n- Button › Remove span and label\n- Style library › Adjust CSS injection order (codemod)\n- Dialog › Remove disableBackdropClick prop (codemod)\n- Dialog › Update transition props (codemod)\n- FormControlLabel › Add required label prop",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "human",
+      "name": null,
+      "id": null
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "id": "toolu_01KBnxf1cHm22bt6BD6XG18V",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/components/dialogFocus.ts"
+          },
+          "name": "read_file",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01YbBshh1x8FKx42ojXu5bXx",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/components/LabelPicker.tsx"
+          },
+          "name": "read_file",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtJaPkAiNDtLMGWaXn8b",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-opus-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 3145
+          },
+          "cache_creation_input_tokens": 3145,
+          "cache_read_input_tokens": 1910,
+          "inference_geo": "global",
+          "input_tokens": 4,
+          "output_tokens": 116,
+          "output_tokens_details": {
+            "thinking_tokens": 0
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-opus-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2dd-36c5-76bc-aa91-8ca88014c943-0",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "args": {
+            "path": "src/components/dialogFocus.ts"
+          },
+          "id": "toolu_01KBnxf1cHm22bt6BD6XG18V",
+          "type": "tool_call"
+        },
+        {
+          "name": "read_file",
+          "args": {
+            "path": "src/components/LabelPicker.tsx"
+          },
+          "id": "toolu_01YbBshh1x8FKx42ojXu5bXx",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 5059,
+        "output_tokens": 116,
+        "total_tokens": 5175,
+        "input_token_details": {
+          "cache_read": 1910,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 3145,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 0
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "src/components/dialogFocus.ts (9 lines)\n1  import { RefObject } from 'react';\n2  \n3  // Dialog props that move focus to a field once the dialog has finished opening\n4  // (the field isn't focusable while the dialog is still fading in).\n5  export function focusOnOpen(field: RefObject<HTMLElement>) {\n6    return {\n7      onEntered: () => field.current?.focus(),\n8    };\n9  }",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "read_file",
+      "id": null,
+      "tool_call_id": "toolu_01KBnxf1cHm22bt6BD6XG18V",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "src/components/LabelPicker.tsx (39 lines)\n 1  import { Chip, TextField } from '@mui/material';\n 2  import { Autocomplete } from '@mui/material';\n 3  import { Label, LABELS } from '../data/issues';\n 4  \n 5  // What a screen reader hears (and the snackbar shows) after a change.\n 6  const ANNOUNCEMENTS: Record<string, (label: Label) => string> = {\n 7    'select-option': (label) => `Added “${label.name}”`,\n 8    'remove-option': (label) => `Removed “${label.name}”`,\n 9  };\n10  \n11  interface LabelPickerProps {\n12    value: Label[];\n13    onChange: (labels: Label[]) => void;\n14    onAnnounce?: (message: string, label: Label) => void;\n15  }\n16  \n17  export function LabelPicker({ value, onChange, onAnnounce }: LabelPickerProps) {\n18    return (\n19      <Autocomplete\n20        multiple\n21        options={LABELS}\n22        value={value}\n23        getOptionLabel={(label) => label.name}\n24        isOptionEqualToValue={(option, selected) => option.id === selected.id}\n25        filterSelectedOptions\n26        onChange={(_event, labels, reason, details) => {\n27          onChange(labels);\n28          const announce = ANNOUNCEMENTS[reason];\n29          if (announce && details) onAnnounce?.(announce(details.option), details.option);\n30        }}\n31        renderTags={(labels, getTagProps) =>\n32          labels.map((label, index) => (\n33            <Chip size=\"small\" label={label.name} {...getTagProps({ index })} key={label.id} />\n34          ))\n35        }\n36        renderInput={(params) => <TextField {...params} label=\"Labels\" variant=\"outlined\" />}\n37      />\n38    );\n39  }",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "read_file",
+      "id": null,
+      "tool_call_id": "toolu_01YbBshh1x8FKx42ojXu5bXx",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "signature": "CAQSvgUKEAgTGAI4AUIIdGhpbmtpbmcSDKoyH8Lb3RNy5AL+GBoM2FRmmoVRcOHCDQuzIjCEcKoMNQlLVBMU+QhTf2gAGu9ghvNeFMlx0UATF3AaXGPmpdD1JRZZAWPR/U1JqJAq2wTgde1LBHW1Px12GFCrMiroDldqyAXX2lQU+nbAcyefHUg7+JpP4HnEfjIEirTyz4p7WtPtt5IDoKn2g61rGxVWW+zHVoR1WRhiqSXSvRz5qpkCnouVs2TbGbB2xU+4+DXZXUbSVTcpUswVHJZjd54orZ7AvYCMzyyvq39RqMEUreDCBGOq6CbXzBE7DPz6jtZSy7cMkVi2ZE8XMdFhepvQDo0O8MKw4DZLFzqwc7HCyeVqKHCz4BckfLG0rUrwhW1prlfhoDSu120sb2Qi9fC96YOC3Xkm687+au3PbJ3o/Anr9XPvuDAZeExVOzSTzWrgsfW8H6wydwCWwAlzi1/HlkBLoz38G3CdAuueBGjfo6+iL+IYOy5bCr2M1qqfRLz9lwNUI+jDXBA5c6xHMgbLl0bGcxYQktmD6dgPeYsKPwdyBSkaTOsIWpSwQZmRLG9HE1FZk0s22AKSm9SxLHg1n5F1yYFpQ9bRxsxObJ5YuCszYYcm/swcswy+UTp17eWVO7BWoVVTyj4ZOVhbVJpaB5pVg63HcdJSHFGkMUymYcGvUcSUryHqMEZvqq2Ws6VSZnsF9j+iTDnff9HcXEyxQxu+PZfC2hhfTO67f454r21t7ShYLfCsdtw7zhiC+ZjO2Th8ymJZMIxgiaFO8riS5MC4n90WbHRYUQglx6OyLcYvWBdLUaiB70J8clz5x7wIaB86B67ly0GmwdfpmjTVpr2S7TwEi0zHUod5Q7LvrW5RnLQBIzAVVA74dq0FZxNBr23qVlT0SKDXmJhHD169sRePTVVEtZiOQDMYAQ==",
+          "thinking": "The v5 reasons flagged 'selectOption' and 'removeOption', so I'm going to fix both of those. The Dialog's onEntered handler needs to move into TransitionProps.\n\n",
+          "type": "thinking"
+        },
+        {
+          "id": "toolu_01TfrwK5Jjwc3ce6ybKF5FPX",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/components/LabelPicker.tsx",
+            "old_text": "  'select-option': (label) => `Added “${label.name}”`,\n  'remove-option': ",
+            "new_text": "  selectOption: (label) => `Added “${label.name}”`,\n  removeOption: "
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_017NyKhiH6jiN4mUPH8bCiDU",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/components/dialogFocus.ts",
+            "old_text": "    onEntered: () => field.current?.focus(),",
+            "new_text": "    TransitionProps: { onEntered: () => field.current?.focus() },"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtJaa5GXZ1tjTc9zd11R",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-opus-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 956
+          },
+          "cache_creation_input_tokens": 956,
+          "cache_read_input_tokens": 5055,
+          "inference_geo": "global",
+          "input_tokens": 2,
+          "output_tokens": 355,
+          "output_tokens_details": {
+            "thinking_tokens": 45
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-opus-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2dd-4068-7567-b541-893c5bd43aac-0",
+      "tool_calls": [
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/components/LabelPicker.tsx",
+            "old_text": "  'select-option': (label) => `Added “${label.name}”`,\n  'remove-option': ",
+            "new_text": "  selectOption: (label) => `Added “${label.name}”`,\n  removeOption: "
+          },
+          "id": "toolu_01TfrwK5Jjwc3ce6ybKF5FPX",
+          "type": "tool_call"
+        },
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/components/dialogFocus.ts",
+            "old_text": "    onEntered: () => field.current?.focus(),",
+            "new_text": "    TransitionProps: { onEntered: () => field.current?.focus() },"
+          },
+          "id": "toolu_017NyKhiH6jiN4mUPH8bCiDU",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 6013,
+        "output_tokens": 355,
+        "total_tokens": 6368,
+        "input_token_details": {
+          "cache_read": 5055,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 956,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 45
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/components/LabelPicker.tsx so far: +2 −2 lines (5% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01TfrwK5Jjwc3ce6ybKF5FPX",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/components/dialogFocus.ts so far: +1 −1 lines (11% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_017NyKhiH6jiN4mUPH8bCiDU",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "id": "toolu_01Tmj8Era8h6rUoBXtKW8Qj1",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "note": "v5 Autocomplete reasons are camelCase (selectOption/removeOption); Dialog onEntered moved into TransitionProps."
+          },
+          "name": "run_verify",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtJarrpYT1S2zgmLt85w",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-opus-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 494
+          },
+          "cache_creation_input_tokens": 494,
+          "cache_read_input_tokens": 6011,
+          "inference_geo": "global",
+          "input_tokens": 2,
+          "output_tokens": 93,
+          "output_tokens_details": {
+            "thinking_tokens": 0
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-opus-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2dd-4f5d-7222-8291-d03349fa94fd-0",
+      "tool_calls": [
+        {
+          "name": "run_verify",
+          "args": {
+            "note": "v5 Autocomplete reasons are camelCase (selectOption/removeOption); Dialog onEntered moved into TransitionProps."
+          },
+          "id": "toolu_01Tmj8Era8h6rUoBXtKW8Qj1",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 6507,
+        "output_tokens": 93,
+        "total_tokens": 6600,
+        "input_token_details": {
+          "cache_read": 6011,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 494,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 0
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Attempt 1 passed: no failures left in src/screens/IssueDetail.tsx and nothing new elsewhere. Patch: `src/components/LabelPicker.tsx` +2 −2 lines (5% of the file); `src/components/dialogFocus.ts` +1 −1 lines (11% of the file). This file is done.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "run_verify",
+      "id": null,
+      "tool_call_id": "toolu_01Tmj8Era8h6rUoBXtKW8Qj1",
+      "artifact": null,
+      "status": "success"
+    }
+  }
+]

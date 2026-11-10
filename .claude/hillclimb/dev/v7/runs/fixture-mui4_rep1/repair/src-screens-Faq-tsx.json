@@ -1,0 +1,198 @@
+[
+  {
+    "type": "human",
+    "data": {
+      "content": "## Failing file: `src/screens/Faq.tsx`\n\nAttempt 1 of 3.\n\n### Failures in this file (1)\n\n1. **Failing test** `src/screens/__tests__/Faq.test.tsx` › \"Faq › renders a question header with its expand icon\": Error: expect(received).toMatchSnapshot() (This test imports this file.)\n\n### What the Rules stage changed in this file\n\n```diff\n--- a/src/screens/Faq.tsx\n+++ b/src/screens/Faq.tsx\n@@ -1,9 +1,9 @@\n import {\n-  ExpansionPanel,\n-  ExpansionPanelDetails,\n-  ExpansionPanelSummary,\n+  Accordion,\n+  AccordionDetails,\n+  AccordionSummary,\n   Link,\n   Typography,\n-} from '@material-ui/core';\n-import ExpandMoreIcon from '@material-ui/icons/ExpandMore';\n+} from '@mui/material';\n+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';\n \n@@ -40,4 +40,4 @@\n       {QUESTIONS.map((q) => (\n-        <ExpansionPanel key={q.id}>\n-          <ExpansionPanelSummary\n+        <Accordion key={q.id}>\n+          <AccordionSummary\n             expandIcon={<ExpandMoreIcon />}\n@@ -47,10 +47,10 @@\n             <Typography>{q.question}</Typography>\n-          </ExpansionPanelSummary>\n-          <ExpansionPanelDetails>\n+          </AccordionSummary>\n+          <AccordionDetails>\n             <Typography>{q.answer}</Typography>\n-          </ExpansionPanelDetails>\n-        </ExpansionPanel>\n+          </AccordionDetails>\n+        </Accordion>\n       ))}\n       <Typography variant=\"body2\">\n-        Still stuck? <Link href=\"mailto:support@example.com\">Contact support</Link>\n+        Still stuck? <Link href=\"mailto:support@example.com\" underline=\"hover\">Contact support</Link>\n       </Typography>\n```\n\n### The file now (59 lines)\n\n```tsx\n 1  import {\n 2    Accordion,\n 3    AccordionDetails,\n 4    AccordionSummary,\n 5    Link,\n 6    Typography,\n 7  } from '@mui/material';\n 8  import ExpandMoreIcon from '@mui/icons-material/ExpandMore';\n 9  \n10  interface Question {\n11    id: string;\n12    question: string;\n13    answer: string;\n14  }\n15  \n16  const QUESTIONS: Question[] = [\n17    {\n18      id: 'export',\n19      question: 'How do I export my data?',\n20      answer: 'Open Users and choose Export CSV. The file includes every user that matches your filter.',\n21    },\n22    {\n23      id: 'delete',\n24      question: 'Can I delete my account?',\n25      answer: 'Yes. Go to Account and choose Delete account. This cannot be undone.',\n26    },\n27    {\n28      id: 'offices',\n29      question: 'Where are your offices?',\n30      answer: 'Use Search to find the office nearest to you.',\n31    },\n32  ];\n33  \n34  export function Faq() {\n35    return (\n36      <section aria-labelledby=\"faq-title\">\n37        <Typography id=\"faq-title\" variant=\"h5\" component=\"h1\" gutterBottom>\n38          Frequently asked questions\n39        </Typography>\n40        {QUESTIONS.map((q) => (\n41          <Accordion key={q.id}>\n42            <AccordionSummary\n43              expandIcon={<ExpandMoreIcon />}\n44              id={`${q.id}-header`}\n45              aria-controls={`${q.id}-content`}\n46            >\n47              <Typography>{q.question}</Typography>\n48            </AccordionSummary>\n49            <AccordionDetails>\n50              <Typography>{q.answer}</Typography>\n51            </AccordionDetails>\n52          </Accordion>\n53        ))}\n54        <Typography variant=\"body2\">\n55          Still stuck? <Link href=\"mailto:support@example.com\" underline=\"hover\">Contact support</Link>\n56        </Typography>\n57      </section>\n58    );\n59  }\n```\n\n### Local imports\n\nNone.\n\n### Used by\n\n- `src/App.tsx` imports `Faq` from this file.\n\n### Guide sections (keyword lookup: `toMatchSnapshot`)\n\n**ExpansionPanelSummary › Remove IconButtonProps prop**\n\nRemove `IconButtonProps` prop from `AccordionSummary` (formerly `ExpansionPanelSummary`).\n\nThe component renders a `<div>` element instead of an `IconButton`, so the prop is no longer necessary.\n\n**AccordionSummary › Rename expandIcon to expandIconWrapper**\n\nThis change was made to make it clearer that the element is a wrapper around the icon, not the icon itself.\n\nUpdate the CSS class name and the theme overrides accordingly.\n\n```diff\n-'.MuiAccordionSummary-expandIcon': {\n+'.MuiAccordionSummary-expandIconWrapper': {\n```\n\n```diff\n createTheme({\n   components: {\n     MuiAccordionSummary: {\n       styleOverrides: {\n-        expandIcon: {\n+        expandIconWrapper: {\n          // ...\n         },\n       },\n     },\n   },\n });\n```\n\n**ExpansionPanelDetails › Remove display: flex**\n\nRemove `display: flex` from `AccordionDetails` (formerly `ExpansionPanelDetails`) as it was too opinionated—most developers expect `display: block`.\n\nAlso possibly relevant (`search_guide` for the text):\n\n- @mui/icons-material › Reduce GitHub icon size\n- ExpansionPanel › Rename components (codemod)\n- ExpansionPanel › Update event type (TypeScript)\n- ExpansionPanelSummary › Rename focused to focusVisible\n- Link › Update default underline prop (codemod)\n- Typography › Remove srOnly variant\n- Typography › Remove color and style override keys\n- Rating › Change default empty icon",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "human",
+      "name": null,
+      "id": null
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "signature": "CAQS2QYKEAgTGAI4AUIIdGhpbmtpbmcSDDXsNy4PnOC9URlq/xoMH4t5a4ap875A5b1SIjDEg/kfXR2EfVxbZalw9JF9I1bsU8xYrxeLRJfY5zleEEH41uZPdn2h27AZL+wubPkq9gWAyCW4DVbEuXh4vjILAB3W1z4EqmAgsGB1tECSvxGfT8wIvU7YF9B+0zBZ1KtNlyutLXphsvckB6NoX5aLk5GEJmgrypnUyEcWN8cYE7gihxzQBT6ESg5EteTSff72sPT7l2krhMAQSlUXIlzbvPi5jFgpCzoLYbaQMngOYNtxV+kqYN8MumEu2bsicy7zkECRUhIdRUtRowbcyQfTj5vAaezlCqPPSukCjVtKR4n7MfxLfqNBR8MKcwieAVz+G8DdlLE+FskqensoviykSG1NFQ3Mi3pQZp96q/a05mBWc4Yi7k6+yPNML9n70DKT7Na/EW/pJv8LEX/nTZwEKrVKkvPgsVVCVa/avQnsLw8ZR85wcKnLW/PIRwMUYfRtoWk40gVmBGu/2jJzJlklIRly0Br1O2CTM6OGBYbFKQW6z+uoJGJFvE3VARD4OG8w5n+Z4PLhSAn0omdZPuy9vijNRm/TL7Gsb1QyigYMpPJIxW6g841+AirWBRbEW1fx3Ms9+pfGo9OArCyfAQC7M3e/yliPmDLXYTuxC/AZKuc3pWfQZQOx1QsQJQFpgCX9E5jNfviSRJaPwk0Bgl8TPVMwPRW+ux4Z/COFH/Lb24qjw3byd4A4JtUfacSopeMjcKrahtAPzQNd+IoNTxuAKJaRFJKQvg7lYiS/nK4myhPTJpWqVkpgJ67eqOqwXZcrSTIp75aM+x3/m1wT3XwRFSqNrvvsquxqg16udQW50OFszCnjlqhPIxkmGBygSQSXBpuDTrXiCTxvYsC0T481jglzTw8WG8SD4zLS/cadiXv6zUTgFb5UI33+TSRgSxnnzIwyrVczu6fgzY/7CrHw8Pk5nDGdp7sIzXajlO07FB50eAfL0yWS5FNI4YIpyv3unwBLeh08ddLRJl1AJXzcnoxeBiVdqV2dPrUt6K37n5GoGQ5G4KqHjaQBEk7kbdie0RFba0KqVU95ZofnQCWRj9gO6Mxhl8UHxpUhT2AES8tHWZRw/PTaBBgB",
+          "thinking": "The snapshot is failing because the markup changed, with IconButton now rendering as a div and the class names differing. The snapshot reflects the v4 DOM, so it can't match the v5 structure, and the snapshot files are off-limits, so it needs updating rather than me touching it. I'll take a quick look at the test itself before handing this off.\n\n",
+          "type": "thinking"
+        },
+        {
+          "id": "toolu_01RjY1bExu6JnWh7uJcrRn6p",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/__tests__/Faq.test.tsx"
+          },
+          "name": "read_file",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtGb6ojkfW37sTeoD4yv",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-opus-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 2162
+          },
+          "cache_creation_input_tokens": 2162,
+          "cache_read_input_tokens": 1872,
+          "inference_geo": "global",
+          "input_tokens": 4,
+          "output_tokens": 165,
+          "output_tokens_details": {
+            "thinking_tokens": 99
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-opus-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2c5-5966-77ff-abb1-5802a6a944a9-0",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "args": {
+            "path": "src/screens/__tests__/Faq.test.tsx"
+          },
+          "id": "toolu_01RjY1bExu6JnWh7uJcrRn6p",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 4038,
+        "output_tokens": 165,
+        "total_tokens": 4203,
+        "input_token_details": {
+          "cache_read": 1872,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 2162,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 99
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "src/screens/__tests__/Faq.test.tsx (31 lines)\n 1  import { fireEvent, screen } from '@testing-library/react';\n 2  import { renderScreen } from '../../test-utils';\n 3  import { Faq } from '../Faq';\n 4  \n 5  describe('Faq', () => {\n 6    it('reveals an answer when its question is clicked', () => {\n 7      renderScreen(<Faq />);\n 8      const question = screen.getByRole('button', { name: 'Can I delete my account?' });\n 9      expect(question).toHaveAttribute('aria-expanded', 'false');\n10  \n11      fireEvent.click(question);\n12  \n13      expect(question).toHaveAttribute('aria-expanded', 'true');\n14      expect(screen.getByText(/This cannot be undone/)).toBeVisible();\n15    });\n16  \n17    it('renders a question header with its expand icon', () => {\n18      renderScreen(<Faq />);\n19  \n20      expect(screen.getByRole('button', { name: 'How do I export my data?' })).toMatchSnapshot();\n21    });\n22  \n23    it('links to support', () => {\n24      renderScreen(<Faq />);\n25  \n26      expect(screen.getByRole('link', { name: 'Contact support' })).toHaveAttribute(\n27        'href',\n28        'mailto:support@example.com',\n29      );\n30    });\n31  });",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "read_file",
+      "id": null,
+      "tool_call_id": "toolu_01RjY1bExu6JnWh7uJcrRn6p",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "id": "toolu_01WjWSJPo3G81bDRQzSvNvrW",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "reason": "The snapshot still holds v4 markup: an IconButton with the MuiExpansionPanelSummary-expandIcon class. v5 AccordionSummary now renders a div wrapper with MuiAccordionSummary-expandIconWrapper, as the guide documents. The migrated code is correct, so a human needs to review and update the snapshot."
+          },
+          "name": "hand_off",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtGbQwQ6fUFqducLGA4C",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-opus-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 648
+          },
+          "cache_creation_input_tokens": 648,
+          "cache_read_input_tokens": 4034,
+          "inference_geo": "global",
+          "input_tokens": 2,
+          "output_tokens": 161,
+          "output_tokens_details": {
+            "thinking_tokens": 0
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-opus-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2c5-6a1a-736b-a757-b0314e917706-0",
+      "tool_calls": [
+        {
+          "name": "hand_off",
+          "args": {
+            "reason": "The snapshot still holds v4 markup: an IconButton with the MuiExpansionPanelSummary-expandIcon class. v5 AccordionSummary now renders a div wrapper with MuiAccordionSummary-expandIconWrapper, as the guide documents. The migrated code is correct, so a human needs to review and update the snapshot."
+          },
+          "id": "toolu_01WjWSJPo3G81bDRQzSvNvrW",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 4684,
+        "output_tokens": 161,
+        "total_tokens": 4845,
+        "input_token_details": {
+          "cache_read": 4034,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 648,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 0
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Handed off. A human will see this file and your reason; its repair ends here.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "hand_off",
+      "id": null,
+      "tool_call_id": "toolu_01WjWSJPo3G81bDRQzSvNvrW",
+      "artifact": null,
+      "status": "success"
+    }
+  }
+]

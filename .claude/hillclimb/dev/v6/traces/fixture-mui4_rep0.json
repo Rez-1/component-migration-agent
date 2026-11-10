@@ -1,0 +1,224 @@
+[
+  {
+    "role": "system",
+    "content": "Configuration `cascade-haiku-opus` (451f9f193600): Rules, then the repair agent: attempt 1 on Claude Haiku 5.5 (high effort), attempts 2-3 on Claude Opus 5.5 (low effort). Rules on, repair on (claude-haiku-5-5, claude-opus-5-5, claude-opus-5-5, effort low)."
+  },
+  {
+    "role": "user",
+    "content": "Migrate fixtures/mui4-app from mui@4 to mui@5"
+  },
+  {
+    "role": "tool_call",
+    "name": "pre-check",
+    "content": "[\n  \"npm ci --no-audit --no-fund\",\n  \"npm run typecheck\",\n  \"npm run lint\",\n  \"npm test\"\n]"
+  },
+  {
+    "role": "tool_result",
+    "name": "pre-check",
+    "content": "{\n  \"status\": \"ok\",\n  \"reason\": null,\n  \"pre_existing_failures\": 0,\n  \"test_totals\": {\n    \"suites_total\": 10,\n    \"suites_failed\": 0,\n    \"tests_total\": 20,\n    \"tests_passed\": 20,\n    \"tests_failed\": 0,\n    \"tests_skipped\": 0,\n    \"snapshots_total\": 1,\n    \"snapshots_unmatched\": 0,\n    \"snapshots_updated\": 0,\n    \"snapshots_added\": 0,\n    \"snapshots_obsolete\": 0,\n    \"snapshot_files_removed\": 0\n  }\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: install",
+    "content": "{\n  \"kind\": \"install\",\n  \"name\": \"install\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: install",
+    "content": "{\n  \"status\": \"skipped\",\n  \"detail\": \"packages already installed for this package.json\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod preset-safe",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"preset-safe\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod preset-safe",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"12 ok, 0 unchanged\",\n  \"changed_files\": [\n    \"src/App.tsx\",\n    \"src/screens/AccountDialog.tsx\",\n    \"src/screens/Dashboard.tsx\",\n    \"src/screens/Faq.tsx\",\n    \"src/screens/Notifications.tsx\",\n    \"src/screens/ProfileCard.tsx\",\n    \"src/screens/ProfileForm.tsx\",\n    \"src/screens/ResponsiveNav.tsx\",\n    \"src/screens/Search.tsx\",\n    \"src/screens/Settings.tsx\",\n    \"src/screens/UsersTable.tsx\",\n    \"src/theme.ts\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod variant-prop",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"variant-prop\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod variant-prop",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"1 ok, 11 unchanged\",\n  \"changed_files\": [\n    \"src/screens/ProfileForm.tsx\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod link-underline-hover",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"link-underline-hover\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod link-underline-hover",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"1 ok, 11 unchanged\",\n  \"changed_files\": [\n    \"src/screens/Faq.tsx\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod box-sx-prop",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"box-sx-prop\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod box-sx-prop",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"1 ok, 11 unchanged\",\n  \"changed_files\": [\n    \"src/screens/Settings.tsx\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: format",
+    "content": "{\n  \"kind\": \"format\",\n  \"name\": \"format\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: format",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"eslint --fix on 12 files\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: dependencies",
+    "content": "{\n  \"kind\": \"dependencies\",\n  \"name\": \"dependencies\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: dependencies",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"-@material-ui/core +@mui/material@5.18.0 +@mui/styles@5.18.0 +@emotion/react@11.14.0 +@emotion/styled@11.14.1 -@material-ui/icons +@mui/icons-material@5.18.0 -@material-ui/lab +@mui/lab@5.0.0-alpha.177\",\n  \"changed_files\": [\n    \"package.json\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: install",
+    "content": "{\n  \"kind\": \"install\",\n  \"name\": \"install\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: install",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"npm install --no-audit --no-fund\",\n  \"changed_files\": [\n    \"package-lock.json\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "verify",
+    "content": "[\n  \"npm run typecheck\",\n  \"npm run lint\",\n  \"npm test\"\n]"
+  },
+  {
+    "role": "tool_result",
+    "name": "verify",
+    "content": "{\n  \"failures\": [\n    {\n      \"source\": \"typecheck\",\n      \"file\": \"src/screens/Search.tsx\",\n      \"line\": 42,\n      \"column\": 21,\n      \"code\": \"TS2339\",\n      \"message\": \"Property 'label' does not exist on type 'HTMLAttributes<HTMLLIElement> & { key: any; }'.\"\n    },\n    {\n      \"source\": \"typecheck\",\n      \"file\": \"src/screens/Search.tsx\",\n      \"line\": 43,\n      \"column\": 55,\n      \"code\": \"TS2339\",\n      \"message\": \"Property 'country' does not exist on type 'HTMLAttributes<HTMLLIElement> & { key: any; }'.\"\n    },\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/Faq.tsx\",\n      \"line\": 17,\n      \"column\": 3,\n      \"message\": \"Error: expect(received).toMatchSnapshot()\",\n      \"test_file\": \"src/screens/__tests__/Faq.test.tsx\",\n      \"test_name\": \"Faq \\u203a renders a question header with its expand icon\"\n    },\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/Search.tsx\",\n      \"line\": 12,\n      \"column\": 3,\n      \"message\": \"TestingLibraryElementError: Unable to find an accessible element with the role \\\"option\\\"\",\n      \"test_file\": \"src/screens/__tests__/Search.test.tsx\",\n      \"test_name\": \"Search \\u203a suggests matching cities with their country\"\n    },\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/Search.tsx\",\n      \"line\": 23,\n      \"column\": 3,\n      \"message\": \"TestingLibraryElementError: Unable to find an accessible element with the role \\\"option\\\" and name `/Amsterdam/`\",\n      \"test_file\": \"src/screens/__tests__/Search.test.tsx\",\n      \"test_name\": \"Search \\u203a selects Amsterdam\"\n    }\n  ],\n  \"test_totals\": {\n    \"suites_total\": 10,\n    \"suites_failed\": 2,\n    \"tests_total\": 20,\n    \"tests_passed\": 17,\n    \"tests_failed\": 3,\n    \"tests_skipped\": 0,\n    \"snapshots_total\": 1,\n    \"snapshots_unmatched\": 1,\n    \"snapshots_updated\": 0,\n    \"snapshots_added\": 0,\n    \"snapshots_obsolete\": 0,\n    \"snapshot_files_removed\": 0\n  }\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/theme.ts",
+    "content": "{\n  \"attempts\": 2,\n  \"conversation\": \"repair/src-theme-ts.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/theme.ts",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 2,\n      \"result\": \"failed\",\n      \"failures_left\": 1,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Moved MuiButton overrides from removed 'label' classKey to 'root' (label span was removed in v5; text now sits in root, so textTransform behaves the same).\"\n    },\n    {\n      \"number\": 2,\n      \"model\": \"claude-opus-5-5\",\n      \"tool_calls\": 3,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Moved MuiButton override from removed 'label' classKey to 'root' (label span removed in v5; text sits in root, so sentence-case behaviour is unchanged).\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/theme.ts\": 1\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/AccountDialog.tsx",
+    "content": "{\n  \"attempts\": 2,\n  \"conversation\": \"repair/src-screens-AccountDialog-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/AccountDialog.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 2,\n      \"result\": \"failed\",\n      \"failures_left\": 1,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Replaced removed disableBackdropClick with an onClose that ignores reason === 'backdropClick', so a stray backdrop click keeps the dialog open and the typed text, as on v4.\"\n    },\n    {\n      \"number\": 2,\n      \"model\": \"claude-opus-5-5\",\n      \"tool_calls\": 3,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Replaced removed disableBackdropClick with an onClose that ignores reason === 'backdropClick', keeping v4 behaviour (dialog stays open, typed text kept).\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/screens/AccountDialog.tsx\": 9\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/Dashboard.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-Dashboard-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/Dashboard.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 7,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Replaced theme.spacing(1) * 3 with theme.spacing(3) (v5 spacing returns strings); titleMinHeight uses parseFloat(theme.spacing(4)) so it stays numeric for UsersTable's arithmetic.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/screens/Dashboard.tsx\": 2\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/Faq.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-Faq-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/Faq.tsx",
+    "content": "{\n  \"outcome\": \"Handed off\",\n  \"reason\": \"the repair agent handed off: The failing assertion is a snapshot of the v4 markup (MuiExpansionPanelSummary classes, v4 IconButton expand wrapper). The v5 AccordionSummary renders different classes and structure, so the code is migrated correctly and the only way to pass is to update the snapshot, which is a test artifact I'm not allowed to change. A human should review the new render and regenerate that snapshot (jest -u for this test).\",\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 3,\n      \"result\": \"handed_off\",\n      \"failures_left\": null,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"The failing assertion is a snapshot of the v4 markup (MuiExpansionPanelSummary classes, v4 IconButton expand wrapper). The v5 AccordionSummary renders different classes and structure, so the code is migrated correctly and the only way to pass is to update the snapshot, which is a test artifact I'm not allowed to change. A human should review the new render and regenerate that snapshot (jest -u for this test).\"\n    }\n  ],\n  \"patch_lines\": {},\n  \"edits_rejected\": {},\n  \"review\": \"revert\"\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/Notifications.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-Notifications-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/Notifications.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 6,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Replaced removed Typography variant=\\\"srOnly\\\" with component span + inline visually-hidden sx styles (no new @mui/utils import, since it isn't a declared dependency).\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/screens/Notifications.tsx\": 14\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/ProfileCard.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-ProfileCard-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/ProfileCard.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 11,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"ProfileCard renders bare in test with no ThemeProvider; @mui/styles makeStyles fell back to an empty theme. Added defaultTheme (createTheme()) to makeStyles options, matching v4's default-theme fallback.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/screens/ProfileCard.tsx\": 4\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/ProfileForm.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-ProfileForm-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/ProfileForm.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 3,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Typed the Select onChange handler as SelectChangeEvent<Role> (v5 event type per the Select migration section) and imported SelectChangeEvent from @mui/material.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/screens/ProfileForm.tsx\": 10\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/ResponsiveNav.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-ResponsiveNav-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/ResponsiveNav.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 11,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Changed the compact-width query from down('md') to down(960): v5 default md is 900, so down('md') excluded 920px; down(960) keeps the v4 \\\"below 960px\\\" threshold the comment describes.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/screens/ResponsiveNav.tsx\": 1\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/Search.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-Search-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/Search.tsx",
+    "content": "{\n  \"outcome\": \"Handed off\",\n  \"reason\": \"tool-call budget used: 15 calls in attempt 1 without passing run_verify\",\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 15,\n      \"result\": \"handed_off\",\n      \"failures_left\": null,\n      \"new_failures_elsewhere\": 0,\n      \"note\": null\n    }\n  ],\n  \"patch_lines\": {\n    \"src/screens/Search.tsx\": 3\n  },\n  \"edits_rejected\": {},\n  \"review\": \"revert\"\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/Settings.tsx",
+    "content": "{\n  \"attempts\": 2,\n  \"conversation\": \"repair/src-screens-Settings-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/Settings.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 4,\n      \"result\": \"failed\",\n      \"failures_left\": 3,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Replaced removed Button color \\\"default\\\" with \\\"inherit\\\" (v5 has no default color; the missing palette entry caused the 'dark' TypeError), keeping the neutral look of the disabled state.\"\n    },\n    {\n      \"number\": 2,\n      \"model\": \"claude-opus-5-5\",\n      \"tool_calls\": 2,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Replaced removed Button color \\\"default\\\" with \\\"inherit\\\" (v5 has no \\\"default\\\" palette entry, which caused the 'dark' TypeError); keeps the neutral grey look when not dirty.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/screens/Settings.tsx\": 1\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "cheating checks",
+    "content": "{\n  \"test_files\": 14\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "cheating checks",
+    "content": "{\n  \"hits\": [],\n  \"warnings\": [],\n  \"notes\": [\n    {\n      \"check\": \"escape-hatch:eslint-disable\",\n      \"file\": \"src/App.tsx\",\n      \"layer\": \"rules\",\n      \"severity\": \"fail\",\n      \"detail\": \"an `eslint-disable` comment: 0 -> 1\",\n      \"before\": 0,\n      \"after\": 1\n    }\n  ]\n}"
+  },
+  {
+    "role": "assistant",
+    "content": "# Scorecard: mui4-fixture-app · run 2026-11-10-003043-4b7\n\n`mui@4->mui@5` · configuration `cascade-haiku-opus` · case `fixture-mui4` · 7 min 25 s · **$0.13** of $1.20 cap\n\n**Clean run: yes.** **10 of 12 affected files migrated without a human (83%)**: 2 by rules, 8 by the repair agent. 2 handed off, 0 unmigrated.\n\n| | This run |\n|---|---|\n| Clean run | yes |\n| Migrated without a human | 10 / 12 (83%) |\n| Hand-offs | 2 |\n| Regressions | 0 |\n| Cheating-check hits | 0 (0 warnings); 1 Rules-layer notes |\n| Codemod TODOs left | 0 |\n| Traps | 21 expected · 0 other layer · 1 missed · 1 not scored |\n| Cost / time | $0.13 · 7 min 25 s |\n\n## Files\n\n| File | Outcome | Failures | Note |\n|---|---|---|---|\n| src/screens/AccountDialog.tsx | Migrated by agent | 0 | 2 attempt(s) |\n| src/screens/Dashboard.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/screens/Faq.tsx | Handed off | 1 | the repair agent handed off: The failing assertion is a snapshot of the v4 markup (MuiExpansionPanelSummary classes, v4 IconButton expand wrapper). The v5 AccordionSummary renders different classes and structure, so the code is migrated correctly and the only way to pass is to update the snapshot, which is a test artifact I'm not allowed to change. A human should review the new render and regenerate that snapshot (jest -u for this test).; revert |\n| src/screens/Notifications.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/screens/ProfileCard.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/screens/ProfileForm.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/screens/ResponsiveNav.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/screens/Search.tsx | Handed off | 4 | tool-call budget used: 15 calls in attempt 1 without passing run_verify; revert |\n| src/screens/Settings.tsx | Migrated by agent | 0 | 2 attempt(s) |\n| src/theme.ts | Migrated by agent | 0 | 2 attempt(s) |\n| 2 files | Migrated by rules | 0 | App, UsersTable |\n\nChanged but not affected: `package-lock.json`, `package.json`.\n\n## Failures\n\n| File | Check | Where | Message |\n|---|---|---|---|\n| src/screens/Faq.tsx | test | Faq › renders a question header with its expand icon | Error: expect(received).toMatchSnapshot() |\n| src/screens/Search.tsx | test | Search › suggests matching cities with their country | TestingLibraryElementError: Unable to find an accessible element with the role \"option\" |\n| src/screens/Search.tsx | test | Search › selects Amsterdam | TestingLibraryElementError: Unable to find an accessible element with the role \"option\" and name `/Amsterdam/` |\n| src/screens/Search.tsx | typecheck TS2339 | line 42 | Property 'label' does not exist on type 'HTMLAttributes<HTMLLIElement> & { key: any; }'. |\n| src/screens/Search.tsx | typecheck TS2339 | line 43 | Property 'country' does not exist on type 'HTMLAttributes<HTMLLIElement> & { key: any; }'. |\n\n## Traps (fixture)\n\n| Result | Expected layer | Traps |\n|---|---|---|\n| Expected | rules | 12: create-theme, grid-justify, fade-alpha, autocomplete-import, autocomplete-option-equal, button-color-default-literal, spacing-px-template, expansion-panel, link-underline, textfield-default-variant, breakpoint-down, box-system-props |\n| Expected | agent | 8: spacing-arithmetic, dialog-disable-backdrop-click, typography-sr-only, breakpoint-sizes, button-color-expression, button-label-override, select-event-type, styles-needs-theme-provider |\n| Expected | human | 1: faq-snapshot-markup |\n| Missed | agent | 1: autocomplete-render-option |\n| Not scored | visual-only | 1: switch-default-color |\n\nFixed (their checks now pass at the final verify): spacing-arithmetic, dialog-disable-backdrop-click, typography-sr-only, breakpoint-sizes, button-color-expression, button-label-override, select-event-type, styles-needs-theme-provider.\n\n## Repair\n\n10 failing files, 13 attempts, 72 tool calls.\n\n| File | Outcome | Attempts | Tool calls | Patch | Why |\n|---|---|---|---|---|---|\n| src/theme.ts | Migrated by agent | 2 | 5 | theme.ts 1 |  |\n| src/screens/AccountDialog.tsx | Migrated by agent | 2 | 5 | AccountDialog.tsx 9 |  |\n| src/screens/Dashboard.tsx | Migrated by agent | 1 | 7 | Dashboard.tsx 2 |  |\n| src/screens/Faq.tsx | Handed off | 1 | 3 | — | the repair agent handed off: The failing assertion is a snapshot of the v4 markup (MuiExpansionPanelSummary classes, v4 IconButton expand wrapper). The v5 AccordionSummary renders different classes and structure, so the code is migrated correctly and the only way to pass is to update the snapshot, which is a test artifact I'm not allowed to change. A human should review the new render and regenerate that snapshot (jest -u for this test). (Review: revert) |\n| src/screens/Notifications.tsx | Migrated by agent | 1 | 6 | Notifications.tsx 14 |  |\n| src/screens/ProfileCard.tsx | Migrated by agent | 1 | 11 | ProfileCard.tsx 4 |  |\n| src/screens/ProfileForm.tsx | Migrated by agent | 1 | 3 | ProfileForm.tsx 10 |  |\n| src/screens/ResponsiveNav.tsx | Migrated by agent | 1 | 11 | ResponsiveNav.tsx 1 |  |\n| src/screens/Search.tsx | Handed off | 1 | 15 | Search.tsx 3 | tool-call budget used: 15 calls in attempt 1 without passing run_verify (Review: revert) |\n| src/screens/Settings.tsx | Migrated by agent | 2 | 6 | Settings.tsx 1 |  |\n\nReview list: `src/screens/Faq.tsx`, `src/screens/Search.tsx`.\n\n## Cheating checks\n\nNo hits and no warnings on repair-agent patches.\n\nReported, not failing (only repair-agent patches can fail a run):\n\n| File | Layer | Check | Detail |\n|---|---|---|---|\n| src/App.tsx | rules | escape-hatch:eslint-disable | an `eslint-disable` comment: 0 -> 1 |\n\n14 test files checked.\n\n## Rule steps\n\n| # | Step | Status | Changed | Detail |\n|---|---|---|---|---|\n| 1 | install | skipped | 0 | packages already installed for this package.json |\n| 2 | codemod preset-safe | ok | 12 | 12 ok, 0 unchanged |\n| 3 | codemod variant-prop | ok | 1 | 1 ok, 11 unchanged |\n| 4 | codemod link-underline-hover | ok | 1 | 1 ok, 11 unchanged |\n| 5 | codemod box-sx-prop | ok | 1 | 1 ok, 11 unchanged |\n| 6 | format | ok | 0 | eslint --fix on 12 files |\n| 7 | dependencies | ok | 1 | -@material-ui/core +@mui/material@5.18.0 +@mui/styles@5.18.0 +@emotion/react@11.14.0 +@emotion/styled@11.14.1 -@material-ui/icons +@mui/icons-material@5.18.0 -@material-ui/lab +@mui/lab@5.0.0-alpha.177 |\n| 8 | install | ok | 1 | npm install --no-audit --no-fund |\n\n## Pre-check and tests\n\nPre-check: ok, 0 Pre-existing failures.\n\n| | Pre-check | Final verify |\n|---|---|---|\n| Tests run | 20 | 20 |\n| Tests failing | 0 | 3 |\n| Tests skipped | 0 | 0 |\n| Suites failing | 0 of 10 | 2 of 10 |\n| Snapshots | 1 | 1 |\n\n## Cost\n\n$0.13 = $0.03 output + $0.00 input + $0.10 cache (reads $0.01, writes $0.09), claude-haiku-5-5 $0.03 (43 calls); claude-opus-5-5 $0.10 (6 calls), 49 calls. Cache reads covered 77% of input tokens. Run cap $1.20; month cap $20.00, this month $2.43 of $20.00.\n\nNode 20.20.2, npm 10.8.2, migrator 0.1.0.\n"
+  }
+]

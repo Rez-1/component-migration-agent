@@ -1,0 +1,30 @@
+--- evals/configs/baseline.toml
++++ evals/configs/opus-low-context.toml
+@@ -1,18 +1,19 @@
+-# The Baseline: the rules-only configuration every other configuration is compared
+-# against. Repair is off, so a run makes no LLM calls and costs $0.
++# M5 candidate: opus-low with one change, the retrieval mode (see experiments.md).
+ schema_version = 1
+-name = "baseline"
+-description = "Rules only: the dependency map and the official codemods, no repair agent."
++name = "opus-low-context"
++description = "opus-low with guide retrieval keyword-context: keyword-imports plus the JSX props around the failing lines in the guide query."
+ 
+ [repair]
+-enabled = false
++enabled = true
++attempt_models = ["claude-opus-5-5", "claude-opus-5-5", "claude-opus-5-5"]
++effort = "low"
++prompt_version = "v1"
++retrieval = "keyword-context"
++max_attempts = 3
+ 
+-# Caps are recorded on every scorecard even when nothing can be spent (ticket #12).
+ [cost]
+ max_run_usd = 5.0
+ max_month_usd = 20.0
+ 
+-# Every rule step of the migration spec runs; list codemod or script step names in
+-# `skip` to switch one off.
+ [rules]
+ skip = []

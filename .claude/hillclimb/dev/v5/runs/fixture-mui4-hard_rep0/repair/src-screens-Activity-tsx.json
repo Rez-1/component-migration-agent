@@ -1,0 +1,353 @@
+[
+  {
+    "type": "human",
+    "data": {
+      "content": "## Failing file: `src/screens/Activity.tsx`\n\nAttempt 1 of 3.\n\n### Failures in this file (3)\n\n1. **Type error** TS2305, line 9: Module '\"@mui/material\"' has no exported member 'RootRef'.\n2. **Lint error** @typescript-eslint/no-unused-vars, line 9: 'RootRef' is defined but never used.\n3. **Failing test** `src/screens/__tests__/Activity.test.tsx` › \"Activity › adds an update and moves focus to it\": Error: expect(element).toHaveFocus() (This test imports this file.)\n\n### What the Rules stage changed in this file\n\n```diff\n--- a/src/screens/Activity.tsx\n+++ b/src/screens/Activity.tsx\n@@ -11,4 +11,6 @@\n   Typography,\n-} from '@material-ui/core';\n-import { makeStyles, Theme } from '@material-ui/core/styles';\n+} from '@mui/material';\n+import { Theme } from '@mui/material/styles';\n+\n+import makeStyles from '@mui/styles/makeStyles';\n \n@@ -63,3 +65,3 @@\n       </Typography>\n-      <RootRef rootRef={listRef}>\n+      <>\n         <List aria-label=\"Activity feed\">\n@@ -74,3 +76,3 @@\n         </List>\n-      </RootRef>\n+      </>\n       <form className={classes.form} onSubmit={post}>\n```\n\n### The file now (94 lines)\n\n```tsx\n 1  import { FormEvent, useEffect, useRef, useState } from 'react';\n 2  import {\n 3    Avatar,\n 4    Button,\n 5    List,\n 6    ListItem,\n 7    ListItemAvatar,\n 8    ListItemText,\n 9    RootRef,\n10    TextField,\n11    Typography,\n12  } from '@mui/material';\n13  import { Theme } from '@mui/material/styles';\n14  \n15  import makeStyles from '@mui/styles/makeStyles';\n16  \n17  const useStyles = makeStyles((theme: Theme) => ({\n18    root: { padding: theme.spacing(2), maxWidth: 560 },\n19    form: { display: 'flex', gap: theme.spacing(1), marginTop: theme.spacing(2) },\n20  }));\n21  \n22  interface Entry {\n23    id: number;\n24    who: string;\n25    initials: string;\n26    text: string;\n27  }\n28  \n29  const INITIAL: Entry[] = [\n30    { id: 1, who: 'Ada Lovelace', initials: 'AL', text: 'closed #103' },\n31    { id: 2, who: 'Linus Torvalds', initials: 'LT', text: 'commented on #108' },\n32  ];\n33  \n34  export function Activity({ initial = INITIAL }: { initial?: Entry[] }) {\n35    const classes = useStyles();\n36    const [entries, setEntries] = useState(initial);\n37    const [draft, setDraft] = useState('');\n38    const listRef = useRef<HTMLElement>(null);\n39    const posted = useRef(false);\n40  \n41    // After posting, move focus to the new entry so keyboard and screen-reader\n42    // users land on what they just wrote.\n43    useEffect(() => {\n44      if (!posted.current) return;\n45      posted.current = false;\n46      const last = listRef.current?.lastElementChild as HTMLElement | null | undefined;\n47      last?.focus();\n48    }, [entries]);\n49  \n50    const post = (event: FormEvent) => {\n51      event.preventDefault();\n52      if (!draft.trim()) return;\n53      posted.current = true;\n54      setEntries((all) => [\n55        ...all,\n56        { id: all.length + 1, who: 'Grace Hopper', initials: 'GH', text: draft.trim() },\n57      ]);\n58      setDraft('');\n59    };\n60  \n61    return (\n62      <section className={classes.root} aria-labelledby=\"activity-title\">\n63        <Typography id=\"activity-title\" variant=\"h5\" component=\"h1\">\n64          Activity\n65        </Typography>\n66        <>\n67          <List aria-label=\"Activity feed\">\n68            {entries.map((entry) => (\n69              <ListItem key={entry.id} tabIndex={-1}>\n70                <ListItemAvatar>\n71                  <Avatar>{entry.initials}</Avatar>\n72                </ListItemAvatar>\n73                <ListItemText primary={entry.text} secondary={entry.who} />\n74              </ListItem>\n75            ))}\n76          </List>\n77        </>\n78        <form className={classes.form} onSubmit={post}>\n79          <TextField\n80            id=\"activity-draft\"\n81            label=\"Post an update\"\n82            variant=\"outlined\"\n83            size=\"small\"\n84            fullWidth\n85            value={draft}\n86            onChange={(e) => setDraft(e.target.value)}\n87          />\n88          <Button type=\"submit\" variant=\"contained\" color=\"primary\">\n89            Post\n90          </Button>\n91        </form>\n92      </section>\n93    );\n94  }\n```\n\n### Local imports\n\nNone.\n\n### Used by\n\n- `src/App.tsx` imports `Activity` from this file.\n\n### Guide sections (keyword lookup: `RootRef`, `toHaveFocus`)\n\n**RootRef › Remove component**\n\nThis component has been removed.\n\nYou can get a reference to the underlying DOM node of our components via `ref` prop.\n\nThe component relied on [`ReactDOM.findDOMNode`](https://react.dev/reference/react-dom/findDOMNode) which is [deprecated in `React.StrictMode`](https://react.dev/reference/react/StrictMode#warning-about-deprecated-finddomnode-usage).\n\n:::success\nThis is handled in the [preset-safe codemod](#preset-safe) by applying fake `RootRef` component to prevent application crash, but further fixes are required.\n:::\n\n```diff\n-<RootRef rootRef={ref}>\n-  <Button />\n-</RootRef>\n+<Button ref={ref} />\n```\n\n**@mui/material/styles › Replace innerRef with ref (codemod)**\n\nReplace the `innerRef` prop with the `ref` prop. Refs are now automatically forwarded to the inner component.\n\n```diff\n  import * as React from 'react';\n  import { withStyles } from '@mui/styles';\n\n  const MyComponent = withStyles({\n    root: {\n      backgroundColor: 'red',\n    },\n  })(({ classes }) => <div className={classes.root} />);\n\n  function MyOtherComponent(props) {\n    const ref = React.useRef();\n-  return <MyComponent innerRef={ref} />;\n+  return <MyComponent ref={ref} />;\n  }\n```\n\n**TextField › Forward ref instead of inputRef prop**\n\nChange ref forwarding expectations on custom `inputComponent`.\n\nThe component should forward the `ref` prop instead of the `inputRef` prop.\n\n```diff\n-function NumberFormatCustom(props) {\n-  const { inputRef, onChange, ...other } = props;\n+const NumberFormatCustom = React.forwardRef(function NumberFormatCustom(\n+  props,\n+  ref,\n+) {\n  const { onChange, ...other } = props;\n\n  return (\n    <NumberFormat\n      {...other}\n-     getInputRef={inputRef}\n+     getInputRef={ref}\n```\n\nAlso possibly relevant (`search_guide` for the text):\n\n- ExpansionPanelSummary › Rename focused to focusVisible\n- Popper › Upgrade from v1 to v2\n- Autocomplete › Rename reason arguments\n- ExpansionPanelDetails › Remove display: flex\n- ref › Fix ref type specificity\n- Cannot read property scrollTop of null\n- @mui/material/styles › Update makeStyles import (codemod)\n- Modal › Remove onRendered prop",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "human",
+      "name": null,
+      "id": null
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "text": "Fix: put ref on List directly, remove the fragment and the RootRef import. List renders a ul (HTMLUListElement), so I'll change the ref type to match.",
+          "type": "text"
+        },
+        {
+          "id": "toolu_01SzVBMJLkHRuK5xrmGYhmJu",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/Activity.tsx",
+            "old_text": "        <>\n          <List aria-label=\"Activity feed\">\n            {entries.map((entry) => (\n              <ListItem key={entry.id} tabIndex={-1}>\n                <ListItemAvatar>\n                  <Avatar>{entry.initials}</Avatar>\n                </ListItemAvatar>\n                <ListItemText primary={entry.text} secondary={entry.who} />\n              </ListItem>\n            ))}\n          </List>\n        </>",
+            "new_text": "        <List aria-label=\"Activity feed\" ref={listRef}>\n          {entries.map((entry) => (\n            <ListItem key={entry.id} tabIndex={-1}>\n              <ListItemAvatar>\n                <Avatar>{entry.initials}</Avatar>\n              </ListItemAvatar>\n              <ListItemText primary={entry.text} secondary={entry.who} />\n            </ListItem>\n          ))}\n        </List>"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_013zyavKeYSefJS6zjhoPHGw",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/Activity.tsx",
+            "old_text": "  RootRef,\n",
+            "new_text": ""
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01YFpF3C2SezMJqzpkTvB9CN",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/Activity.tsx",
+            "old_text": "useRef<HTMLElement>(null)",
+            "new_text": "useRef<HTMLUListElement>(null)"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01NoF5QswNMW87KtgK2E1Lrc",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "note": "Replaced RootRef with ref on List, removed import, typed ref as HTMLUListElement"
+          },
+          "name": "run_verify",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtDQBtAn1uDTUGYKAkzE",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-sonnet-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 2727
+          },
+          "cache_creation_input_tokens": 2727,
+          "cache_read_input_tokens": 1872,
+          "inference_geo": "global",
+          "input_tokens": 4,
+          "output_tokens": 768,
+          "output_tokens_details": {
+            "thinking_tokens": 0
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-sonnet-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c29f-1265-7022-bef0-f1c099aac418-0",
+      "tool_calls": [
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/screens/Activity.tsx",
+            "old_text": "        <>\n          <List aria-label=\"Activity feed\">\n            {entries.map((entry) => (\n              <ListItem key={entry.id} tabIndex={-1}>\n                <ListItemAvatar>\n                  <Avatar>{entry.initials}</Avatar>\n                </ListItemAvatar>\n                <ListItemText primary={entry.text} secondary={entry.who} />\n              </ListItem>\n            ))}\n          </List>\n        </>",
+            "new_text": "        <List aria-label=\"Activity feed\" ref={listRef}>\n          {entries.map((entry) => (\n            <ListItem key={entry.id} tabIndex={-1}>\n              <ListItemAvatar>\n                <Avatar>{entry.initials}</Avatar>\n              </ListItemAvatar>\n              <ListItemText primary={entry.text} secondary={entry.who} />\n            </ListItem>\n          ))}\n        </List>"
+          },
+          "id": "toolu_01SzVBMJLkHRuK5xrmGYhmJu",
+          "type": "tool_call"
+        },
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/screens/Activity.tsx",
+            "old_text": "  RootRef,\n",
+            "new_text": ""
+          },
+          "id": "toolu_013zyavKeYSefJS6zjhoPHGw",
+          "type": "tool_call"
+        },
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/screens/Activity.tsx",
+            "old_text": "useRef<HTMLElement>(null)",
+            "new_text": "useRef<HTMLUListElement>(null)"
+          },
+          "id": "toolu_01YFpF3C2SezMJqzpkTvB9CN",
+          "type": "tool_call"
+        },
+        {
+          "name": "run_verify",
+          "args": {
+            "note": "Replaced RootRef with ref on List, removed import, typed ref as HTMLUListElement"
+          },
+          "id": "toolu_01NoF5QswNMW87KtgK2E1Lrc",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 4603,
+        "output_tokens": 768,
+        "total_tokens": 5371,
+        "input_token_details": {
+          "cache_read": 1872,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 2727,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 0
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Error: old_text was not found in src/screens/Activity.tsx. It must match the file exactly, including indentation; `read_file` shows the current text.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01SzVBMJLkHRuK5xrmGYhmJu",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/screens/Activity.tsx so far: +0 −1 lines (1% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_013zyavKeYSefJS6zjhoPHGw",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/screens/Activity.tsx so far: +1 −2 lines (2% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01YFpF3C2SezMJqzpkTvB9CN",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "### Result of attempt 1\n\nYour note: \"Replaced RootRef with ref on List, removed import, typed ref as HTMLUListElement\"\n\n- Failures left in this file: **1**.\n  - **Failing test** `src/screens/__tests__/Activity.test.tsx` › \"Activity › adds an update and moves focus to it\": Error: expect(element).toHaveFocus() (This test imports this file.)\n- New failures in other files: **0**.\n- Patch so far: `src/screens/Activity.tsx` +1 −2 lines (2% of the file). Attempts left: 2.\n\nAttempt 2 of 3.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "run_verify",
+      "id": null,
+      "tool_call_id": "toolu_01NoF5QswNMW87KtgK2E1Lrc",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "text": "The first edit failed (indentation was 6 spaces), so I'll redo it.",
+          "type": "text"
+        },
+        {
+          "id": "toolu_01Cvx5SaAsRzUHuPyfiuKwAB",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/Activity.tsx",
+            "old_text": "      <>\n        <List aria-label=\"Activity feed\">\n          {entries.map((entry) => (\n            <ListItem key={entry.id} tabIndex={-1}>\n              <ListItemAvatar>\n                <Avatar>{entry.initials}</Avatar>\n              </ListItemAvatar>\n              <ListItemText primary={entry.text} secondary={entry.who} />\n            </ListItem>\n          ))}\n        </List>\n      </>",
+            "new_text": "      <List aria-label=\"Activity feed\" ref={listRef}>\n        {entries.map((entry) => (\n          <ListItem key={entry.id} tabIndex={-1}>\n            <ListItemAvatar>\n              <Avatar>{entry.initials}</Avatar>\n            </ListItemAvatar>\n            <ListItemText primary={entry.text} secondary={entry.who} />\n          </ListItem>\n        ))}\n      </List>"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_013AeQjXTjG8TBpjrzSN2gpw",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "note": "Attach ref directly to List in place of the RootRef fragment"
+          },
+          "name": "run_verify",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtDRpjFiAFC6DvC31G6K",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-sonnet-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 1212
+          },
+          "cache_creation_input_tokens": 1212,
+          "cache_read_input_tokens": 4599,
+          "inference_geo": "global",
+          "input_tokens": 2,
+          "output_tokens": 489,
+          "output_tokens_details": {
+            "thinking_tokens": 0
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-sonnet-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c29f-690d-7624-95c4-06d15e92ffc0-0",
+      "tool_calls": [
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/screens/Activity.tsx",
+            "old_text": "      <>\n        <List aria-label=\"Activity feed\">\n          {entries.map((entry) => (\n            <ListItem key={entry.id} tabIndex={-1}>\n              <ListItemAvatar>\n                <Avatar>{entry.initials}</Avatar>\n              </ListItemAvatar>\n              <ListItemText primary={entry.text} secondary={entry.who} />\n            </ListItem>\n          ))}\n        </List>\n      </>",
+            "new_text": "      <List aria-label=\"Activity feed\" ref={listRef}>\n        {entries.map((entry) => (\n          <ListItem key={entry.id} tabIndex={-1}>\n            <ListItemAvatar>\n              <Avatar>{entry.initials}</Avatar>\n            </ListItemAvatar>\n            <ListItemText primary={entry.text} secondary={entry.who} />\n          </ListItem>\n        ))}\n      </List>"
+          },
+          "id": "toolu_01Cvx5SaAsRzUHuPyfiuKwAB",
+          "type": "tool_call"
+        },
+        {
+          "name": "run_verify",
+          "args": {
+            "note": "Attach ref directly to List in place of the RootRef fragment"
+          },
+          "id": "toolu_013AeQjXTjG8TBpjrzSN2gpw",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 5813,
+        "output_tokens": 489,
+        "total_tokens": 6302,
+        "input_token_details": {
+          "cache_read": 4599,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 1212,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 0
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/screens/Activity.tsx so far: +11 −14 lines (15% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01Cvx5SaAsRzUHuPyfiuKwAB",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Attempt 2 passed: no failures left in src/screens/Activity.tsx and nothing new elsewhere. Patch: `src/screens/Activity.tsx` +11 −14 lines (15% of the file). This file is done.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "run_verify",
+      "id": null,
+      "tool_call_id": "toolu_013AeQjXTjG8TBpjrzSN2gpw",
+      "artifact": null,
+      "status": "success"
+    }
+  }
+]

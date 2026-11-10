@@ -1,0 +1,124 @@
+[
+  {
+    "role": "system",
+    "content": "Configuration `baseline` (73a3262d088d): Rules only: the dependency map and the official codemods, no repair agent. Rules on, repair off."
+  },
+  {
+    "role": "user",
+    "content": "Migrate fixtures/mui4-app-hard from mui@4 to mui@5"
+  },
+  {
+    "role": "tool_call",
+    "name": "pre-check",
+    "content": "[\n  \"npm ci --no-audit --no-fund\",\n  \"npm run typecheck\",\n  \"npm run lint\",\n  \"npm test\"\n]"
+  },
+  {
+    "role": "tool_result",
+    "name": "pre-check",
+    "content": "{\n  \"status\": \"ok\",\n  \"reason\": null,\n  \"pre_existing_failures\": 0,\n  \"test_totals\": {\n    \"suites_total\": 6,\n    \"suites_failed\": 0,\n    \"tests_total\": 16,\n    \"tests_passed\": 16,\n    \"tests_failed\": 0,\n    \"tests_skipped\": 0,\n    \"snapshots_total\": 0,\n    \"snapshots_unmatched\": 0,\n    \"snapshots_updated\": 0,\n    \"snapshots_added\": 0,\n    \"snapshots_obsolete\": 0,\n    \"snapshot_files_removed\": 0\n  }\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: install",
+    "content": "{\n  \"kind\": \"install\",\n  \"name\": \"install\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: install",
+    "content": "{\n  \"status\": \"skipped\",\n  \"detail\": \"packages already installed for this package.json\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod preset-safe",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"preset-safe\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod preset-safe",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"12 ok, 0 unchanged\",\n  \"changed_files\": [\n    \"src/App.tsx\",\n    \"src/components/DurationInput.tsx\",\n    \"src/components/LabelPicker.tsx\",\n    \"src/components/RangeSlider.tsx\",\n    \"src/components/StatusChip.tsx\",\n    \"src/screens/Activity.tsx\",\n    \"src/screens/Board.tsx\",\n    \"src/screens/IssueDetail.tsx\",\n    \"src/screens/IssueList.tsx\",\n    \"src/screens/NewIssueDialog.tsx\",\n    \"src/screens/Reports.tsx\",\n    \"src/theme.ts\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod variant-prop",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"variant-prop\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod variant-prop",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"0 ok, 12 unchanged\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod link-underline-hover",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"link-underline-hover\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod link-underline-hover",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"0 ok, 12 unchanged\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod box-sx-prop",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"box-sx-prop\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod box-sx-prop",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"0 ok, 12 unchanged\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: format",
+    "content": "{\n  \"kind\": \"format\",\n  \"name\": \"format\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: format",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"eslint --fix on 12 files\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: dependencies",
+    "content": "{\n  \"kind\": \"dependencies\",\n  \"name\": \"dependencies\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: dependencies",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"-@material-ui/core +@mui/material@5.18.0 +@mui/styles@5.18.0 +@emotion/react@11.14.0 +@emotion/styled@11.14.1 -@material-ui/icons +@mui/icons-material@5.18.0 -@material-ui/lab +@mui/lab@5.0.0-alpha.177\",\n  \"changed_files\": [\n    \"package.json\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: install",
+    "content": "{\n  \"kind\": \"install\",\n  \"name\": \"install\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: install",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"npm install --no-audit --no-fund\",\n  \"changed_files\": [\n    \"package-lock.json\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "verify",
+    "content": "[\n  \"npm run typecheck\",\n  \"npm run lint\",\n  \"npm test\"\n]"
+  },
+  {
+    "role": "tool_result",
+    "name": "verify",
+    "content": "{\n  \"failures\": [\n    {\n      \"source\": \"typecheck\",\n      \"file\": \"src/components/RangeSlider.tsx\",\n      \"line\": 27,\n      \"column\": 9,\n      \"code\": \"TS2769\",\n      \"message\": \"No overload matches this call. Overload 1 of 2, '(props: { component: ElementType<any>; } & SliderOwnProps & CommonProps & Omit<any, \\\"className\\\" | \\\"style\\\" | \\\"classes\\\" | \\\"aria-label\\\" | \\\"aria-labelledby\\\" | ... 27 more ... | \\\"valueLabelFormat\\\">): Element | null', gave the following error.\"\n    },\n    {\n      \"source\": \"typecheck\",\n      \"file\": \"src/components/StatusChip.tsx\",\n      \"line\": 19,\n      \"column\": 7,\n      \"code\": \"TS2322\",\n      \"message\": \"Type '\\\"default\\\"' is not assignable to type '\\\"filled\\\" | \\\"outlined\\\" | undefined'.\"\n    },\n    {\n      \"source\": \"typecheck\",\n      \"file\": \"src/screens/Activity.tsx\",\n      \"line\": 9,\n      \"column\": 3,\n      \"code\": \"TS2305\",\n      \"message\": \"Module '\\\"@mui/material\\\"' has no exported member 'RootRef'.\"\n    },\n    {\n      \"source\": \"typecheck\",\n      \"file\": \"src/screens/IssueList.tsx\",\n      \"line\": 78,\n      \"column\": 7,\n      \"code\": \"TS2769\",\n      \"message\": \"No overload matches this call. Overload 1 of 2, '(props: { component: \\\"div\\\"; } & TablePaginationOwnProps & CommonProps & Omit<Omit<DetailedHTMLProps<HTMLAttributes<HTMLDivElement>, HTMLDivElement>, \\\"ref\\\"> & { ...; }, \\\"security\\\" | ... 291 more ... | \\\"showLastButton\\\">): Element | null', gave the following error.\"\n    },\n    {\n      \"source\": \"lint\",\n      \"file\": \"src/screens/Activity.tsx\",\n      \"line\": 9,\n      \"column\": 3,\n      \"code\": \"@typescript-eslint/no-unused-vars\",\n      \"message\": \"'RootRef' is defined but never used.\"\n    },\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/Activity.tsx\",\n      \"line\": 15,\n      \"column\": 3,\n      \"message\": \"Error: expect(element).toHaveFocus()\",\n      \"test_file\": \"src/screens/__tests__/Activity.test.tsx\",\n      \"test_name\": \"Activity \\u203a adds an update and moves focus to it\"\n    },\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/Board.tsx\",\n      \"line\": 27,\n      \"column\": 3,\n      \"message\": \"Error: expect(element).toHaveStyle()\",\n      \"test_file\": \"src/screens/__tests__/Board.test.tsx\",\n      \"test_name\": \"Board \\u203a shows the selected status tab in bold\"\n    },\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/IssueDetail.tsx\",\n      \"line\": 17,\n      \"column\": 3,\n      \"message\": \"TestingLibraryElementError: Unable to find an accessible element with the role \\\"alert\\\"\",\n      \"test_file\": \"src/screens/__tests__/IssueDetail.test.tsx\",\n      \"test_name\": \"IssueDetail \\u203a adds a label and says so\"\n    },\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/IssueDetail.tsx\",\n      \"line\": 28,\n      \"column\": 3,\n      \"message\": \"TestingLibraryElementError: Unable to find an accessible element with the role \\\"alert\\\"\",\n      \"test_file\": \"src/screens/__tests__/IssueDetail.test.tsx\",\n      \"test_name\": \"IssueDetail \\u203a removes a label with Backspace, and Undo brings it back\"\n    },\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/IssueDetail.tsx\",\n      \"line\": 41,\n      \"column\": 3,\n      \"message\": \"Error: expect(element).toHaveFocus()\",\n      \"test_file\": \"src/screens/__tests__/IssueDetail.test.tsx\",\n      \"test_name\": \"IssueDetail \\u203a puts the cursor in the comment box once the dialog is open\"\n    },\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/IssueList.tsx\",\n      \"line\": 14,\n      \"column\": 3,\n      \"message\": \"TestingLibraryElementError: Unable to find an accessible element with the role \\\"button\\\" and name \\\"Previous issues\\\"\",\n      \"test_file\": \"src/screens/__tests__/IssueList.test.tsx\",\n      \"test_name\": \"IssueList \\u203a pages through the issues five at a time\"\n    },\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/NewIssueDialog.tsx\",\n      \"line\": 18,\n      \"column\": 3,\n      \"message\": \"Error: expect(element).toHaveAttribute(\\\"aria-selected\\\", \\\"true\\\") // element.getAttribute(\\\"aria-selected\\\") === \\\"true\\\"\",\n      \"test_file\": \"src/screens/__tests__/NewIssueDialog.test.tsx\",\n      \"test_name\": \"NewIssueDialog \\u203a assigns new issues to the signed-in user, marked in the list\"\n    },\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/NewIssueDialog.tsx\",\n      \"line\": 37,\n      \"column\": 3,\n      \"message\": \"Error: expect(jest.fn()).toHaveBeenCalledWith(...expected)\",\n      \"test_file\": \"src/screens/__tests__/NewIssueDialog.test.tsx\",\n      \"test_name\": \"NewIssueDialog \\u203a creates the issue with a tidied estimate\"\n    }\n  ],\n  \"test_totals\": {\n    \"suites_total\": 6,\n    \"suites_failed\": 5,\n    \"tests_total\": 16,\n    \"tests_passed\": 8,\n    \"tests_failed\": 8,\n    \"tests_skipped\": 0,\n    \"snapshots_total\": 0,\n    \"snapshots_unmatched\": 0,\n    \"snapshots_updated\": 0,\n    \"snapshots_added\": 0,\n    \"snapshots_obsolete\": 0,\n    \"snapshot_files_removed\": 0\n  }\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "cheating checks",
+    "content": "{\n  \"test_files\": 9\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "cheating checks",
+    "content": "{\n  \"hits\": [],\n  \"warnings\": [],\n  \"notes\": [\n    {\n      \"check\": \"escape-hatch:eslint-disable\",\n      \"file\": \"src/App.tsx\",\n      \"layer\": \"rules\",\n      \"severity\": \"fail\",\n      \"detail\": \"an `eslint-disable` comment: 0 -> 1\",\n      \"before\": 0,\n      \"after\": 1\n    }\n  ]\n}"
+  },
+  {
+    "role": "assistant",
+    "content": "# Scorecard: mui4-tracker-app · run 2026-11-09-231832-dfa\n\n`mui@4->mui@5` · configuration `baseline` · case `fixture-mui4-hard` · 54 s · $0 (no LLM) of $5.00 cap\n\n**Clean run: no. Final verify found 13 failures in 7 files.** **5 of 12 affected files migrated without a human (42%)**: 5 by rules, 0 by the repair agent. 0 handed off, 7 unmigrated.\n\n| | This run |\n|---|---|\n| Clean run | no (13 failures in 7 files) |\n| Migrated without a human | 5 / 12 (42%) |\n| Hand-offs | 0 |\n| Regressions | 0 |\n| Cheating-check hits | 0 (0 warnings); 1 Rules-layer notes |\n| Codemod TODOs left | 0 |\n| Traps | 6 expected · 0 other layer · 9 missed · 0 not scored |\n| Cost / time | $0 · 54 s |\n\n## Files\n\n| File | Outcome | Failures | Note |\n|---|---|---|---|\n| src/components/RangeSlider.tsx | Unmigrated | 1 | 1 typecheck |\n| src/components/StatusChip.tsx | Unmigrated | 1 | 1 typecheck |\n| src/screens/Activity.tsx | Unmigrated | 3 | 1 lint, 1 test, 1 typecheck |\n| src/screens/Board.tsx | Unmigrated | 1 | 1 test |\n| src/screens/IssueDetail.tsx | Unmigrated | 3 | 3 test |\n| src/screens/IssueList.tsx | Unmigrated | 2 | 1 test, 1 typecheck |\n| src/screens/NewIssueDialog.tsx | Unmigrated | 2 | 2 test |\n| 5 files | Migrated by rules | 0 | App, DurationInput, LabelPicker, Reports, theme |\n\nChanged but not affected: `package-lock.json`, `package.json`.\n\n## Failures\n\n| File | Check | Where | Message |\n|---|---|---|---|\n| src/components/RangeSlider.tsx | typecheck TS2769 | line 27 | No overload matches this call. Overload 1 of 2, '(props: { component: ElementType<any>; } & SliderOwnProps & CommonProps & Omit<any, \"cla… |\n| src/components/StatusChip.tsx | typecheck TS2322 | line 19 | Type '\"default\"' is not assignable to type '\"filled\" \\| \"outlined\" \\| undefined'. |\n| src/screens/Activity.tsx | lint @typescript-eslint/no-unused-vars | line 9 | 'RootRef' is defined but never used. |\n| src/screens/Activity.tsx | test | Activity › adds an update and moves focus to it | Error: expect(element).toHaveFocus() |\n| src/screens/Activity.tsx | typecheck TS2305 | line 9 | Module '\"@mui/material\"' has no exported member 'RootRef'. |\n| src/screens/Board.tsx | test | Board › shows the selected status tab in bold | Error: expect(element).toHaveStyle() |\n| src/screens/IssueDetail.tsx | test | IssueDetail › adds a label and says so | TestingLibraryElementError: Unable to find an accessible element with the role \"alert\" |\n| src/screens/IssueDetail.tsx | test | IssueDetail › removes a label with Backspace, and Undo brings it back | TestingLibraryElementError: Unable to find an accessible element with the role \"alert\" |\n| src/screens/IssueDetail.tsx | test | IssueDetail › puts the cursor in the comment box once the dialog is open | Error: expect(element).toHaveFocus() |\n| src/screens/IssueList.tsx | test | IssueList › pages through the issues five at a time | TestingLibraryElementError: Unable to find an accessible element with the role \"button\" and name \"Previous issues\" |\n| src/screens/IssueList.tsx | typecheck TS2769 | line 78 | No overload matches this call. Overload 1 of 2, '(props: { component: \"div\"; } & TablePaginationOwnProps & CommonProps & Omit<Omit<Detail… |\n| src/screens/NewIssueDialog.tsx | test | NewIssueDialog › assigns new issues to the signed-in user, marked in the list | Error: expect(element).toHaveAttribute(\"aria-selected\", \"true\") // element.getAttribute(\"aria-selected\") === \"true\" |\n| src/screens/NewIssueDialog.tsx | test | NewIssueDialog › creates the issue with a tidied estimate | Error: expect(jest.fn()).toHaveBeenCalledWith(...expected) |\n\n## Traps (fixture)\n\n| Result | Expected layer | Traps |\n|---|---|---|\n| Expected | rules | 6: create-theme, pagination-import, pagination-round, skeleton-rect, dialog-transition-literal, autocomplete-option-equal-literal |\n| Missed | agent | 9: theme-state-selector, autocomplete-reason-names, dialog-transition-spread, option-equal-spread, input-component-ref, root-ref-removed, slider-event-type, table-pagination-labels, chip-variant-wrapped |\n\nEvery agent and human trap's check still fails at the final verify.\n\n## Cheating checks\n\nNo hits and no warnings on repair-agent patches.\n\nReported, not failing (only repair-agent patches can fail a run):\n\n| File | Layer | Check | Detail |\n|---|---|---|---|\n| src/App.tsx | rules | escape-hatch:eslint-disable | an `eslint-disable` comment: 0 -> 1 |\n\n9 test files checked.\n\n## Rule steps\n\n| # | Step | Status | Changed | Detail |\n|---|---|---|---|---|\n| 1 | install | skipped | 0 | packages already installed for this package.json |\n| 2 | codemod preset-safe | ok | 12 | 12 ok, 0 unchanged |\n| 3 | codemod variant-prop | ok | 0 | 0 ok, 12 unchanged |\n| 4 | codemod link-underline-hover | ok | 0 | 0 ok, 12 unchanged |\n| 5 | codemod box-sx-prop | ok | 0 | 0 ok, 12 unchanged |\n| 6 | format | ok | 0 | eslint --fix on 12 files |\n| 7 | dependencies | ok | 1 | -@material-ui/core +@mui/material@5.18.0 +@mui/styles@5.18.0 +@emotion/react@11.14.0 +@emotion/styled@11.14.1 -@material-ui/icons +@mui/icons-material@5.18.0 -@material-ui/lab +@mui/lab@5.0.0-alpha.177 |\n| 8 | install | ok | 1 | npm install --no-audit --no-fund |\n\n## Pre-check and tests\n\nPre-check: ok, 0 Pre-existing failures.\n\n| | Pre-check | Final verify |\n|---|---|---|\n| Tests run | 16 | 16 |\n| Tests failing | 0 | 8 |\n| Tests skipped | 0 | 0 |\n| Suites failing | 0 of 6 | 5 of 6 |\n| Snapshots | 0 | 0 |\n\n## Cost\n\n$0: this run made no model calls. Run cap $5.00; month cap $20.00.\n\nNode 20.20.2, npm 10.8.2, migrator 0.1.0.\n"
+  }
+]

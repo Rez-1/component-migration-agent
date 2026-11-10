@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "experiment": "dev/v10",
+  "split": "dev",
+  "configuration": "haiku-advisor-opus",
+  "configuration_digest": "6ebdd151e98d",
+  "configuration_data": {
+    "schema_version": 1,
+    "name": "haiku-advisor-opus",
+    "description": "Rules, then the repair agent on Claude Haiku 5.5 (high effort) with Claude Opus 5.5 as its advisor, up to 3 attempts per failing file.",
+    "repair": {
+      "enabled": true,
+      "attempt_models": [
+        "claude-haiku-5-5",
+        "claude-haiku-5-5",
+        "claude-haiku-5-5"
+      ],
+      "effort": "high",
+      "prompt_version": "v1-advisor",
+      "retrieval": "keyword",
+      "max_attempts": 3,
+      "attempt_efforts": null,
+      "advisor": {
+        "model": "claude-opus-5-5",
+        "max_uses": 2,
+        "max_tokens": 4000
+      }
+    },
+    "cost": {
+      "max_run_usd": 5.0,
+      "max_month_usd": 20.0
+    },
+    "rules": {
+      "skip": []
+    }
+  },
+  "cases": [
+    "fixture-mui4",
+    "fixture-mui4-hard"
+  ],
+  "repeats": 2,
+  "created_at": "2026-11-10T00:36:53Z",
+  "migrator_version": "0.1.0"
+}

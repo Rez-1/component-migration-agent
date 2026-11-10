@@ -1,0 +1,184 @@
+[
+  {
+    "type": "human",
+    "data": {
+      "content": "## Failing file: `src/screens/ProfileForm.tsx`\n\nAttempt 1 of 3.\n\n### Failures in this file (1)\n\n1. **Type error** TS2322, line 64: Type '(event: React.ChangeEvent<{  name?: string;  value: unknown;}>) => void' is not assignable to type '(event: SelectChangeEvent<\"admin\" | \"editor\" | \"viewer\">, child: ReactNode) => void'. Types of parameters 'event' and 'event' are incompatible.\n\n### What the Rules stage changed in this file\n\n```diff\n--- a/src/screens/ProfileForm.tsx\n+++ b/src/screens/ProfileForm.tsx\n@@ -1,4 +1,6 @@\n import { FormEvent, useState } from 'react';\n-import { Button, FormControl, InputLabel, Select, TextField, Typography } from '@material-ui/core';\n-import { makeStyles, Theme } from '@material-ui/core/styles';\n+import { Button, FormControl, InputLabel, Select, TextField, Typography } from '@mui/material';\n+import { Theme } from '@mui/material/styles';\n+\n+import makeStyles from '@mui/styles/makeStyles';\n \n@@ -48,2 +50,3 @@\n       <TextField\n+        variant=\"standard\"\n         id=\"display-name\"\n@@ -52,4 +55,3 @@\n         onChange={(e) => setDisplayName(e.target.value)}\n-        required\n-      />\n+        required />\n       <FormControl variant=\"outlined\">\n@@ -57,2 +59,3 @@\n         <Select\n+          variant=\"standard\"\n           native\n@@ -61,4 +64,3 @@\n           onChange={handleRoleChange}\n-          inputProps={{ id: 'profile-role', name: 'role' }}\n-        >\n+          inputProps={{ id: 'profile-role', name: 'role' }}>\n           {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (\n```\n\n### The file now (79 lines)\n\n```tsx\n 1  import { FormEvent, useState } from 'react';\n 2  import { Button, FormControl, InputLabel, Select, TextField, Typography } from '@mui/material';\n 3  import { Theme } from '@mui/material/styles';\n 4  \n 5  import makeStyles from '@mui/styles/makeStyles';\n 6  \n 7  type Role = 'admin' | 'editor' | 'viewer';\n 8  \n 9  const ROLE_LABELS: Record<Role, string> = {\n10    admin: 'Admin',\n11    editor: 'Editor',\n12    viewer: 'Viewer',\n13  };\n14  \n15  const useStyles = makeStyles((theme: Theme) => ({\n16    form: {\n17      display: 'grid',\n18      gap: theme.spacing(2),\n19      maxWidth: 360,\n20      padding: theme.spacing(2),\n21    },\n22  }));\n23  \n24  export interface ProfileValues {\n25    displayName: string;\n26    role: Role;\n27  }\n28  \n29  export function ProfileForm({ onSubmit }: { onSubmit?: (values: ProfileValues) => void }) {\n30    const classes = useStyles();\n31    const [displayName, setDisplayName] = useState('');\n32    const [role, setRole] = useState<Role>('viewer');\n33    const [message, setMessage] = useState<string | null>(null);\n34  \n35    const handleRoleChange = (event: React.ChangeEvent<{ name?: string; value: unknown }>) => {\n36      setRole(event.target.value as Role);\n37    };\n38  \n39    const handleSubmit = (event: FormEvent) => {\n40      event.preventDefault();\n41      onSubmit?.({ displayName, role });\n42      setMessage(`Saved ${displayName} (${ROLE_LABELS[role]})`);\n43    };\n44  \n45    return (\n46      <form className={classes.form} onSubmit={handleSubmit} aria-labelledby=\"profile-form-title\">\n47        <Typography id=\"profile-form-title\" variant=\"h6\" component=\"h1\">\n48          Edit profile\n49        </Typography>\n50        <TextField\n51          variant=\"standard\"\n52          id=\"display-name\"\n53          label=\"Display name\"\n54          value={displayName}\n55          onChange={(e) => setDisplayName(e.target.value)}\n56          required />\n57        <FormControl variant=\"outlined\">\n58          <InputLabel htmlFor=\"profile-role\">Role</InputLabel>\n59          <Select\n60            variant=\"standard\"\n61            native\n62            label=\"Role\"\n63            value={role}\n64            onChange={handleRoleChange}\n65            inputProps={{ id: 'profile-role', name: 'role' }}>\n66            {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (\n67              <option key={r} value={r}>\n68                {ROLE_LABELS[r]}\n69              </option>\n70            ))}\n71          </Select>\n72        </FormControl>\n73        <Button type=\"submit\" variant=\"contained\" color=\"primary\" disabled={!displayName}>\n74          Save profile\n75        </Button>\n76        {message && <Typography role=\"status\">{message}</Typography>}\n77      </form>\n78    );\n79  }\n```\n\n### Local imports\n\nNone.\n\n### Used by\n\n- `src/App.tsx` imports `ProfileForm` from this file.\n\n### Guide sections (keyword lookup: `onChange`, `handleRoleChange`)\n\n**Select › Update event type (TypeScript)**\n\nThe `event` in `onChange` is now typed as a `SelectChangeEvent<T>` instead of a `React.ChangeEvent`.\n\n```diff\n+ import Select, { SelectChangeEvent } from '@mui/material/Select';\n\n-<Select onChange={(event: React.SyntheticEvent, value: unknown) => {}} />\n+<Select onChange={(event: SelectChangeEvent<T>, child: React.ReactNode) => {}} />\n```\n\nThis was necessary to prevent overriding the `event.target` of the events that caused the change.\n\n**TextField › Forward ref instead of inputRef prop**\n\nChange ref forwarding expectations on custom `inputComponent`.\n\nThe component should forward the `ref` prop instead of the `inputRef` prop.\n\n```diff\n-function NumberFormatCustom(props) {\n-  const { inputRef, onChange, ...other } = props;\n+const NumberFormatCustom = React.forwardRef(function NumberFormatCustom(\n+  props,\n+  ref,\n+) {\n  const { onChange, ...other } = props;\n\n  return (\n    <NumberFormat\n      {...other}\n-     getInputRef={inputRef}\n+     getInputRef={ref}\n```\n\n**FormControl › Update default variant (codemod)**\n\nChange the default variant from `standard` to `outlined`.\n\n`standard` has been removed from the Material Design guidelines.\n\n:::success\nThis is handled in [variant-prop codemod](#variant-prop)—read the details before running this codemod.\n:::\n\n```diff\n-<FormControl value=\"Standard\" />\n-<FormControl value=\"Outlined\" variant=\"outlined\" />\n+<FormControl value=\"Standard\" variant=\"standard\" />\n+<FormControl value=\"Outlined\" />\n```\n\nAlso possibly relevant (`search_guide` for the text):\n\n- TextField › Update default variant (codemod)\n- Button › Remove span and label\n- Select › Update default variant (codemod)\n- Switch › Remove second onChange argument\n- Theme › Breakpoint sizes\n- Tabs › Update event type (TypeScript)\n- Slider › Update event type (TypeScript)\n- BottomNavigation › Update event type (TypeScript)",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "human",
+      "name": null,
+      "id": null
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "signature": "CAQSzQkKEAgTGAI4AUIIdGhpbmtpbmcSDCyyehq4VDdQG89MVhoMp1n5RGqTvq3k+4r2IjB3ofPK4Ww3sIInaU6bePQtTs/pTQQMq84aGaiA9iszd8xdM+iRmEnaoF4wmgSSimcq6gjPhDEfL1K9UfzrxMuXqABeUqihkNXAzKnU63nu9qBxvLRozNVAKf5vcI6crobKZ1yOmFfnj4hJ29rgS6Xr7TQnWBXbee94bJJXRZWcK6gGz31KugVD7GOAUMQ5HaxtJfTvyi94oul54iuRBX/SECsEhUbYI5QPtnqHhik+VIf0YLEFyDWuU2wqqFcrn6dOe6swKy14+4kVN4PFSNd4eTJBt91cqjbDAwM8f+3DHPiT9V/FMsFCFcaam8AMdK9an4DwY8IuRsIi+SVASlCa9IyDGVtvtvrGmwIjUhsaupbM5nmgM/mC4DzbdYChojnAOeqwBnjZtGCGnqL1JS3mYpo2ONSRuysY1yJ6d4mnrAjyRkbcT2NpRg8uNzo2NWxzMzNoq93HAovS+K0iYGCdTSoazoinhoXKef3GOPkxEhyWO4DGEfPv5en4PB8MijZNQwxzUiKZK5QEKKSFclGmS7siFyh/C+1NeI//lXblBBi1t39vXR+YasLO12HgXkQ8V0QcVqUTiIZqCD0f169qyrpv4xKzlBlg3skGrwuxojQTboRZwROvEOnnMVw1M01NwtbA5SOKMqraCyMchb90/6eB+GotNYhHPJ2Pto7eL5o9Aa1e9UWG8IP1Q/hgfhD5jXRzrbAwi9MMZ0KQkS+H04Oe/2RMrxotPk3chVoBY1iO0ZxrHI2zzVVKzeocsuXrxdfGnNoInkOC3XRVt+ovQzGaM6/3vcMSO2wpDu2sbzMq9Z0Ukfwn/nfAppdBoxudLpaQAIe22fDe5WgMawjKzAGCW52ayL2scpDhbe5Zm9rJBVa9ZQ8/C3ZqSlfaanK117XXDhkwjNYxoxEJaTBRjrcfLVjorwwWJKFIHQhswWDI9SqdjbkPHzIC0U4CQRb9K/JHJ7/HPB6pt/c5ZyxuNUE7KXrH4TjWhg4iNcdEedg7CN2VXT3MCOCYzehQMWw6vAqYhayi+7ovHmGaGGkqaFZSy0VJgRNRjcNlaiRh6XlsEJ8v6680V92lA7W+lBF0ZWcXoHsd5XFrKeLUmFM+PKzUFK6om/sAKhNII1Dxnbw5/eFrK929/YaXSfI8o8xkNUjD/Y6D/+6xmuz1Um8fu03TOpVbxvjDLgoqbqon7uSICoSpw1SQvviZI8TWRrONoAEwOzKTHTJ4AIT9LltNCKDUf689hiZP3jLR8pgTAIVAAHa1A0aZ12IRszUF9mDwU9eX+S3MLM7SkZnD2CUFD41inffSOSwqkG413xZm5ECXixt5QahkrjVKcHw5G9ZBBALDVQb+hD+Tc+r5pL72+lQXBqdBQQ6ZPQKx2Fcoo4zAZBigigHoqtZS0I0o0zEWwzr4xG+HuKGN7/VqN6qH6rQNCk8fijCYlXpp6IbdE6yU0HX+oen2o5ZMHNrLb9R0nwk7NtXjueIkE3tflk5uGy1/FfRlSPhRJeOup4KKkNIskAGYi/nYRmjEkttrCw114BynG0ysBmsgVS3+LqhKkrDy8I6jWqPB70U3UxgB",
+          "thinking": "I'm fixing the import by pulling SelectChangeEvent from '@mui/material' and updating the change handler's type. I also want to flag that the codemod added variant=\"standard\" to a Select inside an outlined FormControl. My read is that in v4 the Select picks up the FormControl's variant, so it was outlined before, and forcing \"standard\" changes how it looks.\n\nI'm weighing whether to leave the codemod's variant=\"standard\" alone or keep it out of scope, since it would change how the Select looks. The goal is to keep behavior unchanged, so I'll just flag it rather than alter it.\n\n",
+          "type": "thinking"
+        },
+        {
+          "id": "toolu_01UqLvboxQBkbMGjaxt55QQY",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/ProfileForm.tsx",
+            "old_text": "  const handleRoleChange = (event: React.ChangeEvent<{ name?: string; value: unknown }>) => {",
+            "new_text": "  const handleRoleChange = (event: SelectChangeEvent<Role>) => {"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01Q5iXCNSpSt2Cc6gfFyMVDU",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/ProfileForm.tsx",
+            "old_text": "import { Button, FormControl, InputLabel, Select, TextField, Typography } from '@mui/material';",
+            "new_text": "import { Button, FormControl, InputLabel, Select, SelectChangeEvent, TextField, Typography } from '@mui/material';"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01SXRZGrNgmqMszWk2KQqjF5",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "note": "Typed Select onChange handler as SelectChangeEvent<Role> per guide. Separately: the codemod added variant=\"standard\" to the Select inside FormControl variant=\"outlined\"; in v4 it inherited outlined, so this may be a visual change worth checking."
+          },
+          "name": "run_verify",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtGhCCbV7tbTjRsoPVg3",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-opus-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 2662
+          },
+          "cache_creation_input_tokens": 2662,
+          "cache_read_input_tokens": 1872,
+          "inference_geo": "global",
+          "input_tokens": 4,
+          "output_tokens": 710,
+          "output_tokens_details": {
+            "thinking_tokens": 219
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-opus-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2c6-9c1f-740d-aa3f-25d4fa508abd-0",
+      "tool_calls": [
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/screens/ProfileForm.tsx",
+            "old_text": "  const handleRoleChange = (event: React.ChangeEvent<{ name?: string; value: unknown }>) => {",
+            "new_text": "  const handleRoleChange = (event: SelectChangeEvent<Role>) => {"
+          },
+          "id": "toolu_01UqLvboxQBkbMGjaxt55QQY",
+          "type": "tool_call"
+        },
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/screens/ProfileForm.tsx",
+            "old_text": "import { Button, FormControl, InputLabel, Select, TextField, Typography } from '@mui/material';",
+            "new_text": "import { Button, FormControl, InputLabel, Select, SelectChangeEvent, TextField, Typography } from '@mui/material';"
+          },
+          "id": "toolu_01Q5iXCNSpSt2Cc6gfFyMVDU",
+          "type": "tool_call"
+        },
+        {
+          "name": "run_verify",
+          "args": {
+            "note": "Typed Select onChange handler as SelectChangeEvent<Role> per guide. Separately: the codemod added variant=\"standard\" to the Select inside FormControl variant=\"outlined\"; in v4 it inherited outlined, so this may be a visual change worth checking."
+          },
+          "id": "toolu_01SXRZGrNgmqMszWk2KQqjF5",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 4538,
+        "output_tokens": 710,
+        "total_tokens": 5248,
+        "input_token_details": {
+          "cache_read": 1872,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 2662,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 219
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/screens/ProfileForm.tsx so far: +1 −1 lines (1% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01UqLvboxQBkbMGjaxt55QQY",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/screens/ProfileForm.tsx so far: +2 −2 lines (3% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01Q5iXCNSpSt2Cc6gfFyMVDU",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Attempt 1 passed: no failures left in src/screens/ProfileForm.tsx and nothing new elsewhere. Patch: `src/screens/ProfileForm.tsx` +2 −2 lines (3% of the file). This file is done.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "run_verify",
+      "id": null,
+      "tool_call_id": "toolu_01SXRZGrNgmqMszWk2KQqjF5",
+      "artifact": null,
+      "status": "success"
+    }
+  }
+]

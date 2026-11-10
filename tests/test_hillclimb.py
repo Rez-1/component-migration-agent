@@ -76,11 +76,13 @@ def test_the_committed_state_covers_the_grader_checks_and_traps() -> None:
         assert needed in paths
     assert state["approve_each_round"] is True
     assert state["test_ids"] == []
-    assert state["best"]["variant"] == "v1"
+    # M5's result: opus-low re-run on the full dev set (round 0b) stayed best.
+    assert state["best"]["variant"] == "v3"
     cases = [
-        json.loads((FLOW / v / "experiment.json").read_text())["cases"] for v in ("baseline", "v1")
+        json.loads((FLOW / v / "experiment.json").read_text())["cases"]
+        for v in ("baseline", "v1", "v3")
     ]
-    assert cases == [["fixture-mui4"], ["fixture-mui4"]]
+    assert cases == [["fixture-mui4"], ["fixture-mui4"], ["fixture-mui4", "fixture-mui4-hard"]]
 
 
 # --------------------------------------------------------------------------- cases
@@ -190,7 +192,9 @@ def test_rounds_are_recorded() -> None:
 
 def test_the_baseline_to_compare_with_ran_the_same_cases() -> None:
     assert matching_baseline(FLOW, ["fixture-mui4"]) == FLOW / "baseline"
-    assert matching_baseline(FLOW, ["fixture-mui4", "fixture-mui4-hard"]) is None
+    # Round 0a re-ran the Baseline on the full dev set.
+    assert matching_baseline(FLOW, ["fixture-mui4", "fixture-mui4-hard"]) == FLOW / "v2"
+    assert matching_baseline(FLOW, ["fixture-mui4-holdout"]) is None
 
 
 # --------------------------------------------------------------------------- the command

@@ -1,0 +1,124 @@
+[
+  {
+    "role": "system",
+    "content": "Configuration `baseline` (73a3262d088d): Rules only: the dependency map and the official codemods, no repair agent. Rules on, repair off."
+  },
+  {
+    "role": "user",
+    "content": "Migrate fixtures/mui4-app from mui@4 to mui@5"
+  },
+  {
+    "role": "tool_call",
+    "name": "pre-check",
+    "content": "[\n  \"npm ci --no-audit --no-fund\",\n  \"npm run typecheck\",\n  \"npm run lint\",\n  \"npm test\"\n]"
+  },
+  {
+    "role": "tool_result",
+    "name": "pre-check",
+    "content": "{\n  \"status\": \"ok\",\n  \"reason\": null,\n  \"pre_existing_failures\": 0,\n  \"test_totals\": {\n    \"suites_total\": 10,\n    \"suites_failed\": 0,\n    \"tests_total\": 20,\n    \"tests_passed\": 20,\n    \"tests_failed\": 0,\n    \"tests_skipped\": 0,\n    \"snapshots_total\": 1,\n    \"snapshots_unmatched\": 0,\n    \"snapshots_updated\": 0,\n    \"snapshots_added\": 0,\n    \"snapshots_obsolete\": 0,\n    \"snapshot_files_removed\": 0\n  }\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: install",
+    "content": "{\n  \"kind\": \"install\",\n  \"name\": \"install\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: install",
+    "content": "{\n  \"status\": \"skipped\",\n  \"detail\": \"packages already installed for this package.json\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod preset-safe",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"preset-safe\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod preset-safe",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"12 ok, 0 unchanged\",\n  \"changed_files\": [\n    \"src/App.tsx\",\n    \"src/screens/AccountDialog.tsx\",\n    \"src/screens/Dashboard.tsx\",\n    \"src/screens/Faq.tsx\",\n    \"src/screens/Notifications.tsx\",\n    \"src/screens/ProfileCard.tsx\",\n    \"src/screens/ProfileForm.tsx\",\n    \"src/screens/ResponsiveNav.tsx\",\n    \"src/screens/Search.tsx\",\n    \"src/screens/Settings.tsx\",\n    \"src/screens/UsersTable.tsx\",\n    \"src/theme.ts\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod variant-prop",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"variant-prop\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod variant-prop",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"1 ok, 11 unchanged\",\n  \"changed_files\": [\n    \"src/screens/ProfileForm.tsx\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod link-underline-hover",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"link-underline-hover\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod link-underline-hover",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"1 ok, 11 unchanged\",\n  \"changed_files\": [\n    \"src/screens/Faq.tsx\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod box-sx-prop",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"box-sx-prop\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod box-sx-prop",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"1 ok, 11 unchanged\",\n  \"changed_files\": [\n    \"src/screens/Settings.tsx\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: format",
+    "content": "{\n  \"kind\": \"format\",\n  \"name\": \"format\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: format",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"eslint --fix on 12 files\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: dependencies",
+    "content": "{\n  \"kind\": \"dependencies\",\n  \"name\": \"dependencies\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: dependencies",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"-@material-ui/core +@mui/material@5.18.0 +@mui/styles@5.18.0 +@emotion/react@11.14.0 +@emotion/styled@11.14.1 -@material-ui/icons +@mui/icons-material@5.18.0 -@material-ui/lab +@mui/lab@5.0.0-alpha.177\",\n  \"changed_files\": [\n    \"package.json\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: install",
+    "content": "{\n  \"kind\": \"install\",\n  \"name\": \"install\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: install",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"npm install --no-audit --no-fund\",\n  \"changed_files\": [\n    \"package-lock.json\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "verify",
+    "content": "[\n  \"npm run typecheck\",\n  \"npm run lint\",\n  \"npm test\"\n]"
+  },
+  {
+    "role": "tool_result",
+    "name": "verify",
+    "content": "{\n  \"failures\": [\n    {\n      \"source\": \"typecheck\",\n      \"file\": \"src/screens/Dashboard.tsx\",\n      \"line\": 12,\n      \"column\": 16,\n      \"code\": \"TS2362\",\n      \"message\": \"The left-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.\"\n    },\n    {\n      \"source\": \"typecheck\",\n      \"file\": \"src/screens/Dashboard.tsx\",\n      \"line\": 22,\n      \"column\": 57,\n      \"code\": \"TS2322\",\n      \"message\": \"Type 'string' is not assignable to type 'number'.\"\n    },\n    {\n      \"source\": \"typecheck\",\n      \"file\": \"src/screens/Notifications.tsx\",\n      \"line\": 39,\n      \"column\": 21,\n      \"code\": \"TS2769\",\n      \"message\": \"No overload matches this call. Overload 1 of 2, '(props: { component: \\\"span\\\"; } & TypographyOwnProps & CommonProps & Omit<Omit<DetailedHTMLProps<HTMLAttributes<HTMLSpanElement>, HTMLSpanElement>, \\\"ref\\\"> & { ...; }, \\\"borderRadius\\\" | ... 112 more ... | \\\"variantMapping\\\">): Element | null', gave the following error.\"\n    },\n    {\n      \"source\": \"typecheck\",\n      \"file\": \"src/screens/ProfileForm.tsx\",\n      \"line\": 64,\n      \"column\": 11,\n      \"code\": \"TS2322\",\n      \"message\": \"Type '(event: React.ChangeEvent<{    name?: string;    value: unknown;}>) => void' is not assignable to type '(event: SelectChangeEvent<\\\"admin\\\" | \\\"editor\\\" | \\\"viewer\\\">, child: ReactNode) => void'. Types of parameters 'event' and 'event' are incompatible.\"\n    },\n    {\n      \"source\": \"typecheck\",\n      \"file\": \"src/screens/Search.tsx\",\n      \"line\": 42,\n      \"column\": 21,\n      \"code\": \"TS2339\",\n      \"message\": \"Property 'label' does not exist on type 'HTMLAttributes<HTMLLIElement> & { key: any; }'.\"\n    },\n    {\n      \"source\": \"typecheck\",\n      \"file\": \"src/screens/Search.tsx\",\n      \"line\": 43,\n      \"column\": 55,\n      \"code\": \"TS2339\",\n      \"message\": \"Property 'country' does not exist on type 'HTMLAttributes<HTMLLIElement> & { key: any; }'.\"\n    },\n    {\n      \"source\": \"typecheck\",\n      \"file\": \"src/screens/Settings.tsx\",\n      \"line\": 61,\n      \"column\": 11,\n      \"code\": \"TS2769\",\n      \"message\": \"No overload matches this call. Overload 1 of 3, '(props: { href: string; } & ButtonOwnProps & Omit<ButtonBaseOwnProps, \\\"classes\\\"> & CommonProps & Omit<Omit<DetailedHTMLProps<AnchorHTMLAttributes<HTMLAnchorElement>, HTMLAnchorElement>, \\\"ref\\\"> & { ...; }, \\\"className\\\" | ... 24 more ... | \\\"variant\\\">): Element', gave the following error.\"\n    },\n    {\n      \"source\": \"typecheck\",\n      \"file\": \"src/theme.ts\",\n      \"line\": 16,\n      \"column\": 7,\n      \"code\": \"TS2322\",\n      \"message\": \"Type '{ label: { textTransform: string; }; }' is not assignable to type 'Partial<OverridesStyleRules<keyof ButtonClasses, \\\"MuiButton\\\", unknown>>'. Object literal may only specify known properties, and 'label' does not exist in type 'Partial<OverridesStyleRules<keyof ButtonClasses, \\\"MuiButton\\\", unknown>>'.\"\n    },\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/AccountDialog.tsx\",\n      \"line\": 31,\n      \"column\": 3,\n      \"message\": \"TestingLibraryElementError: Unable to find an accessible element with the role \\\"dialog\\\" and name \\\"Delete your account?\\\"\",\n      \"test_file\": \"src/screens/__tests__/AccountDialog.test.tsx\",\n      \"test_name\": \"AccountDialog \\u203a stays open, keeping what was typed, when the user clicks outside it\"\n    },\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/Faq.tsx\",\n      \"line\": 17,\n      \"column\": 3,\n      \"message\": \"Error: expect(received).toMatchSnapshot()\",\n      \"test_file\": \"src/screens/__tests__/Faq.test.tsx\",\n      \"test_name\": \"Faq \\u203a renders a question header with its expand icon\"\n    },\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/ProfileCard.tsx\",\n      \"line\": 6,\n      \"column\": 3,\n      \"message\": \"TypeError: theme.spacing is not a function\",\n      \"test_file\": \"src/screens/__tests__/ProfileCard.test.tsx\",\n      \"test_name\": \"ProfileCard \\u203a shows the name, role, email and initials\"\n    },\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/ResponsiveNav.tsx\",\n      \"line\": 19,\n      \"column\": 3,\n      \"message\": \"Error: Unable to find role=\\\"button\\\" and name \\\"Open menu\\\"\",\n      \"test_file\": \"src/screens/__tests__/ResponsiveNav.test.tsx\",\n      \"test_name\": \"ResponsiveNav \\u203a uses a menu on a small tablet (920px wide)\"\n    },\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/Search.tsx\",\n      \"line\": 12,\n      \"column\": 3,\n      \"message\": \"TestingLibraryElementError: Unable to find an accessible element with the role \\\"option\\\"\",\n      \"test_file\": \"src/screens/__tests__/Search.test.tsx\",\n      \"test_name\": \"Search \\u203a suggests matching cities with their country\"\n    },\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/Search.tsx\",\n      \"line\": 23,\n      \"column\": 3,\n      \"message\": \"TestingLibraryElementError: Unable to find an accessible element with the role \\\"option\\\" and name `/Amsterdam/`\",\n      \"test_file\": \"src/screens/__tests__/Search.test.tsx\",\n      \"test_name\": \"Search \\u203a selects Amsterdam\"\n    },\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/Settings.tsx\",\n      \"line\": 6,\n      \"column\": 3,\n      \"message\": \"TypeError: Cannot read properties of undefined (reading 'dark')\",\n      \"test_file\": \"src/screens/__tests__/Settings.test.tsx\",\n      \"test_name\": \"Settings \\u203a enables Save only after a change, and saves the new preferences\"\n    },\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/Settings.tsx\",\n      \"line\": 21,\n      \"column\": 3,\n      \"message\": \"TypeError: Cannot read properties of undefined (reading 'dark')\",\n      \"test_file\": \"src/screens/__tests__/Settings.test.tsx\",\n      \"test_name\": \"Settings \\u203a shows button text in sentence case, as the theme asks\"\n    }\n  ],\n  \"test_totals\": {\n    \"suites_total\": 10,\n    \"suites_failed\": 6,\n    \"tests_total\": 20,\n    \"tests_passed\": 12,\n    \"tests_failed\": 8,\n    \"tests_skipped\": 0,\n    \"snapshots_total\": 1,\n    \"snapshots_unmatched\": 1,\n    \"snapshots_updated\": 0,\n    \"snapshots_added\": 0,\n    \"snapshots_obsolete\": 0,\n    \"snapshot_files_removed\": 0\n  }\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "cheating checks",
+    "content": "{\n  \"test_files\": 14\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "cheating checks",
+    "content": "{\n  \"hits\": [],\n  \"warnings\": [],\n  \"notes\": [\n    {\n      \"check\": \"escape-hatch:eslint-disable\",\n      \"file\": \"src/App.tsx\",\n      \"layer\": \"rules\",\n      \"severity\": \"fail\",\n      \"detail\": \"an `eslint-disable` comment: 0 -> 1\",\n      \"before\": 0,\n      \"after\": 1\n    }\n  ]\n}"
+  },
+  {
+    "role": "assistant",
+    "content": "# Scorecard: mui4-fixture-app · run 2026-11-09-231628-9ce\n\n`mui@4->mui@5` · configuration `baseline` · case `fixture-mui4` · 1 min 0 s · $0 (no LLM) of $5.00 cap\n\n**Clean run: no. Final verify found 16 failures in 10 files.** **2 of 12 affected files migrated without a human (17%)**: 2 by rules, 0 by the repair agent. 0 handed off, 10 unmigrated.\n\n| | This run |\n|---|---|\n| Clean run | no (16 failures in 10 files) |\n| Migrated without a human | 2 / 12 (17%) |\n| Hand-offs | 0 |\n| Regressions | 0 |\n| Cheating-check hits | 0 (0 warnings); 1 Rules-layer notes |\n| Codemod TODOs left | 0 |\n| Traps | 12 expected · 0 other layer · 10 missed · 1 not scored |\n| Cost / time | $0 · 1 min 0 s |\n\n## Files\n\n| File | Outcome | Failures | Note |\n|---|---|---|---|\n| src/screens/AccountDialog.tsx | Unmigrated | 1 | 1 test |\n| src/screens/Dashboard.tsx | Unmigrated | 2 | 2 typecheck |\n| src/screens/Faq.tsx | Unmigrated | 1 | 1 test |\n| src/screens/Notifications.tsx | Unmigrated | 1 | 1 typecheck |\n| src/screens/ProfileCard.tsx | Unmigrated | 1 | 1 test |\n| src/screens/ProfileForm.tsx | Unmigrated | 1 | 1 typecheck |\n| src/screens/ResponsiveNav.tsx | Unmigrated | 1 | 1 test |\n| src/screens/Search.tsx | Unmigrated | 4 | 2 test, 2 typecheck |\n| src/screens/Settings.tsx | Unmigrated | 3 | 2 test, 1 typecheck |\n| src/theme.ts | Unmigrated | 1 | 1 typecheck |\n| 2 files | Migrated by rules | 0 | App, UsersTable |\n\nChanged but not affected: `package-lock.json`, `package.json`.\n\n## Failures\n\n| File | Check | Where | Message |\n|---|---|---|---|\n| src/screens/AccountDialog.tsx | test | AccountDialog › stays open, keeping what was typed, when the user clicks outside it | TestingLibraryElementError: Unable to find an accessible element with the role \"dialog\" and name \"Delete your account?\" |\n| src/screens/Dashboard.tsx | typecheck TS2362 | line 12 | The left-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type. |\n| src/screens/Dashboard.tsx | typecheck TS2322 | line 22 | Type 'string' is not assignable to type 'number'. |\n| src/screens/Faq.tsx | test | Faq › renders a question header with its expand icon | Error: expect(received).toMatchSnapshot() |\n| src/screens/Notifications.tsx | typecheck TS2769 | line 39 | No overload matches this call. Overload 1 of 2, '(props: { component: \"span\"; } & TypographyOwnProps & CommonProps & Omit<Omit<DetailedHT… |\n| src/screens/ProfileCard.tsx | test | ProfileCard › shows the name, role, email and initials | TypeError: theme.spacing is not a function |\n| src/screens/ProfileForm.tsx | typecheck TS2322 | line 64 | Type '(event: React.ChangeEvent<{    name?: string;    value: unknown;}>) => void' is not assignable to type '(event: SelectChangeEvent<\"… |\n| src/screens/ResponsiveNav.tsx | test | ResponsiveNav › uses a menu on a small tablet (920px wide) | Error: Unable to find role=\"button\" and name \"Open menu\" |\n| src/screens/Search.tsx | test | Search › suggests matching cities with their country | TestingLibraryElementError: Unable to find an accessible element with the role \"option\" |\n| src/screens/Search.tsx | test | Search › selects Amsterdam | TestingLibraryElementError: Unable to find an accessible element with the role \"option\" and name `/Amsterdam/` |\n| src/screens/Search.tsx | typecheck TS2339 | line 42 | Property 'label' does not exist on type 'HTMLAttributes<HTMLLIElement> & { key: any; }'. |\n| src/screens/Search.tsx | typecheck TS2339 | line 43 | Property 'country' does not exist on type 'HTMLAttributes<HTMLLIElement> & { key: any; }'. |\n| src/screens/Settings.tsx | test | Settings › enables Save only after a change, and saves the new preferences | TypeError: Cannot read properties of undefined (reading 'dark') |\n| src/screens/Settings.tsx | test | Settings › shows button text in sentence case, as the theme asks | TypeError: Cannot read properties of undefined (reading 'dark') |\n| src/screens/Settings.tsx | typecheck TS2769 | line 61 | No overload matches this call. Overload 1 of 3, '(props: { href: string; } & ButtonOwnProps & Omit<ButtonBaseOwnProps, \"classes\"> & Commo… |\n| src/theme.ts | typecheck TS2322 | line 16 | Type '{ label: { textTransform: string; }; }' is not assignable to type 'Partial<OverridesStyleRules<keyof ButtonClasses, \"MuiButton\", un… |\n\n## Traps (fixture)\n\n| Result | Expected layer | Traps |\n|---|---|---|\n| Expected | rules | 12: create-theme, grid-justify, fade-alpha, autocomplete-import, autocomplete-option-equal, button-color-default-literal, spacing-px-template, expansion-panel, link-underline, textfield-default-variant, breakpoint-down, box-system-props |\n| Missed | agent | 9: autocomplete-render-option, spacing-arithmetic, dialog-disable-backdrop-click, typography-sr-only, breakpoint-sizes, button-color-expression, button-label-override, select-event-type, styles-needs-theme-provider |\n| Missed | human | 1: faq-snapshot-markup |\n| Not scored | visual-only | 1: switch-default-color |\n\nEvery agent and human trap's check still fails at the final verify.\n\n## Cheating checks\n\nNo hits and no warnings on repair-agent patches.\n\nReported, not failing (only repair-agent patches can fail a run):\n\n| File | Layer | Check | Detail |\n|---|---|---|---|\n| src/App.tsx | rules | escape-hatch:eslint-disable | an `eslint-disable` comment: 0 -> 1 |\n\n14 test files checked.\n\n## Rule steps\n\n| # | Step | Status | Changed | Detail |\n|---|---|---|---|---|\n| 1 | install | skipped | 0 | packages already installed for this package.json |\n| 2 | codemod preset-safe | ok | 12 | 12 ok, 0 unchanged |\n| 3 | codemod variant-prop | ok | 1 | 1 ok, 11 unchanged |\n| 4 | codemod link-underline-hover | ok | 1 | 1 ok, 11 unchanged |\n| 5 | codemod box-sx-prop | ok | 1 | 1 ok, 11 unchanged |\n| 6 | format | ok | 0 | eslint --fix on 12 files |\n| 7 | dependencies | ok | 1 | -@material-ui/core +@mui/material@5.18.0 +@mui/styles@5.18.0 +@emotion/react@11.14.0 +@emotion/styled@11.14.1 -@material-ui/icons +@mui/icons-material@5.18.0 -@material-ui/lab +@mui/lab@5.0.0-alpha.177 |\n| 8 | install | ok | 1 | npm install --no-audit --no-fund |\n\n## Pre-check and tests\n\nPre-check: ok, 0 Pre-existing failures.\n\n| | Pre-check | Final verify |\n|---|---|---|\n| Tests run | 20 | 20 |\n| Tests failing | 0 | 8 |\n| Tests skipped | 0 | 0 |\n| Suites failing | 0 of 10 | 6 of 10 |\n| Snapshots | 1 | 1 |\n\n## Cost\n\n$0: this run made no model calls. Run cap $5.00; month cap $20.00.\n\nNode 20.20.2, npm 10.8.2, migrator 0.1.0.\n"
+  }
+]

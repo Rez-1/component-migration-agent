@@ -1,0 +1,920 @@
+[
+  {
+    "type": "human",
+    "data": {
+      "content": "## Failing file: `src/screens/IssueDetail.tsx`\n\nAttempt 1 of 3.\n\n### Failures in this file (3)\n\n1. **Failing test** `src/screens/__tests__/IssueDetail.test.tsx` › \"IssueDetail › adds a label and says so\": TestingLibraryElementError: Unable to find an accessible element with the role \"alert\" (This test imports this file.)\n2. **Failing test** `src/screens/__tests__/IssueDetail.test.tsx` › \"IssueDetail › removes a label with Backspace, and Undo brings it back\": TestingLibraryElementError: Unable to find an accessible element with the role \"alert\" (This test imports this file.)\n3. **Failing test** `src/screens/__tests__/IssueDetail.test.tsx` › \"IssueDetail › puts the cursor in the comment box once the dialog is open\": Error: expect(element).toHaveFocus() (This test imports this file.)\n\n### What the Rules stage changed in this file\n\n```diff\n--- a/src/screens/IssueDetail.tsx\n+++ b/src/screens/IssueDetail.tsx\n@@ -11,4 +11,5 @@\n   Typography,\n-} from '@material-ui/core';\n-import { makeStyles, Theme } from '@material-ui/core/styles';\n+} from '@mui/material';\n+import { Theme } from '@mui/material/styles';\n+import makeStyles from '@mui/styles/makeStyles';\n import { Issue, Label } from '../data/issues';\n```\n\n### The file now (108 lines)\n\n```tsx\n  1  import { useRef, useState } from 'react';\n  2  import {\n  3    Button,\n  4    Dialog,\n  5    DialogActions,\n  6    DialogContent,\n  7    DialogTitle,\n  8    Paper,\n  9    Snackbar,\n 10    TextField,\n 11    Typography,\n 12  } from '@mui/material';\n 13  import { Theme } from '@mui/material/styles';\n 14  import makeStyles from '@mui/styles/makeStyles';\n 15  import { Issue, Label } from '../data/issues';\n 16  import { LabelPicker } from '../components/LabelPicker';\n 17  import { focusOnOpen } from '../components/dialogFocus';\n 18  \n 19  const useStyles = makeStyles((theme: Theme) => ({\n 20    root: { padding: theme.spacing(2), margin: theme.spacing(2), maxWidth: 560 },\n 21    section: { marginTop: theme.spacing(2) },\n 22  }));\n 23  \n 24  interface IssueDetailProps {\n 25    issue: Issue;\n 26    onComment?: (text: string) => void;\n 27  }\n 28  \n 29  export function IssueDetail({ issue, onComment }: IssueDetailProps) {\n 30    const classes = useStyles();\n 31    const [labels, setLabels] = useState<Label[]>(issue.labels);\n 32    const [notice, setNotice] = useState<{ message: string; undo: Label[] } | null>(null);\n 33    const [commenting, setCommenting] = useState(false);\n 34    const [comment, setComment] = useState('');\n 35    const commentRef = useRef<HTMLTextAreaElement>(null);\n 36  \n 37    const postComment = () => {\n 38      onComment?.(comment);\n 39      setComment('');\n 40      setCommenting(false);\n 41    };\n 42  \n 43    return (\n 44      <Paper className={classes.root} component=\"article\" aria-labelledby=\"issue-title\">\n 45        <Typography id=\"issue-title\" variant=\"h5\" component=\"h1\">\n 46          #{issue.id} {issue.title}\n 47        </Typography>\n 48        <div className={classes.section}>\n 49          <LabelPicker\n 50            value={labels}\n 51            onChange={setLabels}\n 52            onAnnounce={(message) => setNotice({ message, undo: labels })}\n 53          />\n 54        </div>\n 55        <div className={classes.section}>\n 56          <Button variant=\"outlined\" onClick={() => setCommenting(true)}>\n 57            Comment\n 58          </Button>\n 59        </div>\n 60        <Dialog\n 61          open={commenting}\n 62          onClose={() => setCommenting(false)}\n 63          aria-labelledby=\"comment-title\"\n 64          fullWidth\n 65          {...focusOnOpen(commentRef)}\n 66        >\n 67          <DialogTitle id=\"comment-title\">Comment on #{issue.id}</DialogTitle>\n 68          <DialogContent>\n 69            <TextField\n 70              id=\"comment-text\"\n 71              label=\"Comment\"\n 72              multiline\n 73              rows={4}\n 74              fullWidth\n 75              variant=\"outlined\"\n 76              inputRef={commentRef}\n 77              value={comment}\n 78              onChange={(e) => setComment(e.target.value)}\n 79            />\n 80          </DialogContent>\n 81          <DialogActions>\n 82            <Button onClick={() => setCommenting(false)}>Cancel</Button>\n 83            <Button color=\"primary\" disabled={!comment.trim()} onClick={postComment}>\n 84              Post\n 85            </Button>\n 86          </DialogActions>\n 87        </Dialog>\n 88        <Snackbar\n 89          open={notice !== null}\n 90          message={notice?.message}\n 91          autoHideDuration={6000}\n 92          onClose={() => setNotice(null)}\n 93          action={\n 94            <Button\n 95              color=\"secondary\"\n 96              size=\"small\"\n 97              onClick={() => {\n 98                if (notice) setLabels(notice.undo);\n 99                setNotice(null);\n100              }}\n101            >\n102              Undo\n103            </Button>\n104          }\n105        />\n106      </Paper>\n107    );\n108  }\n```\n\n### Local imports\n\n- `src/components/LabelPicker.tsx`: `export function LabelPicker({ value, onChange, onAnnounce }: LabelPickerProps)`\n- `src/components/dialogFocus.ts`: `export function focusOnOpen(field: RefObject<HTMLElement>)`\n- `src/data/issues.ts`: `export type Status = 'open' | 'in-progress' | 'done';`, `export type Priority = 'low' | 'medium' | 'high';`, `export interface Label { id: string; name: string; }`, `export interface Issue { id: number; title: string; status: Status; priority: Priority; assignee: string | null; labels: Label[]; daysOpen: number; }`, `export const LABELS: Label[]`, `export const ISSUES: Issue[] = titles.map(…)`\n\n### Used by\n\n- `src/App.tsx` imports `IssueDetail` from this file.\n\n### Guide sections (keyword lookup: `IssueDetail`, `TestingLibraryElementError`, `toHaveFocus`)\n\n**Dialog › Remove withMobileDialog component**\n\nRemove the `withMobileDialog` higher-order component.\n\n:::warning\nThis is handled in the [preset-safe codemod](#preset-safe) by applying hard-coded function to prevent application crash, but further fixes are required.\n:::\n\nThe hook API allows a simpler and more flexible solution:\n\n```diff\n-import withMobileDialog from '@mui/material/withMobileDialog';\n+import { useTheme, useMediaQuery } from '@mui/material';\n\n function ResponsiveDialog(props) {\n-  const { fullScreen } = props;\n+  const theme = useTheme();\n+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));\n   const [open, setOpen] = React.useState(false);\n\n // ...\n\n-export default withMobileDialog()(ResponsiveDialog);\n+export default ResponsiveDialog;\n```\n\n**TablePagination › Customize labels with getItemAriaLabel prop**\n\nThe customization of the table pagination's actions labels must be done with the `getItemAriaLabel` prop.\n\nThis increases consistency with the `Pagination` component.\n\n```diff\n  <TablePagination\n-  backIconButtonText=\"Back\"\n-  nextIconButtonText=\"Next\"\n+  getItemAriaLabel={…}\n```\n\n**Update Material UI packages › Remove old packages**\n\nOnce you've installed all the necessary packages and ensured that your app still runs, you can safely remove the old `@material-ui/*` packages by running `npm uninstall @material-ui/*` or `yarn remove @material-ui/*`.\n\n:::success\nThe [preset-safe codemod](#preset-safe) (explained in more detail below) handles this automatically.\n:::\n\nAlso possibly relevant (`search_guide` for the text):\n\n- Alert › Update import (codemod)\n- Dialog › Remove disableTypography prop (codemod)\n- ExpansionPanelSummary › Rename focused to focusVisible\n- Button › Remove span and label\n- Style library › Adjust CSS injection order (codemod)\n- Dialog › Remove disableBackdropClick prop (codemod)\n- Dialog › Update transition props (codemod)\n- FormControlLabel › Add required label prop",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "human",
+      "name": null,
+      "id": null
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "signature": "CAQS1QYKEAgTGAI4AUIIdGhpbmtpbmcSDLDdu/kIrx6uA4LOUhoMn1bVxFKd6NwY1sMhIjARm8zw0O4zwVzuqNLCh6ELh/xPMiY5UeeBKdH8H1l8FnPAQ5Rr/wQoIRhnTZuxcfcq8gWmgS4U3Wzw0Rwp6f75i0WzMDxDEEDd+VVdtlzSmhpMl4ZCgzkKYFb2RZ2PLRu4XkTaQ4QmLfZv6xclwUkv88k2l4b08NWDqwJtw7gQIQ7DfXTX1jRbgB2q7ECc8VvpmSuxsq7GJt7CoQ6B9YQjWJFDM4jFeDIj0cGoLq1S7Kvgg0IWdIq4zhnbj9uNArgFVvKPoQqxU4eFQzCHmzuySPwzpiurSsbbsBKOFG6tvE/xa8/OedCwZ+wT6uHzX8iuiKfdOO96smsKeM7wBI8lMJBXQWVzNldV7USnpjc7rMPoYhY9x6ez30UeQG4ouaPF9wSS63l5W+RoPUSZgZBVkDjLQ0cWp3O2fhrlfDl+Svw3KKCyNqMmJcoSJEaEp3ZZfSsy1x52whzbECnm0YjEDSlauIcipv+gN16ODKb5KU2XFlpJ4HZFrEDM96JRFNG91OLSJyITNtgsSdaQTAQRbEmsOtUv8aUBQGnZisnuom5H7xiPTyq8hf1JxaWVzFLd7M8qc08fKO6ocdYaFYifIrAmUbWi6WSrNK6IkVxXdYr9iz6Hqcj3teyeJ/JTgusmYB5DZbAKTTIHUCPac9KgHI0H9yM02hTu/Nzs9g3F0TeVP58McOeWPGDNMu+2Pep/8EKMn/RIbb4WDr10y/gwbJ467xfL6+Mb3YtM7IG1jObujMBkC3mnOz5f28n0Oqh8UmeQ8ssvWiv2lXp1nfaojUgPAhDbM8hiRAfZ9Z4NJZF8cK+8pCKYcgSU/Ur1ypK4SZi+pXexa7WM/R7N2JnxTreFQh2NDduCU6hgcfyMz4BvckVTYzqHy+otzTJSOMrJMSGlGgio1hpfJ8Unpe7cgtglCtdq3vsd0OlLqfS8elqEK++ZWXt6iovUbc/eEd28ywIy91z4oSE0gA3/GiQWPqNSVIGWPL4Af3SJwDl8PSS5LUTTxjJgKWgEbjLWajr+fitnOqE97iXt3/cCBorENIOXctRryiETz/AlzKSIwuQlbyeMGAE=",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "id": "toolu_017oHsdJ8gFL2NuxBdgonvAt",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/components/LabelPicker.tsx"
+          },
+          "name": "read_file",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01MVoFVHQYgLCkf9Wt5FvX73",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/components/dialogFocus.ts"
+          },
+          "name": "read_file",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01UY1B2E3jYCqh2ttmnGqGTL",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/__tests__/IssueDetail.test.tsx"
+          },
+          "name": "read_file",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtFnT469qXUNVdXTWscy",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-haiku-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 3145
+          },
+          "cache_creation_input_tokens": 3145,
+          "cache_read_input_tokens": 1872,
+          "inference_geo": "global",
+          "input_tokens": 4,
+          "output_tokens": 282,
+          "output_tokens_details": {
+            "thinking_tokens": 100
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-haiku-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2bb-b129-7508-9afd-f648b9dae680-0",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "args": {
+            "path": "src/components/LabelPicker.tsx"
+          },
+          "id": "toolu_017oHsdJ8gFL2NuxBdgonvAt",
+          "type": "tool_call"
+        },
+        {
+          "name": "read_file",
+          "args": {
+            "path": "src/components/dialogFocus.ts"
+          },
+          "id": "toolu_01MVoFVHQYgLCkf9Wt5FvX73",
+          "type": "tool_call"
+        },
+        {
+          "name": "read_file",
+          "args": {
+            "path": "src/screens/__tests__/IssueDetail.test.tsx"
+          },
+          "id": "toolu_01UY1B2E3jYCqh2ttmnGqGTL",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 5021,
+        "output_tokens": 282,
+        "total_tokens": 5303,
+        "input_token_details": {
+          "cache_read": 1872,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 3145,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 100
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "src/components/LabelPicker.tsx (39 lines)\n 1  import { Chip, TextField } from '@mui/material';\n 2  import { Autocomplete } from '@mui/material';\n 3  import { Label, LABELS } from '../data/issues';\n 4  \n 5  // What a screen reader hears (and the snackbar shows) after a change.\n 6  const ANNOUNCEMENTS: Record<string, (label: Label) => string> = {\n 7    'select-option': (label) => `Added “${label.name}”`,\n 8    'remove-option': (label) => `Removed “${label.name}”`,\n 9  };\n10  \n11  interface LabelPickerProps {\n12    value: Label[];\n13    onChange: (labels: Label[]) => void;\n14    onAnnounce?: (message: string, label: Label) => void;\n15  }\n16  \n17  export function LabelPicker({ value, onChange, onAnnounce }: LabelPickerProps) {\n18    return (\n19      <Autocomplete\n20        multiple\n21        options={LABELS}\n22        value={value}\n23        getOptionLabel={(label) => label.name}\n24        isOptionEqualToValue={(option, selected) => option.id === selected.id}\n25        filterSelectedOptions\n26        onChange={(_event, labels, reason, details) => {\n27          onChange(labels);\n28          const announce = ANNOUNCEMENTS[reason];\n29          if (announce && details) onAnnounce?.(announce(details.option), details.option);\n30        }}\n31        renderTags={(labels, getTagProps) =>\n32          labels.map((label, index) => (\n33            <Chip size=\"small\" label={label.name} {...getTagProps({ index })} key={label.id} />\n34          ))\n35        }\n36        renderInput={(params) => <TextField {...params} label=\"Labels\" variant=\"outlined\" />}\n37      />\n38    );\n39  }",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "read_file",
+      "id": null,
+      "tool_call_id": "toolu_017oHsdJ8gFL2NuxBdgonvAt",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "src/components/dialogFocus.ts (9 lines)\n1  import { RefObject } from 'react';\n2  \n3  // Dialog props that move focus to a field once the dialog has finished opening\n4  // (the field isn't focusable while the dialog is still fading in).\n5  export function focusOnOpen(field: RefObject<HTMLElement>) {\n6    return {\n7      onEntered: () => field.current?.focus(),\n8    };\n9  }",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "read_file",
+      "id": null,
+      "tool_call_id": "toolu_01MVoFVHQYgLCkf9Wt5FvX73",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "src/screens/__tests__/IssueDetail.test.tsx (55 lines)\n 1  import { fireEvent, screen, waitFor, within } from '@testing-library/react';\n 2  import { renderScreen } from '../../test-utils';\n 3  import { IssueDetail } from '../IssueDetail';\n 4  import { ISSUES } from '../../data/issues';\n 5  \n 6  const issue = ISSUES[0]; // #101, labelled \"bug\"\n 7  \n 8  function labelsInput() {\n 9    return screen.getByLabelText('Labels');\n10  }\n11  \n12  function chips() {\n13    return Array.from(document.querySelectorAll('.MuiChip-label')).map((c) => c.textContent);\n14  }\n15  \n16  describe('IssueDetail', () => {\n17    it('adds a label and says so', () => {\n18      renderScreen(<IssueDetail issue={issue} />);\n19      fireEvent.focus(labelsInput());\n20      fireEvent.change(labelsInput(), { target: { value: 'doc' } });\n21  \n22      fireEvent.click(screen.getByRole('option', { name: 'docs' }));\n23  \n24      expect(chips()).toEqual(['bug', 'docs']);\n25      expect(screen.getByRole('alert')).toHaveTextContent('Added “docs”');\n26    });\n27  \n28    it('removes a label with Backspace, and Undo brings it back', () => {\n29      renderScreen(<IssueDetail issue={issue} />);\n30      fireEvent.focus(labelsInput());\n31  \n32      fireEvent.keyDown(labelsInput(), { key: 'Backspace' });\n33  \n34      expect(chips()).toEqual([]);\n35      const notice = screen.getByRole('alert');\n36      expect(notice).toHaveTextContent('Removed “bug”');\n37      fireEvent.click(within(notice).getByRole('button', { name: 'Undo' }));\n38      expect(chips()).toEqual(['bug']);\n39    });\n40  \n41    it('puts the cursor in the comment box once the dialog is open', async () => {\n42      const onComment = jest.fn();\n43      renderScreen(<IssueDetail issue={issue} onComment={onComment} />);\n44  \n45      fireEvent.click(screen.getByRole('button', { name: 'Comment' }));\n46  \n47      const box = within(screen.getByRole('dialog', { name: 'Comment on #101' })).getByLabelText(\n48        'Comment'\n49      );\n50      await waitFor(() => expect(box).toHaveFocus());\n51      fireEvent.change(box, { target: { value: 'Reproduced on Safari.' } });\n52      fireEvent.click(screen.getByRole('button', { name: 'Post' }));\n53      expect(onComment).toHaveBeenCalledWith('Reproduced on Safari.');\n54    });\n55  });",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "read_file",
+      "id": null,
+      "tool_call_id": "toolu_01UY1B2E3jYCqh2ttmnGqGTL",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "id": "toolu_01NhpVzHhTykvpctukAA3iNG",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "query": "Snackbar"
+          },
+          "name": "search_guide",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01MDZfkWce7BW4D5H7KYfzQi",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "query": "Dialog onEntered TransitionProps"
+          },
+          "name": "search_guide",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_0169SCHSpSspWrVyVQmD3JW4",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/test-utils.tsx"
+          },
+          "name": "read_file",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtFnZv5QaSJZ2WgiPxcy",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-haiku-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 2134
+          },
+          "cache_creation_input_tokens": 2134,
+          "cache_read_input_tokens": 5017,
+          "inference_geo": "global",
+          "input_tokens": 2,
+          "output_tokens": 802,
+          "output_tokens_details": {
+            "thinking_tokens": 638
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-haiku-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2bb-b7a9-7427-ab29-c4c30d3ffdae-0",
+      "tool_calls": [
+        {
+          "name": "search_guide",
+          "args": {
+            "query": "Snackbar"
+          },
+          "id": "toolu_01NhpVzHhTykvpctukAA3iNG",
+          "type": "tool_call"
+        },
+        {
+          "name": "search_guide",
+          "args": {
+            "query": "Dialog onEntered TransitionProps"
+          },
+          "id": "toolu_01MDZfkWce7BW4D5H7KYfzQi",
+          "type": "tool_call"
+        },
+        {
+          "name": "read_file",
+          "args": {
+            "path": "src/test-utils.tsx"
+          },
+          "id": "toolu_0169SCHSpSspWrVyVQmD3JW4",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 7153,
+        "output_tokens": 802,
+        "total_tokens": 7955,
+        "input_token_details": {
+          "cache_read": 5017,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 2134,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 638
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "**Snackbar › Update default positioning**\n\nThe notification now displays at the bottom left on large screens.\n\nThis better matches the behavior of Gmail, Google Keep, material.io, etc.\n\nYou can restore the v4 behavior with:\n\n```diff\n-<Snackbar />\n+<Snackbar anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }} />\n```\n\n---\n\n**Snackbar › Update transition props (codemod)**\n\nThe `on*` transition props were removed.\n\nUse `TransitionProps` instead.\n\n```diff\n <Snackbar\n-  onEnter={onEnter}\n-  onEntered={onEntered}\n-  onEntering={onEntering}\n-  onExit={onExit}\n-  onExited={onExited}\n-  onExiting={onExiting}\n+  TransitionProps={{\n+    onEnter,\n+    onEntered,\n+    onEntering,\n+    onExit,\n+    onExited,\n+    onExiting,\n+  }}\n >\n```",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "search_guide",
+      "id": null,
+      "tool_call_id": "toolu_01NhpVzHhTykvpctukAA3iNG",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "**Dialog › Update transition props (codemod)**\n\nThe `on*` transition props were removed.\nUse `TransitionProps` instead.\n\n```diff\n  <Dialog\n-  onEnter={onEnter}\n-  onEntered={onEntered}\n-  onEntering={onEntering}\n-  onExit={onExit}\n-  onExited={onExited}\n-  onExiting={onExiting}\n+  TransitionProps={{\n+    onEnter,\n+    onEntered,\n+    onEntering,\n+    onExit,\n+    onExited,\n+    onExiting,\n+  }}\n  >\n```\n\n---\n\n**Popover › Update transition props (codemod)**\n\nThe `on*` transition props were removed.\n\nUse `TransitionProps` instead.\n\n```diff\n  <Popover\n-  onEnter={onEnter}\n-  onEntered={onEntered}\n-  onEntering={onEntering}\n-  onExit={onExit}\n-  onExited={onExited}\n-  onExiting={onExiting}\n+  TransitionProps={{\n+    onEnter,\n+    onEntered,\n+    onEntering,\n+    onExit,\n+    onExited,\n+    onExiting,\n+  }}\n  >\n```\n\n---\n\n**Snackbar › Update transition props (codemod)**\n\nThe `on*` transition props were removed.\n\nUse `TransitionProps` instead.\n\n```diff\n <Snackbar\n-  onEnter={onEnter}\n-  onEntered={onEntered}\n-  onEntering={onEntering}\n-  onExit={onExit}\n-  onExited={onExited}\n-  onExiting={onExiting}\n+  TransitionProps={{\n+    onEnter,\n+    onEntered,\n+    onEntering,\n+    onExit,\n+    onExited,\n+    onExiting,\n+  }}\n >\n```",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "search_guide",
+      "id": null,
+      "tool_call_id": "toolu_01MDZfkWce7BW4D5H7KYfzQi",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "src/test-utils.tsx (9 lines)\n1  // Shared test helpers. Imported only by test files.\n2  import { ReactElement } from 'react';\n3  import { render, RenderOptions } from '@testing-library/react';\n4  import { AppProviders } from './App';\n5  \n6  // Screens render inside the app shell (theme + CssBaseline), as in production.\n7  export function renderScreen(ui: ReactElement, options?: RenderOptions) {\n8    return render(ui, { wrapper: AppProviders, ...options });\n9  }",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "read_file",
+      "id": null,
+      "tool_call_id": "toolu_0169SCHSpSspWrVyVQmD3JW4",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "id": "toolu_01So88xy9V13xfYNZasS3m7F",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "query": "Autocomplete reason select-option remove-option selectOption removeOption"
+          },
+          "name": "search_guide",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtFnqwz7TjJCK1XhZ2ru",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-haiku-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 1992
+          },
+          "cache_creation_input_tokens": 1992,
+          "cache_read_input_tokens": 7151,
+          "inference_geo": "global",
+          "input_tokens": 2,
+          "output_tokens": 1104,
+          "output_tokens_details": {
+            "thinking_tokens": 1033
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-haiku-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2bb-c653-75e0-9740-06845033c41c-0",
+      "tool_calls": [
+        {
+          "name": "search_guide",
+          "args": {
+            "query": "Autocomplete reason select-option remove-option selectOption removeOption"
+          },
+          "id": "toolu_01So88xy9V13xfYNZasS3m7F",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 9145,
+        "output_tokens": 1104,
+        "total_tokens": 10249,
+        "input_token_details": {
+          "cache_read": 7151,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 1992,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 1033
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "**Autocomplete › Rename reason arguments**\n\nThe following values of the reason argument in `onChange` and `onClose` were renamed for consistency:\n\n1. `create-option` to `createOption`\n2. `select-option` to `selectOption`\n3. `remove-option` to `removeOption`\n\nChange the CSS rules that use `[data-focus=\"true\"]` to use `.Mui-focused`. The `data-focus` attribute is not set on the focused option anymore; instead, global class names are used.\n\n```diff\n-'.MuiAutocomplete-option[data-focus=\"true\"]': {\n+'.MuiAutocomplete-option.Mui-focused': {\n```\n\n---\n\n**Autocomplete › Rename getOptionSelected (codemod)**\n\nRename `getOptionSelected` to `isOptionEqualToValue` to better describe its purpose.\n\n```diff\n <Autocomplete\n-  getOptionSelected={(option, value) => option.title === value.title}\n+  isOptionEqualToValue={(option, value) => option.title === value.title}\n```\n\n---\n\n**Autocomplete › Update renderOption**\n\n`renderOption` should now return the full DOM structure of the option.\nIt makes customizations easier. You can recover from the change with:\n\n```diff\n <Autocomplete\n-  renderOption={(option, { selected }) => (\n-    <React.Fragment>\n+  renderOption={(props, option, { selected }) => (\n+    <li {...props}>\n       <Checkbox\n         icon={icon}\n         checkedIcon={checkedIcon}\n         style={{ marginRight: 8 }}\n         checked={selected}\n       />\n       {option.title}\n-    </React.Fragment>\n+    </li>\n   )}\n />\n```",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "search_guide",
+      "id": null,
+      "tool_call_id": "toolu_01So88xy9V13xfYNZasS3m7F",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "text": "Two root causes are clear from the guide and the code:\n\n1. **Alert missing:** the Autocomplete `reason` values were renamed in v5 (`select-option` → `selectOption`, `remove-option` → `removeOption`), so `ANNOUNCEMENTS` in `LabelPicker.tsx` never matches and no announcement is made.\n2. **Focus missing:** `focusOnOpen` passes `onEntered` directly to `Dialog`, which in v5 must go through `TransitionProps`.\n\nI'll fix the first in `LabelPicker.tsx`. For the second I'll keep the change inside `IssueDetail.tsx` rather than altering the shared helper, since I can't see its other callers.",
+          "type": "text"
+        },
+        {
+          "id": "toolu_01CqyBxsfHsXC3pobbE8YrPC",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/components/LabelPicker.tsx",
+            "old_text": "    'select-option': (label) => `Added “${label.name}”`,\n    'remove-option': (label) => `Removed “${label.name}”`,",
+            "new_text": "    selectOption: (label) => `Added “${label.name}”`,\n    removeOption: (label) => `Removed “${label.name}”`,"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_014Xq2EPULVtaccxsajT416o",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/IssueDetail.tsx",
+            "old_text": "          {...focusOnOpen(commentRef)}\n        >",
+            "new_text": "          TransitionProps={{ onEntered: () => commentRef.current?.focus() }}\n        >"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_015JcQ99ep8mJXf4C6TezG88",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/IssueDetail.tsx",
+            "old_text": "import { focusOnOpen } from '../components/dialogFocus';\n",
+            "new_text": ""
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtFoEoueDV8Si3wk7F8T",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-haiku-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 1675
+          },
+          "cache_creation_input_tokens": 1675,
+          "cache_read_input_tokens": 9143,
+          "inference_geo": "global",
+          "input_tokens": 2,
+          "output_tokens": 720,
+          "output_tokens_details": {
+            "thinking_tokens": 0
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-haiku-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2bb-db3a-7088-8d56-e64f70fa0bd5-0",
+      "tool_calls": [
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/components/LabelPicker.tsx",
+            "old_text": "    'select-option': (label) => `Added “${label.name}”`,\n    'remove-option': (label) => `Removed “${label.name}”`,",
+            "new_text": "    selectOption: (label) => `Added “${label.name}”`,\n    removeOption: (label) => `Removed “${label.name}”`,"
+          },
+          "id": "toolu_01CqyBxsfHsXC3pobbE8YrPC",
+          "type": "tool_call"
+        },
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/screens/IssueDetail.tsx",
+            "old_text": "          {...focusOnOpen(commentRef)}\n        >",
+            "new_text": "          TransitionProps={{ onEntered: () => commentRef.current?.focus() }}\n        >"
+          },
+          "id": "toolu_014Xq2EPULVtaccxsajT416o",
+          "type": "tool_call"
+        },
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/screens/IssueDetail.tsx",
+            "old_text": "import { focusOnOpen } from '../components/dialogFocus';\n",
+            "new_text": ""
+          },
+          "id": "toolu_015JcQ99ep8mJXf4C6TezG88",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 10820,
+        "output_tokens": 720,
+        "total_tokens": 11540,
+        "input_token_details": {
+          "cache_read": 9143,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 1675,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 0
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Error: old_text was not found in src/components/LabelPicker.tsx. It must match the file exactly, including indentation; `read_file` shows the current text.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01CqyBxsfHsXC3pobbE8YrPC",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Error: old_text was not found in src/screens/IssueDetail.tsx. It must match the file exactly, including indentation; `read_file` shows the current text.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_014Xq2EPULVtaccxsajT416o",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/screens/IssueDetail.tsx so far: +0 −1 lines (1% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_015JcQ99ep8mJXf4C6TezG88",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "text": "The two multi-line edits failed, probably due to line endings, and the import removal went through. I'll redo the edits as single-line replacements so `IssueDetail.tsx` stays consistent.",
+          "type": "text"
+        },
+        {
+          "id": "toolu_01PUMMCfRTgTM6vKhNhU6U2b",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/IssueDetail.tsx",
+            "old_text": "          {...focusOnOpen(commentRef)}",
+            "new_text": "          TransitionProps={{ onEntered: () => commentRef.current?.focus() }}"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_0151gR8HX7Y2dzGeSe49dN35",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/components/LabelPicker.tsx",
+            "old_text": "    'select-option': (label) => `Added “${label.name}”`,",
+            "new_text": "    selectOption: (label) => `Added “${label.name}”`,"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01UZFkTnLUt5ab6jkQXPVN65",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/components/LabelPicker.tsx",
+            "old_text": "    'remove-option': (label) => `Removed “${label.name}”`,",
+            "new_text": "    removeOption: (label) => `Removed “${label.name}”`,"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtFoTHjzkicbcQHRZ7J1",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-haiku-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 949
+          },
+          "cache_creation_input_tokens": 949,
+          "cache_read_input_tokens": 10818,
+          "inference_geo": "global",
+          "input_tokens": 2,
+          "output_tokens": 997,
+          "output_tokens_details": {
+            "thinking_tokens": 481
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-haiku-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2bb-e69a-7640-8cd9-0b3152491a3b-0",
+      "tool_calls": [
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/screens/IssueDetail.tsx",
+            "old_text": "          {...focusOnOpen(commentRef)}",
+            "new_text": "          TransitionProps={{ onEntered: () => commentRef.current?.focus() }}"
+          },
+          "id": "toolu_01PUMMCfRTgTM6vKhNhU6U2b",
+          "type": "tool_call"
+        },
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/components/LabelPicker.tsx",
+            "old_text": "    'select-option': (label) => `Added “${label.name}”`,",
+            "new_text": "    selectOption: (label) => `Added “${label.name}”`,"
+          },
+          "id": "toolu_0151gR8HX7Y2dzGeSe49dN35",
+          "type": "tool_call"
+        },
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/components/LabelPicker.tsx",
+            "old_text": "    'remove-option': (label) => `Removed “${label.name}”`,",
+            "new_text": "    removeOption: (label) => `Removed “${label.name}”`,"
+          },
+          "id": "toolu_01UZFkTnLUt5ab6jkQXPVN65",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 11769,
+        "output_tokens": 997,
+        "total_tokens": 12766,
+        "input_token_details": {
+          "cache_read": 10818,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 949,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 481
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Error: old_text was not found in src/screens/IssueDetail.tsx. It must match the file exactly, including indentation; `read_file` shows the current text.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01PUMMCfRTgTM6vKhNhU6U2b",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Error: old_text was not found in src/components/LabelPicker.tsx. It must match the file exactly, including indentation; `read_file` shows the current text.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_0151gR8HX7Y2dzGeSe49dN35",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Error: old_text was not found in src/components/LabelPicker.tsx. It must match the file exactly, including indentation; `read_file` shows the current text.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01UZFkTnLUt5ab6jkQXPVN65",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "signature": "CAQSkgcKEAgTGAI4AUIIdGhpbmtpbmcSDNath2g7DB50Ax7d1xoM2zIb+BkLeYCipzsjIjD2tCsuselIPxMp8Gm/gmew3IFcHvyF4MJjsBWFGfy11ofs8pA0dtE+mdqH4cbZf98qrwbRgbzy65kaH1/FPN5CYEpT3A7dmw1j7zeVgq5AbUbpYvC+WGn9aW47fVKI5NfnudHcFpwovPkP1O5jw2Fl+1r/MTcUGmz6J2OM6ku6asDRpuXkkQGl+Zibl/9dix7IkQ2G/0Mdbk5o4iDjkBwvtBX6YEQqAnzfsB9iIOcH1UJHVGB8cGrJ7/QZy5W54fSQrDkO4ih8SrNa0N+kxQLLh6h4AML/x+F7Ej0MHWttqhg7jWo9/d3BTU8a/uKQTe2Lv6dFcndZlcIO26JRzGFd+2wB54qmoYsOgRy0TyFhjIeXFXCApc/Z53XfVYnBgBpNSWHnL3fc9r8brEbx067/T2QETT2uG8qfSIbTFMzBd2jqhAayL+dOVJ6AapcuZFrRrHFEQQPd2vaWNXsw1YOnQ8ZB5fmZOz8qRtmebzh9HCbnlZIgQLr6k85uCk8KP9higz9iS1XEHZgkTrpso1+KTAUaJAf0OZYwdo5nZt7Lk82ZmkDmVcc9j8+B0AZAM6WcFm4SA3lFeiyI/WlBaBpMkitUmgU5hhENUVHq3u8pqtDxsZQpIqxLG7mYygH1bFRvQWgVvK5Ij8LnNNGoLYlgSsYU4/XU/O+ZBhiKEJUMG1ugiKbDevJhC3VWtJSuFRIiwWplzKME4iRWFO5xdzHCEXaaM8UqRjrcDY/jv/BNnu20ShaeNnIc0QCoSM4qtktpu/nM/fUsAf8/3hiGu7wLZ5nZSQQEkcQt0zSD18GNrR8Ii3B5IHGmRusS/wMl7HFtYuVen0Dc52n9YLeSXyf779JEJFEZQbxENA/SV7QZSn/eX86sQYfywN3vPPA/BKvXLTW5K8VbLpNG6sRTqyQSI2crxkUYwTtqFpGq/+Hw4HvzVa8LNMW1e2aWirsOh+dpUS2ptgQLr5JkydAN9jFwhPrSVllU5bJEDtcJg00orRBeIU2s1QEDNX+a4eJUyR44dN3gman/seW3585T6k/4vE8T2HPxsbZ3xPh+Xs3Aqa9FTXfIsPPuZXh7gXfgta1g/N8ctz15meVujkm/bOvb9WuSPckBPLealnLP2UMccL9nmVuAh//mmus1HvP2XfWZBhgB",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "text": "Even single-line edits are failing, so I'll re-read the files to check their exact current contents.",
+          "type": "text"
+        },
+        {
+          "id": "toolu_01Df9cpbCCyP8DSHtxzc9Vz3",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/IssueDetail.tsx"
+          },
+          "name": "read_file",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01BTzP8qNJjNAQaz8jqSoZL4",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/components/LabelPicker.tsx"
+          },
+          "name": "read_file",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtFon9parivZSE9e7MKD",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-haiku-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 1232
+          },
+          "cache_creation_input_tokens": 1232,
+          "cache_read_input_tokens": 11767,
+          "inference_geo": "global",
+          "input_tokens": 2,
+          "output_tokens": 202,
+          "output_tokens_details": {
+            "thinking_tokens": 54
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-haiku-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2bb-f7c9-72db-a0dd-86d1c804e54c-0",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "args": {
+            "path": "src/screens/IssueDetail.tsx"
+          },
+          "id": "toolu_01Df9cpbCCyP8DSHtxzc9Vz3",
+          "type": "tool_call"
+        },
+        {
+          "name": "read_file",
+          "args": {
+            "path": "src/components/LabelPicker.tsx"
+          },
+          "id": "toolu_01BTzP8qNJjNAQaz8jqSoZL4",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 13001,
+        "output_tokens": 202,
+        "total_tokens": 13203,
+        "input_token_details": {
+          "cache_read": 11767,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 1232,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 54
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "src/screens/IssueDetail.tsx (107 lines)\n  1  import { useRef, useState } from 'react';\n  2  import {\n  3    Button,\n  4    Dialog,\n  5    DialogActions,\n  6    DialogContent,\n  7    DialogTitle,\n  8    Paper,\n  9    Snackbar,\n 10    TextField,\n 11    Typography,\n 12  } from '@mui/material';\n 13  import { Theme } from '@mui/material/styles';\n 14  import makeStyles from '@mui/styles/makeStyles';\n 15  import { Issue, Label } from '../data/issues';\n 16  import { LabelPicker } from '../components/LabelPicker';\n 17  \n 18  const useStyles = makeStyles((theme: Theme) => ({\n 19    root: { padding: theme.spacing(2), margin: theme.spacing(2), maxWidth: 560 },\n 20    section: { marginTop: theme.spacing(2) },\n 21  }));\n 22  \n 23  interface IssueDetailProps {\n 24    issue: Issue;\n 25    onComment?: (text: string) => void;\n 26  }\n 27  \n 28  export function IssueDetail({ issue, onComment }: IssueDetailProps) {\n 29    const classes = useStyles();\n 30    const [labels, setLabels] = useState<Label[]>(issue.labels);\n 31    const [notice, setNotice] = useState<{ message: string; undo: Label[] } | null>(null);\n 32    const [commenting, setCommenting] = useState(false);\n 33    const [comment, setComment] = useState('');\n 34    const commentRef = useRef<HTMLTextAreaElement>(null);\n 35  \n 36    const postComment = () => {\n 37      onComment?.(comment);\n 38      setComment('');\n 39      setCommenting(false);\n 40    };\n 41  \n 42    return (\n 43      <Paper className={classes.root} component=\"article\" aria-labelledby=\"issue-title\">\n 44        <Typography id=\"issue-title\" variant=\"h5\" component=\"h1\">\n 45          #{issue.id} {issue.title}\n 46        </Typography>\n 47        <div className={classes.section}>\n 48          <LabelPicker\n 49            value={labels}\n 50            onChange={setLabels}\n 51            onAnnounce={(message) => setNotice({ message, undo: labels })}\n 52          />\n 53        </div>\n 54        <div className={classes.section}>\n 55          <Button variant=\"outlined\" onClick={() => setCommenting(true)}>\n 56            Comment\n 57          </Button>\n 58        </div>\n 59        <Dialog\n 60          open={commenting}\n 61          onClose={() => setCommenting(false)}\n 62          aria-labelledby=\"comment-title\"\n 63          fullWidth\n 64          {...focusOnOpen(commentRef)}\n 65        >\n 66          <DialogTitle id=\"comment-title\">Comment on #{issue.id}</DialogTitle>\n 67          <DialogContent>\n 68            <TextField\n 69              id=\"comment-text\"\n 70              label=\"Comment\"\n 71              multiline\n 72              rows={4}\n 73              fullWidth\n 74              variant=\"outlined\"\n 75              inputRef={commentRef}\n 76              value={comment}\n 77              onChange={(e) => setComment(e.target.value)}\n 78            />\n 79          </DialogContent>\n 80          <DialogActions>\n 81            <Button onClick={() => setCommenting(false)}>Cancel</Button>\n 82            <Button color=\"primary\" disabled={!comment.trim()} onClick={postComment}>\n 83              Post\n 84            </Button>\n 85          </DialogActions>\n 86        </Dialog>\n 87        <Snackbar\n 88          open={notice !== null}\n 89          message={notice?.message}\n 90          autoHideDuration={6000}\n 91          onClose={() => setNotice(null)}\n 92          action={\n 93            <Button\n 94              color=\"secondary\"\n 95              size=\"small\"\n 96              onClick={() => {\n 97                if (notice) setLabels(notice.undo);\n 98                setNotice(null);\n 99              }}\n100            >\n101              Undo\n102            </Button>\n103          }\n104        />\n105      </Paper>\n106    );\n107  }",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "read_file",
+      "id": null,
+      "tool_call_id": "toolu_01Df9cpbCCyP8DSHtxzc9Vz3",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "src/components/LabelPicker.tsx (39 lines)\n 1  import { Chip, TextField } from '@mui/material';\n 2  import { Autocomplete } from '@mui/material';\n 3  import { Label, LABELS } from '../data/issues';\n 4  \n 5  // What a screen reader hears (and the snackbar shows) after a change.\n 6  const ANNOUNCEMENTS: Record<string, (label: Label) => string> = {\n 7    'select-option': (label) => `Added “${label.name}”`,\n 8    'remove-option': (label) => `Removed “${label.name}”`,\n 9  };\n10  \n11  interface LabelPickerProps {\n12    value: Label[];\n13    onChange: (labels: Label[]) => void;\n14    onAnnounce?: (message: string, label: Label) => void;\n15  }\n16  \n17  export function LabelPicker({ value, onChange, onAnnounce }: LabelPickerProps) {\n18    return (\n19      <Autocomplete\n20        multiple\n21        options={LABELS}\n22        value={value}\n23        getOptionLabel={(label) => label.name}\n24        isOptionEqualToValue={(option, selected) => option.id === selected.id}\n25        filterSelectedOptions\n26        onChange={(_event, labels, reason, details) => {\n27          onChange(labels);\n28          const announce = ANNOUNCEMENTS[reason];\n29          if (announce && details) onAnnounce?.(announce(details.option), details.option);\n30        }}\n31        renderTags={(labels, getTagProps) =>\n32          labels.map((label, index) => (\n33            <Chip size=\"small\" label={label.name} {...getTagProps({ index })} key={label.id} />\n34          ))\n35        }\n36        renderInput={(params) => <TextField {...params} label=\"Labels\" variant=\"outlined\" />}\n37      />\n38    );\n39  }",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "read_file",
+      "id": null,
+      "tool_call_id": "toolu_01BTzP8qNJjNAQaz8jqSoZL4",
+      "artifact": null,
+      "status": "success"
+    }
+  }
+]

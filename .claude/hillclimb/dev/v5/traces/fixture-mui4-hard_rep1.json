@@ -1,0 +1,194 @@
+[
+  {
+    "role": "system",
+    "content": "Configuration `sonnet-medium` (820a5876cf8d): Rules, then the repair agent on Claude Sonnet 5.5 at medium effort, up to 3 attempts per failing file. Rules on, repair on (claude-sonnet-5-5, claude-sonnet-5-5, claude-sonnet-5-5, effort medium)."
+  },
+  {
+    "role": "user",
+    "content": "Migrate fixtures/mui4-app-hard from mui@4 to mui@5"
+  },
+  {
+    "role": "tool_call",
+    "name": "pre-check",
+    "content": "[\n  \"npm ci --no-audit --no-fund\",\n  \"npm run typecheck\",\n  \"npm run lint\",\n  \"npm test\"\n]"
+  },
+  {
+    "role": "tool_result",
+    "name": "pre-check",
+    "content": "{\n  \"status\": \"ok\",\n  \"reason\": null,\n  \"pre_existing_failures\": 0,\n  \"test_totals\": {\n    \"suites_total\": 6,\n    \"suites_failed\": 0,\n    \"tests_total\": 16,\n    \"tests_passed\": 16,\n    \"tests_failed\": 0,\n    \"tests_skipped\": 0,\n    \"snapshots_total\": 0,\n    \"snapshots_unmatched\": 0,\n    \"snapshots_updated\": 0,\n    \"snapshots_added\": 0,\n    \"snapshots_obsolete\": 0,\n    \"snapshot_files_removed\": 0\n  }\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: install",
+    "content": "{\n  \"kind\": \"install\",\n  \"name\": \"install\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: install",
+    "content": "{\n  \"status\": \"skipped\",\n  \"detail\": \"packages already installed for this package.json\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod preset-safe",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"preset-safe\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod preset-safe",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"12 ok, 0 unchanged\",\n  \"changed_files\": [\n    \"src/App.tsx\",\n    \"src/components/DurationInput.tsx\",\n    \"src/components/LabelPicker.tsx\",\n    \"src/components/RangeSlider.tsx\",\n    \"src/components/StatusChip.tsx\",\n    \"src/screens/Activity.tsx\",\n    \"src/screens/Board.tsx\",\n    \"src/screens/IssueDetail.tsx\",\n    \"src/screens/IssueList.tsx\",\n    \"src/screens/NewIssueDialog.tsx\",\n    \"src/screens/Reports.tsx\",\n    \"src/theme.ts\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod variant-prop",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"variant-prop\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod variant-prop",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"0 ok, 12 unchanged\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod link-underline-hover",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"link-underline-hover\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod link-underline-hover",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"0 ok, 12 unchanged\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod box-sx-prop",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"box-sx-prop\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod box-sx-prop",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"0 ok, 12 unchanged\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: format",
+    "content": "{\n  \"kind\": \"format\",\n  \"name\": \"format\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: format",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"eslint --fix on 12 files\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: dependencies",
+    "content": "{\n  \"kind\": \"dependencies\",\n  \"name\": \"dependencies\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: dependencies",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"-@material-ui/core +@mui/material@5.18.0 +@mui/styles@5.18.0 +@emotion/react@11.14.0 +@emotion/styled@11.14.1 -@material-ui/icons +@mui/icons-material@5.18.0 -@material-ui/lab +@mui/lab@5.0.0-alpha.177\",\n  \"changed_files\": [\n    \"package.json\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: install",
+    "content": "{\n  \"kind\": \"install\",\n  \"name\": \"install\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: install",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"npm install --no-audit --no-fund\",\n  \"changed_files\": [\n    \"package-lock.json\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "verify",
+    "content": "[\n  \"npm run typecheck\",\n  \"npm run lint\",\n  \"npm test\"\n]"
+  },
+  {
+    "role": "tool_result",
+    "name": "verify",
+    "content": "{\n  \"failures\": [\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/NewIssueDialog.tsx\",\n      \"line\": 18,\n      \"column\": 3,\n      \"message\": \"Error: expect(element).toHaveAttribute(\\\"aria-selected\\\", \\\"true\\\") // element.getAttribute(\\\"aria-selected\\\") === \\\"true\\\"\",\n      \"test_file\": \"src/screens/__tests__/NewIssueDialog.test.tsx\",\n      \"test_name\": \"NewIssueDialog \\u203a assigns new issues to the signed-in user, marked in the list\"\n    },\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/NewIssueDialog.tsx\",\n      \"line\": 37,\n      \"column\": 3,\n      \"message\": \"Error: expect(jest.fn()).toHaveBeenCalledWith(...expected)\",\n      \"test_file\": \"src/screens/__tests__/NewIssueDialog.test.tsx\",\n      \"test_name\": \"NewIssueDialog \\u203a creates the issue with a tidied estimate\"\n    }\n  ],\n  \"test_totals\": {\n    \"suites_total\": 6,\n    \"suites_failed\": 1,\n    \"tests_total\": 16,\n    \"tests_passed\": 14,\n    \"tests_failed\": 2,\n    \"tests_skipped\": 0,\n    \"snapshots_total\": 0,\n    \"snapshots_unmatched\": 0,\n    \"snapshots_updated\": 0,\n    \"snapshots_added\": 0,\n    \"snapshots_obsolete\": 0,\n    \"snapshot_files_removed\": 0\n  }\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/components/RangeSlider.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-components-RangeSlider-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/components/RangeSlider.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-sonnet-5-5\",\n      \"tool_calls\": 4,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Slider onChange event type changed from ChangeEvent to DOM Event per v5 guide; removed unused import.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/components/RangeSlider.tsx\": 2\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/components/StatusChip.tsx",
+    "content": "{\n  \"attempts\": 2,\n  \"conversation\": \"repair/src-components-StatusChip-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/components/StatusChip.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-sonnet-5-5\",\n      \"tool_calls\": 2,\n      \"result\": \"failed\",\n      \"failures_left\": 1,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Removed variant=\\\"default\\\" from Chip (renamed to filled, which is the default in v5).\"\n    },\n    {\n      \"number\": 2,\n      \"model\": \"claude-sonnet-5-5\",\n      \"tool_calls\": 2,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Removed variant=\\\"default\\\" from Chip (renamed to filled, which is the default in v5).\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/components/StatusChip.tsx\": 1\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/Activity.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-Activity-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/Activity.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-sonnet-5-5\",\n      \"tool_calls\": 5,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Replaced RootRef fragment with ref on List, removed the import, typed ref as HTMLUListElement.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/screens/Activity.tsx\": 14\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/Board.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-Board-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/Board.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-sonnet-5-5\",\n      \"tool_calls\": 4,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Theme override used v4 '&$selected' rule reference; changed to '&.Mui-selected' in src/theme.ts so selected Tab is bold.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/theme.ts\": 1\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/IssueDetail.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-IssueDetail-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/IssueDetail.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-sonnet-5-5\",\n      \"tool_calls\": 6,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Autocomplete change reasons renamed to camelCase in v5 (LabelPicker); Dialog onEntered moved into TransitionProps (dialogFocus)\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/components/LabelPicker.tsx\": 2,\n    \"src/components/dialogFocus.ts\": 3\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/IssueList.tsx",
+    "content": "{\n  \"attempts\": 3,\n  \"conversation\": \"repair/src-screens-IssueList-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/IssueList.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-sonnet-5-5\",\n      \"tool_calls\": 2,\n      \"result\": \"failed\",\n      \"failures_left\": 2,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Replaced removed backIconButtonText/nextIconButtonText on TablePagination with getItemAriaLabel.\"\n    },\n    {\n      \"number\": 2,\n      \"model\": \"claude-sonnet-5-5\",\n      \"tool_calls\": 4,\n      \"result\": \"failed\",\n      \"failures_left\": 1,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Replaced removed backIconButtonText/nextIconButtonText on TablePagination with getItemAriaLabel.\"\n    },\n    {\n      \"number\": 3,\n      \"model\": \"claude-sonnet-5-5\",\n      \"tool_calls\": 2,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Replaced removed backIconButtonText/nextIconButtonText on TablePagination with getItemAriaLabel.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/screens/IssueList.tsx\": 6\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/NewIssueDialog.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-NewIssueDialog-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/NewIssueDialog.tsx",
+    "content": "{\n  \"outcome\": \"Handed off\",\n  \"reason\": \"patch over the size limit: src/components/DurationInput.tsx would change 15 lines (45% of the file)\",\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-sonnet-5-5\",\n      \"tool_calls\": 4,\n      \"result\": \"handed_off\",\n      \"failures_left\": null,\n      \"new_failures_elsewhere\": 0,\n      \"note\": null\n    }\n  ],\n  \"patch_lines\": {\n    \"src/components/personPicker.ts\": 1\n  },\n  \"edits_rejected\": {\n    \"size-limit\": 1\n  },\n  \"review\": \"revert\"\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "cheating checks",
+    "content": "{\n  \"test_files\": 9\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "cheating checks",
+    "content": "{\n  \"hits\": [],\n  \"warnings\": [],\n  \"notes\": [\n    {\n      \"check\": \"escape-hatch:eslint-disable\",\n      \"file\": \"src/App.tsx\",\n      \"layer\": \"rules\",\n      \"severity\": \"fail\",\n      \"detail\": \"an `eslint-disable` comment: 0 -> 1\",\n      \"before\": 0,\n      \"after\": 1\n    }\n  ]\n}"
+  },
+  {
+    "role": "assistant",
+    "content": "# Scorecard: mui4-tracker-app · run 2026-11-10-002600-7fc\n\n`mui@4->mui@5` · configuration `sonnet-medium` · case `fixture-mui4-hard` · 4 min 36 s · **$0.10** of $0.55 cap\n\n**Clean run: yes.** **11 of 12 affected files migrated without a human (92%)**: 3 by rules, 8 by the repair agent. 1 handed off, 0 unmigrated.\n\n| | This run |\n|---|---|\n| Clean run | yes |\n| Migrated without a human | 11 / 12 (92%) |\n| Hand-offs | 1 |\n| Regressions | 0 |\n| Cheating-check hits | 0 (0 warnings); 1 Rules-layer notes |\n| Codemod TODOs left | 0 |\n| Traps | 13 expected · 0 other layer · 2 missed · 0 not scored |\n| Cost / time | $0.10 · 4 min 36 s |\n\n## Files\n\n| File | Outcome | Failures | Note |\n|---|---|---|---|\n| src/components/LabelPicker.tsx | Migrated by agent | 0 | changed while repairing src/screens/IssueDetail.tsx |\n| src/components/RangeSlider.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/components/StatusChip.tsx | Migrated by agent | 0 | 2 attempt(s) |\n| src/screens/Activity.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/screens/Board.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/screens/IssueDetail.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/screens/IssueList.tsx | Migrated by agent | 0 | 3 attempt(s) |\n| src/screens/NewIssueDialog.tsx | Handed off | 2 | patch over the size limit: src/components/DurationInput.tsx would change 15 lines (45% of the file); revert |\n| src/theme.ts | Migrated by agent | 0 | changed while repairing src/screens/Board.tsx |\n| 3 files | Migrated by rules | 0 | App, DurationInput, Reports |\n\nChanged but not affected: `package-lock.json`, `package.json`.\n\n## Failures\n\n| File | Check | Where | Message |\n|---|---|---|---|\n| src/screens/NewIssueDialog.tsx | test | NewIssueDialog › assigns new issues to the signed-in user, marked in the list | Error: expect(element).toHaveAttribute(\"aria-selected\", \"true\") // element.getAttribute(\"aria-selected\") === \"true\" |\n| src/screens/NewIssueDialog.tsx | test | NewIssueDialog › creates the issue with a tidied estimate | Error: expect(jest.fn()).toHaveBeenCalledWith(...expected) |\n\n## Traps (fixture)\n\n| Result | Expected layer | Traps |\n|---|---|---|\n| Expected | rules | 6: create-theme, pagination-import, pagination-round, skeleton-rect, dialog-transition-literal, autocomplete-option-equal-literal |\n| Expected | agent | 7: theme-state-selector, autocomplete-reason-names, dialog-transition-spread, root-ref-removed, slider-event-type, table-pagination-labels, chip-variant-wrapped |\n| Missed | agent | 2: option-equal-spread, input-component-ref |\n\nFixed (their checks now pass at the final verify): theme-state-selector, autocomplete-reason-names, dialog-transition-spread, root-ref-removed, slider-event-type, table-pagination-labels, chip-variant-wrapped.\n\n## Repair\n\n7 failing files, 10 attempts, 35 tool calls.\nEdits refused by the guardrails: size-limit 1.\n\n| File | Outcome | Attempts | Tool calls | Patch | Why |\n|---|---|---|---|---|---|\n| src/components/RangeSlider.tsx | Migrated by agent | 1 | 4 | RangeSlider.tsx 2 |  |\n| src/components/StatusChip.tsx | Migrated by agent | 2 | 4 | StatusChip.tsx 1 |  |\n| src/screens/Activity.tsx | Migrated by agent | 1 | 5 | Activity.tsx 14 |  |\n| src/screens/Board.tsx | Migrated by agent | 1 | 4 | theme.ts 1 |  |\n| src/screens/IssueDetail.tsx | Migrated by agent | 1 | 6 | LabelPicker.tsx 2, dialogFocus.ts 3 |  |\n| src/screens/IssueList.tsx | Migrated by agent | 3 | 8 | IssueList.tsx 6 |  |\n| src/screens/NewIssueDialog.tsx | Handed off | 1 | 4 | personPicker.ts 1 | patch over the size limit: src/components/DurationInput.tsx would change 15 lines (45% of the file) (Review: revert) |\n\nReview list: `src/screens/NewIssueDialog.tsx`.\n\n## Cheating checks\n\nNo hits and no warnings on repair-agent patches.\n\nReported, not failing (only repair-agent patches can fail a run):\n\n| File | Layer | Check | Detail |\n|---|---|---|---|\n| src/App.tsx | rules | escape-hatch:eslint-disable | an `eslint-disable` comment: 0 -> 1 |\n\n9 test files checked.\n\n## Rule steps\n\n| # | Step | Status | Changed | Detail |\n|---|---|---|---|---|\n| 1 | install | skipped | 0 | packages already installed for this package.json |\n| 2 | codemod preset-safe | ok | 12 | 12 ok, 0 unchanged |\n| 3 | codemod variant-prop | ok | 0 | 0 ok, 12 unchanged |\n| 4 | codemod link-underline-hover | ok | 0 | 0 ok, 12 unchanged |\n| 5 | codemod box-sx-prop | ok | 0 | 0 ok, 12 unchanged |\n| 6 | format | ok | 0 | eslint --fix on 12 files |\n| 7 | dependencies | ok | 1 | -@material-ui/core +@mui/material@5.18.0 +@mui/styles@5.18.0 +@emotion/react@11.14.0 +@emotion/styled@11.14.1 -@material-ui/icons +@mui/icons-material@5.18.0 -@material-ui/lab +@mui/lab@5.0.0-alpha.177 |\n| 8 | install | ok | 1 | npm install --no-audit --no-fund |\n\n## Pre-check and tests\n\nPre-check: ok, 0 Pre-existing failures.\n\n| | Pre-check | Final verify |\n|---|---|---|\n| Tests run | 16 | 16 |\n| Tests failing | 0 | 2 |\n| Tests skipped | 0 | 0 |\n| Suites failing | 0 of 6 | 1 of 6 |\n| Snapshots | 0 | 0 |\n\n## Cost\n\n$0.10 = $0.06 output + $0.00 input + $0.04 cache (reads $0.02, writes $0.03), claude-sonnet-5-5, 18 calls. Cache reads covered 90% of input tokens. Run cap $0.55; month cap $20.00, this month $2.30 of $20.00.\n\nNode 20.20.2, npm 10.8.2, migrator 0.1.0.\n"
+  }
+]

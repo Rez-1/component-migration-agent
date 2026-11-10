@@ -1,0 +1,33 @@
+--- evals/configs/baseline.toml
++++ evals/configs/cascade-haiku-opus.toml
+@@ -1,18 +1,22 @@
+-# The Baseline: the rules-only configuration every other configuration is compared
+-# against. Repair is off, so a run makes no LLM calls and costs $0.
++# M5 cascade: attempt 1 on Haiku 5.5 (high effort), attempts 2 and 3 on Opus 5.5 (low
++# effort). An escalation starts a cold cache (caches belong to one model), and the
++# cost cap prices each call's worst case at that attempt's model.
+ schema_version = 1
+-name = "baseline"
+-description = "Rules only: the dependency map and the official codemods, no repair agent."
++name = "cascade-haiku-opus"
++description = "Rules, then the repair agent: attempt 1 on Claude Haiku 5.5 (high effort), attempts 2-3 on Claude Opus 5.5 (low effort)."
+ 
+ [repair]
+-enabled = false
++enabled = true
++attempt_models = ["claude-haiku-5-5", "claude-opus-5-5", "claude-opus-5-5"]
++attempt_efforts = ["high", "low", "low"]
++effort = "low"
++prompt_version = "v1"
++retrieval = "keyword"
++max_attempts = 3
+ 
+-# Caps are recorded on every scorecard even when nothing can be spent (ticket #12).
+ [cost]
+ max_run_usd = 5.0
+ max_month_usd = 20.0
+ 
+-# Every rule step of the migration spec runs; list codemod or script step names in
+-# `skip` to switch one off.
+ [rules]
+ skip = []

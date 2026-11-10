@@ -1,0 +1,194 @@
+[
+  {
+    "role": "system",
+    "content": "Configuration `opus-low` (d81d48a907d0): Rules, then the repair agent on Claude Opus 5.5 at low effort, up to 3 attempts per failing file. Rules on, repair on (claude-opus-5-5, claude-opus-5-5, claude-opus-5-5, effort low)."
+  },
+  {
+    "role": "user",
+    "content": "Migrate fixtures/mui4-app-hard from mui@4 to mui@5"
+  },
+  {
+    "role": "tool_call",
+    "name": "pre-check",
+    "content": "[\n  \"npm ci --no-audit --no-fund\",\n  \"npm run typecheck\",\n  \"npm run lint\",\n  \"npm test\"\n]"
+  },
+  {
+    "role": "tool_result",
+    "name": "pre-check",
+    "content": "{\n  \"status\": \"ok\",\n  \"reason\": null,\n  \"pre_existing_failures\": 0,\n  \"test_totals\": {\n    \"suites_total\": 6,\n    \"suites_failed\": 0,\n    \"tests_total\": 16,\n    \"tests_passed\": 16,\n    \"tests_failed\": 0,\n    \"tests_skipped\": 0,\n    \"snapshots_total\": 0,\n    \"snapshots_unmatched\": 0,\n    \"snapshots_updated\": 0,\n    \"snapshots_added\": 0,\n    \"snapshots_obsolete\": 0,\n    \"snapshot_files_removed\": 0\n  }\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: install",
+    "content": "{\n  \"kind\": \"install\",\n  \"name\": \"install\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: install",
+    "content": "{\n  \"status\": \"skipped\",\n  \"detail\": \"packages already installed for this package.json\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod preset-safe",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"preset-safe\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod preset-safe",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"12 ok, 0 unchanged\",\n  \"changed_files\": [\n    \"src/App.tsx\",\n    \"src/components/DurationInput.tsx\",\n    \"src/components/LabelPicker.tsx\",\n    \"src/components/RangeSlider.tsx\",\n    \"src/components/StatusChip.tsx\",\n    \"src/screens/Activity.tsx\",\n    \"src/screens/Board.tsx\",\n    \"src/screens/IssueDetail.tsx\",\n    \"src/screens/IssueList.tsx\",\n    \"src/screens/NewIssueDialog.tsx\",\n    \"src/screens/Reports.tsx\",\n    \"src/theme.ts\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod variant-prop",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"variant-prop\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod variant-prop",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"0 ok, 12 unchanged\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod link-underline-hover",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"link-underline-hover\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod link-underline-hover",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"0 ok, 12 unchanged\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod box-sx-prop",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"box-sx-prop\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod box-sx-prop",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"0 ok, 12 unchanged\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: format",
+    "content": "{\n  \"kind\": \"format\",\n  \"name\": \"format\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: format",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"eslint --fix on 12 files\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: dependencies",
+    "content": "{\n  \"kind\": \"dependencies\",\n  \"name\": \"dependencies\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: dependencies",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"-@material-ui/core +@mui/material@5.18.0 +@mui/styles@5.18.0 +@emotion/react@11.14.0 +@emotion/styled@11.14.1 -@material-ui/icons +@mui/icons-material@5.18.0 -@material-ui/lab +@mui/lab@5.0.0-alpha.177\",\n  \"changed_files\": [\n    \"package.json\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: install",
+    "content": "{\n  \"kind\": \"install\",\n  \"name\": \"install\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: install",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"npm install --no-audit --no-fund\",\n  \"changed_files\": [\n    \"package-lock.json\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "verify",
+    "content": "[\n  \"npm run typecheck\",\n  \"npm run lint\",\n  \"npm test\"\n]"
+  },
+  {
+    "role": "tool_result",
+    "name": "verify",
+    "content": "{\n  \"failures\": [],\n  \"test_totals\": {\n    \"suites_total\": 6,\n    \"suites_failed\": 0,\n    \"tests_total\": 16,\n    \"tests_passed\": 16,\n    \"tests_failed\": 0,\n    \"tests_skipped\": 0,\n    \"snapshots_total\": 0,\n    \"snapshots_unmatched\": 0,\n    \"snapshots_updated\": 0,\n    \"snapshots_added\": 0,\n    \"snapshots_obsolete\": 0,\n    \"snapshot_files_removed\": 0\n  }\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/components/RangeSlider.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-components-RangeSlider-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/components/RangeSlider.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-opus-5-5\",\n      \"tool_calls\": 4,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Updated RangeSlider onChange event type from ChangeEvent to Event per v5 Slider guide; removed unused import.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/components/RangeSlider.tsx\": 2\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/components/StatusChip.tsx",
+    "content": "{\n  \"attempts\": 2,\n  \"conversation\": \"repair/src-components-StatusChip-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/components/StatusChip.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-opus-5-5\",\n      \"tool_calls\": 2,\n      \"result\": \"failed\",\n      \"failures_left\": 1,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Removed Chip variant=\\\"default\\\" (renamed to filled in v5, which is the default) per guide.\"\n    },\n    {\n      \"number\": 2,\n      \"model\": \"claude-opus-5-5\",\n      \"tool_calls\": 2,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Renamed Chip variant \\\"default\\\" to \\\"filled\\\" per v5 guide.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/components/StatusChip.tsx\": 1\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/Activity.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-Activity-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/Activity.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-opus-5-5\",\n      \"tool_calls\": 4,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Replaced removed RootRef with ref on List (per guide), typed ref as HTMLUListElement; leftover empty fragment left as-is.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/screens/Activity.tsx\": 3\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/Board.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-Board-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/Board.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-opus-5-5\",\n      \"tool_calls\": 4,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Theme MuiTab override used JSS '&$selected', which emotion styleOverrides don't resolve in v5; switched to '&.Mui-selected'.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/theme.ts\": 1\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/IssueDetail.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-IssueDetail-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/IssueDetail.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-opus-5-5\",\n      \"tool_calls\": 5,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Autocomplete reasons renamed to camelCase in v5 (selectOption/removeOption); Dialog onEntered moved into TransitionProps.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/components/LabelPicker.tsx\": 2,\n    \"src/components/dialogFocus.ts\": 1\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/IssueList.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-IssueList-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/IssueList.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-opus-5-5\",\n      \"tool_calls\": 2,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Replaced removed backIconButtonText/nextIconButtonText with getItemAriaLabel per v5 TablePagination guide, keeping the same labels.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/screens/IssueList.tsx\": 3\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/NewIssueDialog.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-NewIssueDialog-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/NewIssueDialog.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-opus-5-5\",\n      \"tool_calls\": 7,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Renamed getOptionSelected\\u2192isOptionEqualToValue in personPicker; DurationInput now forwardRef since v5 passes the ref to inputComponent instead of an inputRef prop.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/components/personPicker.ts\": 1,\n    \"src/components/DurationInput.tsx\": 5\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "cheating checks",
+    "content": "{\n  \"test_files\": 9\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "cheating checks",
+    "content": "{\n  \"hits\": [],\n  \"warnings\": [],\n  \"notes\": [\n    {\n      \"check\": \"escape-hatch:eslint-disable\",\n      \"file\": \"src/App.tsx\",\n      \"layer\": \"rules\",\n      \"severity\": \"fail\",\n      \"detail\": \"an `eslint-disable` comment: 0 -> 1\",\n      \"before\": 0,\n      \"after\": 1\n    }\n  ]\n}"
+  },
+  {
+    "role": "assistant",
+    "content": "# Scorecard: mui4-tracker-app · run 2026-11-09-233046-c13\n\n`mui@4->mui@5` · configuration `opus-low` · case `fixture-mui4-hard` · 4 min 11 s · **$0.22** of $0.69 cap\n\n**Clean run: yes.** **12 of 12 affected files migrated without a human (100%)**: 2 by rules, 10 by the repair agent. 0 handed off, 0 unmigrated.\n\n| | This run |\n|---|---|\n| Clean run | yes |\n| Migrated without a human | 12 / 12 (100%) |\n| Hand-offs | 0 |\n| Regressions | 0 |\n| Cheating-check hits | 0 (0 warnings); 1 Rules-layer notes |\n| Codemod TODOs left | 0 |\n| Traps | 15 expected · 0 other layer · 0 missed · 0 not scored |\n| Cost / time | $0.22 · 4 min 11 s |\n\n## Files\n\n| File | Outcome | Failures | Note |\n|---|---|---|---|\n| src/components/DurationInput.tsx | Migrated by agent | 0 | changed while repairing src/screens/NewIssueDialog.tsx |\n| src/components/LabelPicker.tsx | Migrated by agent | 0 | changed while repairing src/screens/IssueDetail.tsx |\n| src/components/RangeSlider.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/components/StatusChip.tsx | Migrated by agent | 0 | 2 attempt(s) |\n| src/screens/Activity.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/screens/Board.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/screens/IssueDetail.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/screens/IssueList.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/screens/NewIssueDialog.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/theme.ts | Migrated by agent | 0 | changed while repairing src/screens/Board.tsx |\n| 2 files | Migrated by rules | 0 | App, Reports |\n\nChanged but not affected: `package-lock.json`, `package.json`.\n\n## Traps (fixture)\n\n| Result | Expected layer | Traps |\n|---|---|---|\n| Expected | rules | 6: create-theme, pagination-import, pagination-round, skeleton-rect, dialog-transition-literal, autocomplete-option-equal-literal |\n| Expected | agent | 9: theme-state-selector, autocomplete-reason-names, dialog-transition-spread, option-equal-spread, input-component-ref, root-ref-removed, slider-event-type, table-pagination-labels, chip-variant-wrapped |\n\nFixed (their checks now pass at the final verify): theme-state-selector, autocomplete-reason-names, dialog-transition-spread, option-equal-spread, input-component-ref, root-ref-removed, slider-event-type, table-pagination-labels, chip-variant-wrapped.\n\n## Repair\n\n7 failing files, 8 attempts, 30 tool calls.\n\n| File | Outcome | Attempts | Tool calls | Patch | Why |\n|---|---|---|---|---|---|\n| src/components/RangeSlider.tsx | Migrated by agent | 1 | 4 | RangeSlider.tsx 2 |  |\n| src/components/StatusChip.tsx | Migrated by agent | 2 | 4 | StatusChip.tsx 1 |  |\n| src/screens/Activity.tsx | Migrated by agent | 1 | 4 | Activity.tsx 3 |  |\n| src/screens/Board.tsx | Migrated by agent | 1 | 4 | theme.ts 1 |  |\n| src/screens/IssueDetail.tsx | Migrated by agent | 1 | 5 | LabelPicker.tsx 2, dialogFocus.ts 1 |  |\n| src/screens/IssueList.tsx | Migrated by agent | 1 | 2 | IssueList.tsx 3 |  |\n| src/screens/NewIssueDialog.tsx | Migrated by agent | 1 | 7 | personPicker.ts 1, DurationInput.tsx 5 |  |\n\n## Cheating checks\n\nNo hits and no warnings on repair-agent patches.\n\nReported, not failing (only repair-agent patches can fail a run):\n\n| File | Layer | Check | Detail |\n|---|---|---|---|\n| src/App.tsx | rules | escape-hatch:eslint-disable | an `eslint-disable` comment: 0 -> 1 |\n\n9 test files checked.\n\n## Rule steps\n\n| # | Step | Status | Changed | Detail |\n|---|---|---|---|---|\n| 1 | install | skipped | 0 | packages already installed for this package.json |\n| 2 | codemod preset-safe | ok | 12 | 12 ok, 0 unchanged |\n| 3 | codemod variant-prop | ok | 0 | 0 ok, 12 unchanged |\n| 4 | codemod link-underline-hover | ok | 0 | 0 ok, 12 unchanged |\n| 5 | codemod box-sx-prop | ok | 0 | 0 ok, 12 unchanged |\n| 6 | format | ok | 0 | eslint --fix on 12 files |\n| 7 | dependencies | ok | 1 | -@material-ui/core +@mui/material@5.18.0 +@mui/styles@5.18.0 +@emotion/react@11.14.0 +@emotion/styled@11.14.1 -@material-ui/icons +@mui/icons-material@5.18.0 -@material-ui/lab +@mui/lab@5.0.0-alpha.177 |\n| 8 | install | ok | 1 | npm install --no-audit --no-fund |\n\n## Pre-check and tests\n\nPre-check: ok, 0 Pre-existing failures.\n\n| | Pre-check | Final verify |\n|---|---|---|\n| Tests run | 16 | 16 |\n| Tests failing | 0 | 0 |\n| Tests skipped | 0 | 0 |\n| Suites failing | 0 of 6 | 0 of 6 |\n| Snapshots | 0 | 0 |\n\n## Cost\n\n$0.22 = $0.08 output + $0.00 input + $0.14 cache (reads $0.01, writes $0.13), claude-opus-5-5, 16 calls. Cache reads covered 68% of input tokens. Run cap $0.69; month cap $20.00, this month $1.52 of $20.00.\n\nNode 20.20.2, npm 10.8.2, migrator 0.1.0.\n"
+  }
+]

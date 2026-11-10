@@ -1,0 +1,278 @@
+[
+  {
+    "type": "human",
+    "data": {
+      "content": "## Failing file: `src/components/RangeSlider.tsx`\n\nAttempt 1 of 3.\n\n### Failures in this file (1)\n\n1. **Type error** TS2769, line 27: No overload matches this call. Overload 1 of 2, '(props: { component: ElementType<any>; } & SliderOwnProps & CommonProps & Omit<any, \"className\" | \"style\" | \"classes\" | \"aria-label\" | \"aria-labelledby\" | ... 27 more ... | \"valueLabelFormat\">): Element | null', gave the following error.\n\n### What the Rules stage changed in this file\n\n```diff\n--- a/src/components/RangeSlider.tsx\n+++ b/src/components/RangeSlider.tsx\n@@ -1,3 +1,3 @@\n import { ChangeEvent } from 'react';\n-import { Slider, Typography } from '@material-ui/core';\n+import { Slider, Typography } from '@mui/material';\n \n```\n\n### The file now (32 lines)\n\n```tsx\n 1  import { ChangeEvent } from 'react';\n 2  import { Slider, Typography } from '@mui/material';\n 3  \n 4  export interface RangeSliderProps {\n 5    id: string;\n 6    label: string;\n 7    min: number;\n 8    max: number;\n 9    value: [number, number];\n10    onChange: (event: ChangeEvent<unknown>, value: number | number[]) => void;\n11    unit?: string;\n12  }\n13  \n14  export function RangeSlider({ id, label, min, max, value, onChange, unit = '' }: RangeSliderProps) {\n15    return (\n16      <div>\n17        <Typography id={id} gutterBottom>\n18          {label}: {value[0]}–{value[1]}\n19          {unit}\n20        </Typography>\n21        <Slider\n22          aria-labelledby={id}\n23          getAriaValueText={(v) => `${v}${unit}`}\n24          min={min}\n25          max={max}\n26          value={value}\n27          onChange={onChange}\n28          valueLabelDisplay=\"auto\"\n29        />\n30      </div>\n31    );\n32  }\n```\n\n### Local imports\n\nNone.\n\n### Used by\n\n- `src/screens/Reports.tsx` imports `RangeSlider` from this file.\n\n### Guide sections (keyword lookup: `onChange`, `className`, `valueLabelFormat`)\n\n**Slider › Update event type (TypeScript)**\n\nThe `event` in `onChange` is now typed as a `React.SyntheticEvent` instead of a `React.ChangeEvent`.\n\n```diff\n-<Slider onChange={(event: React.SyntheticEvent, value: unknown) => {}} />\n+<Slider onChange={(event: Event, value: unknown) => {}} />\n```\n\nThis was necessary to prevent overriding the `event.target` of the events that caused the change.\n\n**TextField › Forward ref instead of inputRef prop**\n\nChange ref forwarding expectations on custom `inputComponent`.\n\nThe component should forward the `ref` prop instead of the `inputRef` prop.\n\n```diff\n-function NumberFormatCustom(props) {\n-  const { inputRef, onChange, ...other } = props;\n+const NumberFormatCustom = React.forwardRef(function NumberFormatCustom(\n+  props,\n+  ref,\n+) {\n  const { onChange, ...other } = props;\n\n  return (\n    <NumberFormat\n      {...other}\n-     getInputRef={inputRef}\n+     getInputRef={ref}\n```\n\n**Migrating from JSS to Emotion › 1. Use styled or sx API**\n\n#### Codemod\n\nWe provide [a codemod](https://github.com/mui/material-ui/blob/master/packages/mui-codemod/README.md#jss-to-styled) to help migrate JSS styles to `styled` API, but this approach increases the CSS specificity.\n\n:::info\nNormally you wouldn't write styles like this.\nBut this is the best transformation that we could create with a codemod.\n\nIf you want to refine them later, you can refer to the examples shown in the sections below.\n:::\n\n```bash\nnpx @mui/codemod@latest v5.0.0/jss-to-styled <path>\n```\n\nExample transformation:\n\n```diff\n import Typography from '@mui/material/Typography';\n-import makeStyles from '@mui/styles/makeStyles';\n+import { styled } from '@mui/material/styles';\n\n-const useStyles = makeStyles((theme) => ({\n-  root: {\n-    display: 'flex',\n-    alignItems: 'center',\n-    backgroundColor: theme.palette.primary.main\n-  },\n-  cta: {\n-    borderRadius: theme.shape.radius\n-  },\n-  content: {\n-    color: theme.palette.common.white,\n-    fontSize: 16,\n-    lineHeight: 1.7\n-  },\n-}))\n+const PREFIX = 'MyCard';\n+const classes = {\n+  root: `${PREFIX}-root`,\n+  cta: `${PREFIX}-cta`,\n+  content: `${PREFIX}-content`,\n+}\n+const Root = styled('div')(({ theme }) => ({\n+  [`&.${classes.root}`]: {\n+    display: 'flex',\n+    alignItems: 'center',\n+    backgroundColor: theme.palette.primary.main\n+  },\n+  [`& .${classes.cta}`]: {\n+    borderRadius: theme.shape.radius\n+  },\n+  [`& .${classes.content}`]: {\n+    color: theme.palette.common.white,\n+    fontSize: 16,\n+    lineHeight: 1.7\n+  },\n+}))\n\n export const MyCard = () => {\n-  const classes = useStyles();\n   return (\n-    <div className={classes.root}>\n+    <Root className={classes.root}>\n       {/* The benefit of this approach is that the code inside Root stays the same. */}\n       <Typography className={classes.content}>...</Typography>\n       <Button className={classes.cta}>Go</Button>\n-    </div>\n+    </Root>\n   )\n }\n```\n\n:::success\nYou should run this codemod on a small chunk of files and then check the changes before continuing, because in some cases you might need to adjust the code after the transformation—this codemod won't cover all cases.\n:::\n\n#### Manual\n\nWe recommend `sx` API over `styled` for creating responsive styles or overriding minor CSS.\n[Read more about `sx` here](https://v5.mui.com/system/getting-started/the-sx-prop/).\n\n```diff\n import Chip from '@mui/material/Chip';\n-import makeStyles from '@mui/styles/makeStyles';\n+import Box from '@mui/material/Box';\n\n-const useStyles = makeStyles((theme) => ({\n-  wrapper: {\n-    display: 'flex',\n-  },\n-  chip: {\n-    padding: theme.spacing(1, 1.5),\n-    boxShadow: theme.shadows[1],\n-  }\n-}));\n\n function App() {\n-  const classes = useStyles();\n   return (\n-    <div className={classes.wrapper}>\n-      <Chip className={classes.chip} label=\"Chip\" />\n-    </div>\n+    <Box sx={{ display: 'flex' }}>\n+      <Chip label=\"Chip\" sx={{ py: 1, px: 1.5, boxShadow: 1 }} />\n+    </Box>\n   );\n }\n```\n\nIn some cases, you might want to create multiple styled components in a file instead of increasing CSS specificity.\n\nFor example:\n\n```diff\n-import makeStyles from '@mui/styles/makeStyles';\n+import { styled } from '@mui/material/styles';\n\n-const useStyles = makeStyles((theme) => ({\n-  root: {\n-    display: 'flex',\n-    alignItems: 'center',\n-    borderRadius: 20,\n-    background: theme.palette.grey[50],\n-  },\n-  label: {\n-    color: theme.palette.primary.main,\n-  }\n-}))\n+const Root = styled('div')(({ theme }) => ({\n+  display: 'flex',\n+  alignI\n\n(… cut; `search_guide` for more)\n\nAlso possibly relevant (`search_guide` for the text):\n\n- Badge › Rename circle and rectangle (codemod)\n- Avatar › Rename circle (codemod)\n- Switch › Remove second onChange argument\n- Radio › Update CSS classes\n- TablePagination › Separate label classes\n- Switch › Update CSS classes\n- Migrate theme styleOverrides to Emotion › Replace nested classes selectors with global class names\n- CircularProgress › Rename static to determinate (codemod)",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "human",
+      "name": null,
+      "id": null
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "signature": "CAQSpwgKEAgTGAI4AUIIdGhpbmtpbmcSDH4slEs1mtZNRg3ONhoMwuniMcW396VnzKUkIjCxh7b4iXnjb0qVFhVaJ4wYCRnxrkTPMyejj8cOd9hmeZ1VjNcldnwTrHUR+U8HhlwqxAfz6n4wJSb1JRvgNerV+UMSY5L1hB3mNfVNimKroqxlF5ALAJSeMdSWDsM5rFGogTi/aBIOxa7v6Qbs65UzzNzl/y77aAd95WKISsKfaan1zyVjSyI0Erfqjl527Hf6OOrPQwtjgWehBvdBb9BSO8YmWrMslyVn4sAihACAqusPRa4aOihKRqTbQnQaWwTgmCDsgxS8K6NqnopIVbz0gIAjjKoUZotJwfby/jLzBg0yayIrz68fGUGlN/uZoab91F4Qgx5qo65okO74XOD3QwzL9YiKtgsQ4uzyLeYBAnCPA85pHd9JB1AvTYd3pot+DzaQTDjKFOUqBow7oROF9zSDdEKSAsx3z3nLTuKZgDfqRX4+Pyla4I3dqvnNuCVmDQ9l6Si3ugjWP4wzM9ReFWNbHzbi6q6pXENN7qmPLAvD0UH/sckUBu1Ma2Bu+s3711F9R6uO9ybbtxz0nRpVGFzXjzrfdTUghvMaqaSqDGfFbDi+ypLC4NYMZE/CctnYve8Qe2lxMctG2GAQlcCD2qdDuhlK8fV9NQ8AuSybAHubPo4EYBVj7GMENP5TgCpaFKvsFjPRb15RHILQ3JKPkjEPv+R1PJormjEzIytJhDTB4bYbxHGoh+PaakD+oHfncdL3wi/sWyuaZVUeLrOj1lKb4FPZhxLgbYYJYQeK1o/SJc4jQL7e5o0XZSz7ar2eT+8Dgxh2lvtO5Vgjx4fEHQydpHM7WgL3Wdrobbzbwhp85gdR+Cvv2UC4szROSBtgNMcj/kq3wz06Zz3Je2zLI0SBZzkICU3bjjD/975RRPxQf0MqueVoQn8yekA1XfXKQgwkzD5qyln+XicYNaG4wYgcJRLi9XzxMvECdojjtq0DpVxF+Tic7ADyB1yTj0jbFz5JLkmZK/Lu13g4Pyn6LF1s4nSAp1We7+flabMOc8F0xpFge/4RihxtK3kx5Rz/oHZNVGnBvTOIS4UY2I8JxRSgO15CmQC5z6hx3Y9r23vr0Fp7soqjampyj6CnY0opir4t8WEVv/4DdSNvUaa8JGriFCtb0hujcCCJKVRI4xWln9emTm/MAgPPYSJloPr/kxeuIjXmjcEmKAQfiqi9mWW6CvTKn3NG8wxuD0jigAkFe5ZEOcLvLspUv9LCdW90VguIQmKxLV5bin3oZ5RscasbKZM8YgdTNDdU509mnBnB037qRX+RAqum9FeQzeaIp9j9hqc8mcZiZm9m6YrWKP9FD5CTnVzSy3z1xtIPKYsnbGBTdAtM8bcODoLiHaHU7wBRMylyGAE=",
+          "thinking": "I'm going to change the onChange type to take an Event and a number or number array, but Reports.tsx also passes a handler through RangeSlider, so I need to check whether that change would break it. I can't edit that file, so I'll read it first to see what its handler expects.\n\nI'm checking whether Reports.tsx's handler takes a ChangeEvent parameter, since changing the prop to Event could break it, and I still need to read the file to see.\n\n",
+          "type": "thinking"
+        },
+        {
+          "id": "toolu_01TR7fDq7X5kAfGJa5nQxr45",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/Reports.tsx"
+          },
+          "name": "read_file",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtDiVwNpGMhLofHuJqtH",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-sonnet-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 4820,
+          "inference_geo": "global",
+          "input_tokens": 4,
+          "output_tokens": 236,
+          "output_tokens_details": {
+            "thinking_tokens": 177
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-sonnet-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2a2-dc43-7547-a752-d4c50e973dd9-0",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "args": {
+            "path": "src/screens/Reports.tsx"
+          },
+          "id": "toolu_01TR7fDq7X5kAfGJa5nQxr45",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 4824,
+        "output_tokens": 236,
+        "total_tokens": 5060,
+        "input_token_details": {
+          "cache_read": 4820,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 177
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "src/screens/Reports.tsx (86 lines)\n 1  import { useState } from 'react';\n 2  import { List, ListItem, ListItemText, Typography } from '@mui/material';\n 3  import { Pagination, ToggleButton, ToggleButtonGroup } from '@mui/material';\n 4  import { Theme } from '@mui/material/styles';\n 5  import makeStyles from '@mui/styles/makeStyles';\n 6  import { Issue } from '../data/issues';\n 7  import { TEAM } from '../data/people';\n 8  import { RangeSlider } from '../components/RangeSlider';\n 9  \n10  const useStyles = makeStyles((theme: Theme) => ({\n11    root: { padding: theme.spacing(2), maxWidth: 560 },\n12    controls: { margin: theme.spacing(2, 0) },\n13  }));\n14  \n15  type Grouping = 'priority' | 'assignee';\n16  const PAGE_SIZE = 3;\n17  \n18  function groupIssues(issues: Issue[], by: Grouping): [string, number][] {\n19    const counts = new Map<string, number>();\n20    for (const issue of issues) {\n21      const key =\n22        by === 'priority'\n23          ? issue.priority\n24          : TEAM.find((p) => p.id === issue.assignee)?.name ?? 'Unassigned';\n25      counts.set(key, (counts.get(key) ?? 0) + 1);\n26    }\n27    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));\n28  }\n29  \n30  export function Reports({ issues }: { issues: Issue[] }) {\n31    const classes = useStyles();\n32    const [age, setAge] = useState<[number, number]>([0, 30]);\n33    const [grouping, setGrouping] = useState<Grouping>('priority');\n34    const [page, setPage] = useState(1);\n35  \n36    const inRange = issues.filter((i) => i.daysOpen >= age[0] && i.daysOpen <= age[1]);\n37    const groups = groupIssues(inRange, grouping);\n38    const pages = Math.max(1, Math.ceil(groups.length / PAGE_SIZE));\n39    const shown = groups.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);\n40  \n41    return (\n42      <section className={classes.root} aria-labelledby=\"reports-title\">\n43        <Typography id=\"reports-title\" variant=\"h5\" component=\"h1\">\n44          Reports\n45        </Typography>\n46        <div className={classes.controls}>\n47          <RangeSlider\n48            id=\"age-label\"\n49            label=\"Days open\"\n50            min={0}\n51            max={30}\n52            value={age}\n53            unit=\" days\"\n54            onChange={(_, value) => {\n55              setAge(value as [number, number]);\n56              setPage(1);\n57            }}\n58          />\n59          <ToggleButtonGroup\n60            exclusive\n61            size=\"small\"\n62            value={grouping}\n63            onChange={(_, value: Grouping | null) => {\n64              if (value) {\n65                setGrouping(value);\n66                setPage(1);\n67              }\n68            }}\n69            aria-label=\"Group by\"\n70          >\n71            <ToggleButton value=\"priority\">By priority</ToggleButton>\n72            <ToggleButton value=\"assignee\">By assignee</ToggleButton>\n73          </ToggleButtonGroup>\n74        </div>\n75        <Typography>{inRange.length} issues</Typography>\n76        <List aria-label=\"Groups\">\n77          {shown.map(([name, count]) => (\n78            <ListItem key={name}>\n79              <ListItemText primary={name} secondary={`${count} issues`} />\n80            </ListItem>\n81          ))}\n82        </List>\n83        <Pagination count={pages} page={page} onChange={(_, p) => setPage(p)} shape=\"circular\" />\n84      </section>\n85    );\n86  }",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "read_file",
+      "id": null,
+      "tool_call_id": "toolu_01TR7fDq7X5kAfGJa5nQxr45",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "text": "Reports ignores the event, so it's safe to change the type.",
+          "type": "text"
+        },
+        {
+          "id": "toolu_01DmJx4MUwBLMASbmTqRDcXn",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/components/RangeSlider.tsx",
+            "old_text": "(event: ChangeEvent<unknown>, ",
+            "new_text": "(event: Event, "
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01XDKmXGUdZT4skHMEYLKXAx",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/components/RangeSlider.tsx",
+            "old_text": "import { ChangeEvent } from 'react';\n",
+            "new_text": ""
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01XvmmYcySMWRRixVmiYxoEF",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "note": "Slider onChange event type changed from ChangeEvent to DOM Event per v5 guide; removed unused import."
+          },
+          "name": "run_verify",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtDiox6DYXYSxQ7vE7tY",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-sonnet-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 1596
+          },
+          "cache_creation_input_tokens": 1596,
+          "cache_read_input_tokens": 4820,
+          "inference_geo": "global",
+          "input_tokens": 2,
+          "output_tokens": 348,
+          "output_tokens_details": {
+            "thinking_tokens": 0
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-sonnet-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2a2-ed6a-7585-bf80-f5b07d98e5af-0",
+      "tool_calls": [
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/components/RangeSlider.tsx",
+            "old_text": "(event: ChangeEvent<unknown>, ",
+            "new_text": "(event: Event, "
+          },
+          "id": "toolu_01DmJx4MUwBLMASbmTqRDcXn",
+          "type": "tool_call"
+        },
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/components/RangeSlider.tsx",
+            "old_text": "import { ChangeEvent } from 'react';\n",
+            "new_text": ""
+          },
+          "id": "toolu_01XDKmXGUdZT4skHMEYLKXAx",
+          "type": "tool_call"
+        },
+        {
+          "name": "run_verify",
+          "args": {
+            "note": "Slider onChange event type changed from ChangeEvent to DOM Event per v5 guide; removed unused import."
+          },
+          "id": "toolu_01XvmmYcySMWRRixVmiYxoEF",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 6418,
+        "output_tokens": 348,
+        "total_tokens": 6766,
+        "input_token_details": {
+          "cache_read": 4820,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 1596,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 0
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/components/RangeSlider.tsx so far: +1 −1 lines (3% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01DmJx4MUwBLMASbmTqRDcXn",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/components/RangeSlider.tsx so far: +1 −2 lines (6% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01XDKmXGUdZT4skHMEYLKXAx",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Attempt 1 passed: no failures left in src/components/RangeSlider.tsx and nothing new elsewhere. Patch: `src/components/RangeSlider.tsx` +1 −2 lines (6% of the file). This file is done.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "run_verify",
+      "id": null,
+      "tool_call_id": "toolu_01XvmmYcySMWRRixVmiYxoEF",
+      "artifact": null,
+      "status": "success"
+    }
+  }
+]

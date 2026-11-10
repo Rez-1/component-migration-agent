@@ -1,0 +1,3 @@
+configuration `cascade-haiku-opus`: Rules, then the repair agent: attempt 1 on Claude Haiku 5.5 (high effort), attempts 2-3 on Claude Opus 5.5 (low effort).
+
+Compared with `baseline`: see change.patch.

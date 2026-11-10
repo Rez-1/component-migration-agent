@@ -1,0 +1,145 @@
+[
+  {
+    "type": "human",
+    "data": {
+      "content": "## Failing file: `src/screens/IssueList.tsx`\n\nAttempt 1 of 3.\n\n### Failures in this file (2)\n\n1. **Type error** TS2769, line 78: No overload matches this call. Overload 1 of 2, '(props: { component: \"div\"; } & TablePaginationOwnProps & CommonProps & Omit<Omit<DetailedHTMLProps<HTMLAttributes<HTMLDivElement>, HTMLDivElement>, \"ref\"> & { ...; }, \"security\" | ... 291 more ... | \"showLastButton\">): Element | null', gave the following error.\n2. **Failing test** `src/screens/__tests__/IssueList.test.tsx` › \"IssueList › pages through the issues five at a time\": TestingLibraryElementError: Unable to find an accessible element with the role \"button\" and name \"Previous issues\" (This test imports this file.)\n\n### What the Rules stage changed in this file\n\n```diff\n--- a/src/screens/IssueList.tsx\n+++ b/src/screens/IssueList.tsx\n@@ -11,5 +11,6 @@\n   Typography,\n-} from '@material-ui/core';\n-import Skeleton from '@material-ui/lab/Skeleton';\n-import { makeStyles, Theme } from '@material-ui/core/styles';\n+} from '@mui/material';\n+import Skeleton from '@mui/material/Skeleton';\n+import { Theme } from '@mui/material/styles';\n+import makeStyles from '@mui/styles/makeStyles';\n import { Issue } from '../data/issues';\n@@ -57,3 +58,3 @@\n                     <TableCell colSpan={3}>\n-                      <Skeleton variant=\"rect\" height={20} />\n+                      <Skeleton variant=\"rectangular\" height={20} />\n                     </TableCell>\n```\n\n### The file now (91 lines)\n\n```tsx\n 1  import { ChangeEvent, useState } from 'react';\n 2  import {\n 3    Paper,\n 4    Table,\n 5    TableBody,\n 6    TableCell,\n 7    TableContainer,\n 8    TableHead,\n 9    TablePagination,\n10    TableRow,\n11    Typography,\n12  } from '@mui/material';\n13  import Skeleton from '@mui/material/Skeleton';\n14  import { Theme } from '@mui/material/styles';\n15  import makeStyles from '@mui/styles/makeStyles';\n16  import { Issue } from '../data/issues';\n17  \n18  const useStyles = makeStyles((theme: Theme) => ({\n19    root: { padding: theme.spacing(2) },\n20    row: { cursor: 'pointer' },\n21  }));\n22  \n23  interface IssueListProps {\n24    issues: Issue[];\n25    loading?: boolean;\n26    onOpen?: (id: number) => void;\n27  }\n28  \n29  export function IssueList({ issues, loading = false, onOpen }: IssueListProps) {\n30    const classes = useStyles();\n31    const [page, setPage] = useState(0);\n32    const [rowsPerPage, setRowsPerPage] = useState(5);\n33    const rows = issues.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);\n34  \n35    const handleRowsPerPage = (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {\n36      setRowsPerPage(Number(event.target.value));\n37      setPage(0);\n38    };\n39  \n40    return (\n41      <section className={classes.root} aria-labelledby=\"issues-title\">\n42        <Typography id=\"issues-title\" variant=\"h5\" component=\"h1\">\n43          Issues\n44        </Typography>\n45        <TableContainer component={Paper}>\n46          <Table size=\"small\" aria-labelledby=\"issues-title\" aria-busy={loading}>\n47            <TableHead>\n48              <TableRow>\n49                <TableCell>#</TableCell>\n50                <TableCell>Title</TableCell>\n51                <TableCell>Priority</TableCell>\n52              </TableRow>\n53            </TableHead>\n54            <TableBody>\n55              {loading\n56                ? [0, 1, 2].map((n) => (\n57                    <TableRow key={n}>\n58                      <TableCell colSpan={3}>\n59                        <Skeleton variant=\"rectangular\" height={20} />\n60                      </TableCell>\n61                    </TableRow>\n62                  ))\n63                : rows.map((issue) => (\n64                    <TableRow\n65                      key={issue.id}\n66                      hover\n67                      className={classes.row}\n68                      onClick={() => onOpen?.(issue.id)}\n69                    >\n70                      <TableCell>{issue.id}</TableCell>\n71                      <TableCell>{issue.title}</TableCell>\n72                      <TableCell>{issue.priority}</TableCell>\n73                    </TableRow>\n74                  ))}\n75            </TableBody>\n76          </Table>\n77        </TableContainer>\n78        <TablePagination\n79          component=\"div\"\n80          count={issues.length}\n81          page={page}\n82          rowsPerPage={rowsPerPage}\n83          rowsPerPageOptions={[5, 10]}\n84          onPageChange={(_, next) => setPage(next)}\n85          onRowsPerPageChange={handleRowsPerPage}\n86          backIconButtonText=\"Previous issues\"\n87          nextIconButtonText=\"Next issues\"\n88        />\n89      </section>\n90    );\n91  }\n```\n\n### Local imports\n\n- `src/data/issues.ts`: `export type Status = 'open' | 'in-progress' | 'done';`, `export type Priority = 'low' | 'medium' | 'high';`, `export interface Label { id: string; name: string; }`, `export interface Issue { id: number; title: string; status: Status; priority: Priority; assignee: string | null; labels: Label[]; daysOpen: number; }`, `export const LABELS: Label[]`, `export const ISSUES: Issue[] = titles.map(…)`\n\n### Used by\n\n- `src/App.tsx` imports `IssueList` from this file.\n\n### Guide sections (keyword lookup: `TablePagination`, `showLastButton`, `IssueList`, `TestingLibraryElementError`)\n\n**TablePagination › Customize labels with getItemAriaLabel prop**\n\nThe customization of the table pagination's actions labels must be done with the `getItemAriaLabel` prop.\n\nThis increases consistency with the `Pagination` component.\n\n```diff\n  <TablePagination\n-  backIconButtonText=\"Back\"\n-  nextIconButtonText=\"Next\"\n+  getItemAriaLabel={…}\n```\n\n**ref › Fix ref type specificity**\n\nFor some components, you may get a type error when passing `ref`.\nTo avoid the error, you should use a specific element type.\nFor example, `Card` expects the type of `ref` to be `HTMLDivElement`, and `ListItem` expects its `ref` type to be `HTMLLIElement`.\n\nHere is an example:\n\n```diff\n import * as React from 'react';\n import Card from '@mui/material/Card';\n import ListItem from '@mui/material/ListItem';\n\n export default function SpecificRefType() {\n-  const cardRef = React.useRef<HTMLElement>(null);\n+  const cardRef = React.useRef<HTMLDivElement>(null);\n\n-  const listItemRef = React.useRef<HTMLElement>(null);\n+  const listItemRef = React.useRef<HTMLLIElement>(null);\n   return (\n     <div>\n       <Card ref={cardRef}></Card>\n       <ListItem ref={listItemRef}></ListItem>\n     </div>\n   );\n }\n```\n\nHere are the specific element types that each component expects:\n\n#### @mui/material\n\n- [Accordion](https://v5.mui.com/material-ui/api/accordion/) - `HTMLDivElement`\n- [Alert](https://v5.mui.com/material-ui/api/alert/) - `HTMLDivElement`\n- [Avatar](https://v5.mui.com/material-ui/api/avatar/) - `HTMLDivElement`\n- [ButtonGroup](https://v5.mui.com/material-ui/api/button-group/) - `HTMLDivElement`\n- [Card](https://v5.mui.com/material-ui/api/card/) - `HTMLDivElement`\n- [Dialog](https://v5.mui.com/material-ui/api/dialog/) - `HTMLDivElement`\n- [ImageList](https://v5.mui.com/material-ui/api/image-list/) - `HTMLUListElement`\n- [List](https://v5.mui.com/material-ui/api/list/) - `HTMLUListElement`\n- [Tab](https://v5.mui.com/material-ui/api/tab/) - `HTMLDivElement`\n- [Tabs](https://v5.mui.com/material-ui/api/tabs/) - `HTMLDivElement`\n- [ToggleButton](https://v5.mui.com/material-ui/api/toggle-button/) - `HTMLButtonElement`\n\n#### @mui/lab\n\n- [Timeline](https://v5.mui.com/material-ui/api/timeline/) - `HTMLUListElement`\n\n**TablePagination › Separate label classes**\n\nSeparate classes for different table pagination labels.\n\n```diff\n  <TablePagination\n-  classes={{ caption: 'foo' }}\n+  classes={{ selectLabel: 'foo', displayedRows: 'foo' }}\n  />\n```\n\nAlso possibly relevant (`search_guide` for the text):\n\n- TablePagination › Move custom class on input to select\n- TablePagination › Rename onChangeRowsPerPage and onChangePage (codemod)\n- Cannot read property scrollTop of null\n- ref › Refactor non-ref-forwarding class components\n- @mui/material/styles › Replace innerRef with ref (codemod)\n- Update Material UI packages › Date and time pickers\n- Still having problems?\n- Table › Rename default padding prop value",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "human",
+      "name": null,
+      "id": null
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "text": "Replace backIconButtonText/nextIconButtonText with getItemAriaLabel.",
+          "type": "text"
+        },
+        {
+          "id": "toolu_01FnLmZMaufGyfGVTs8XZwAA",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/IssueList.tsx",
+            "old_text": "        backIconButtonText=\"Previous issues\"\n        nextIconButtonText=\"Next issues\"",
+            "new_text": "        getItemAriaLabel={(type) =>\n          type === 'previous' ? 'Previous issues' : type === 'next' ? 'Next issues' : `Go to ${type} page`\n        }"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_015ZyR7WKh7mQxRM77FTLELh",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "note": "Replaced removed backIconButtonText/nextIconButtonText with getItemAriaLabel per v5 TablePagination guide, keeping the same labels."
+          },
+          "name": "run_verify",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011Cgt9gDpjLkYyD7AN8t7Mv",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-opus-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 3465
+          },
+          "cache_creation_input_tokens": 3465,
+          "cache_read_input_tokens": 1872,
+          "inference_geo": "global",
+          "input_tokens": 4,
+          "output_tokens": 328,
+          "output_tokens_details": {
+            "thinking_tokens": 0
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-opus-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c272-5d69-71b7-9992-b45bea3f4377-0",
+      "tool_calls": [
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/screens/IssueList.tsx",
+            "old_text": "        backIconButtonText=\"Previous issues\"\n        nextIconButtonText=\"Next issues\"",
+            "new_text": "        getItemAriaLabel={(type) =>\n          type === 'previous' ? 'Previous issues' : type === 'next' ? 'Next issues' : `Go to ${type} page`\n        }"
+          },
+          "id": "toolu_01FnLmZMaufGyfGVTs8XZwAA",
+          "type": "tool_call"
+        },
+        {
+          "name": "run_verify",
+          "args": {
+            "note": "Replaced removed backIconButtonText/nextIconButtonText with getItemAriaLabel per v5 TablePagination guide, keeping the same labels."
+          },
+          "id": "toolu_015ZyR7WKh7mQxRM77FTLELh",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 5341,
+        "output_tokens": 328,
+        "total_tokens": 5669,
+        "input_token_details": {
+          "cache_read": 1872,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 3465,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 0
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/screens/IssueList.tsx so far: +3 −2 lines (3% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01FnLmZMaufGyfGVTs8XZwAA",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Attempt 1 passed: no failures left in src/screens/IssueList.tsx and nothing new elsewhere. Patch: `src/screens/IssueList.tsx` +3 −2 lines (3% of the file). This file is done.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "run_verify",
+      "id": null,
+      "tool_call_id": "toolu_015ZyR7WKh7mQxRM77FTLELh",
+      "artifact": null,
+      "status": "success"
+    }
+  }
+]

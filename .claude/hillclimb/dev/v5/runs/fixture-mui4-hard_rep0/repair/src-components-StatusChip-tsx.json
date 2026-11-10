@@ -1,0 +1,273 @@
+[
+  {
+    "type": "human",
+    "data": {
+      "content": "## Failing file: `src/components/StatusChip.tsx`\n\nAttempt 1 of 3.\n\n### Failures in this file (1)\n\n1. **Type error** TS2322, line 19: Type '\"default\"' is not assignable to type '\"filled\" | \"outlined\" | undefined'.\n\n### What the Rules stage changed in this file\n\n```diff\n--- a/src/components/StatusChip.tsx\n+++ b/src/components/StatusChip.tsx\n@@ -1,3 +1,3 @@\n-import { Chip } from '@material-ui/core';\n-import { withStyles } from '@material-ui/core/styles';\n+import { Chip } from '@mui/material';\n+import withStyles from '@mui/styles/withStyles';\n import { Status } from '../data/issues';\n```\n\n### The file now (23 lines)\n\n```tsx\n 1  import { Chip } from '@mui/material';\n 2  import withStyles from '@mui/styles/withStyles';\n 3  import { Status } from '../data/issues';\n 4  \n 5  const LABELS: Record<Status, string> = {\n 6    open: 'Open',\n 7    'in-progress': 'In progress',\n 8    done: 'Done',\n 9  };\n10  \n11  const SmallChip = withStyles({\n12    root: { height: 22, fontSize: 12 },\n13  })(Chip);\n14  \n15  export function StatusChip({ status, color }: { status: Status; color: string }) {\n16    return (\n17      <SmallChip\n18        label={LABELS[status]}\n19        variant=\"default\"\n20        style={{ backgroundColor: color, color: '#fff' }}\n21      />\n22    );\n23  }\n```\n\n### Local imports\n\n- `src/data/issues.ts`: `export type Status = 'open' | 'in-progress' | 'done';`, `export type Priority = 'low' | 'medium' | 'high';`, `export interface Label { id: string; name: string; }`, `export interface Issue { id: number; title: string; status: Status; priority: Priority; assignee: string | null; labels: Label[]; daysOpen: number; }`, `export const LABELS: Label[]`, `export const ISSUES: Issue[] = titles.map(…)`\n\n### Used by\n\n- `src/screens/Board.tsx` imports `StatusChip` from this file.\n\n### Guide sections (keyword lookup: the failures)\n\n**Chip › Rename default to filled (codemod)**\n\nRename `default` variant to `filled` for consistency.\n\nSince `filled` is the default value, the variant prop can be deleted:\n\n```diff\n-<Chip variant=\"default\">\n+<Chip>\n```\n\n**FormControl › Update default variant (codemod)**\n\nChange the default variant from `standard` to `outlined`.\n\n`standard` has been removed from the Material Design guidelines.\n\n:::success\nThis is handled in [variant-prop codemod](#variant-prop)—read the details before running this codemod.\n:::\n\n```diff\n-<FormControl value=\"Standard\" />\n-<FormControl value=\"Outlined\" variant=\"outlined\" />\n+<FormControl value=\"Standard\" variant=\"standard\" />\n+<FormControl value=\"Outlined\" />\n```\n\n**TextField › Update default variant (codemod)**\n\nChange the default variant from `standard` to `outlined`.\n\n`standard` has been removed from the Material Design guidelines.\n\n:::success\nThis is handled in [variant-prop codemod](#variant-prop)—read the details before running this codemod.\n:::\n\n```diff\n-<TextField value=\"Standard\" />\n-<TextField value=\"Outlined\" variant=\"outlined\" />\n+<TextField value=\"Standard\" variant=\"standard\" />\n+<TextField value=\"Outlined\" />\n```\n\nAlso possibly relevant (`search_guide` for the text):\n\n- Select › Update default variant (codemod)\n- Run codemods › variant-prop\n- Select › Replace labelWidth prop\n- Avatar › Rename circle (codemod)\n- Typography › Remove srOnly variant\n- OutlinedInput › Replace labelWidth prop\n- Migrate theme styleOverrides to Emotion › Replace nested classes selectors with global class names\n- Divider › Support \"middle\" variant with \"vertical\" orientation",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "human",
+      "name": null,
+      "id": null
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "id": "toolu_01VcFfVzwKjGj1UxiJFnyQof",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/components/StatusChip.tsx",
+            "old_text": "        variant=\"default\"\n",
+            "new_text": ""
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_0168cFstGWNgbRqDZfSB6kEA",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "note": "Removed variant=\"default\" on Chip (v5 default is filled, per guide)."
+          },
+          "name": "run_verify",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtDMMMrM3dgwSQPTq2HV",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-sonnet-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 1456
+          },
+          "cache_creation_input_tokens": 1456,
+          "cache_read_input_tokens": 1872,
+          "inference_geo": "global",
+          "input_tokens": 4,
+          "output_tokens": 181,
+          "output_tokens_details": {
+            "thinking_tokens": 0
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-sonnet-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c29e-7c1e-745a-97f2-0a20a251b993-0",
+      "tool_calls": [
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/components/StatusChip.tsx",
+            "old_text": "        variant=\"default\"\n",
+            "new_text": ""
+          },
+          "id": "toolu_01VcFfVzwKjGj1UxiJFnyQof",
+          "type": "tool_call"
+        },
+        {
+          "name": "run_verify",
+          "args": {
+            "note": "Removed variant=\"default\" on Chip (v5 default is filled, per guide)."
+          },
+          "id": "toolu_0168cFstGWNgbRqDZfSB6kEA",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 3332,
+        "output_tokens": 181,
+        "total_tokens": 3513,
+        "input_token_details": {
+          "cache_read": 1872,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 1456,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 0
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Error: old_text was not found in src/components/StatusChip.tsx. It must match the file exactly, including indentation; `read_file` shows the current text.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01VcFfVzwKjGj1UxiJFnyQof",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "### Result of attempt 1\n\nYour note: \"Removed variant=\"default\" on Chip (v5 default is filled, per guide).\"\n\n- Failures left in this file: **1**.\n  - **Type error** TS2322, line 19: Type '\"default\"' is not assignable to type '\"filled\" | \"outlined\" | undefined'.\n- New failures in other files: **0**.\n- Patch so far: no edits. Attempts left: 2.\n\nAttempt 2 of 3.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "run_verify",
+      "id": null,
+      "tool_call_id": "toolu_0168cFstGWNgbRqDZfSB6kEA",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "text": "Indentation was likely 6 spaces.",
+          "type": "text"
+        },
+        {
+          "id": "toolu_01GAt3La7b8WTwy1XKXR79hB",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/components/StatusChip.tsx",
+            "old_text": "      variant=\"default\"\n",
+            "new_text": ""
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01RMNLXUNG1geWnqnRrBHrpW",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "note": "Removed variant=\"default\" on Chip (v5 default is filled, per guide)."
+          },
+          "name": "run_verify",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtDNjWP7BWsTsiHBCmWv",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-sonnet-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 440
+          },
+          "cache_creation_input_tokens": 440,
+          "cache_read_input_tokens": 3328,
+          "inference_geo": "global",
+          "input_tokens": 2,
+          "output_tokens": 196,
+          "output_tokens_details": {
+            "thinking_tokens": 0
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-sonnet-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c29e-c543-7067-a50e-dde0778d2548-0",
+      "tool_calls": [
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/components/StatusChip.tsx",
+            "old_text": "      variant=\"default\"\n",
+            "new_text": ""
+          },
+          "id": "toolu_01GAt3La7b8WTwy1XKXR79hB",
+          "type": "tool_call"
+        },
+        {
+          "name": "run_verify",
+          "args": {
+            "note": "Removed variant=\"default\" on Chip (v5 default is filled, per guide)."
+          },
+          "id": "toolu_01RMNLXUNG1geWnqnRrBHrpW",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 3770,
+        "output_tokens": 196,
+        "total_tokens": 3966,
+        "input_token_details": {
+          "cache_read": 3328,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 440,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 0
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/components/StatusChip.tsx so far: +0 −1 lines (4% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01GAt3La7b8WTwy1XKXR79hB",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Attempt 2 passed: no failures left in src/components/StatusChip.tsx and nothing new elsewhere. Patch: `src/components/StatusChip.tsx` +0 −1 lines (4% of the file). This file is done.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "run_verify",
+      "id": null,
+      "tool_call_id": "toolu_01RMNLXUNG1geWnqnRrBHrpW",
+      "artifact": null,
+      "status": "success"
+    }
+  }
+]

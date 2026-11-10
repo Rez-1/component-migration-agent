@@ -1,0 +1,224 @@
+[
+  {
+    "role": "system",
+    "content": "Configuration `haiku-advisor-opus` (6ebdd151e98d): Rules, then the repair agent on Claude Haiku 5.5 (high effort) with Claude Opus 5.5 as its advisor, up to 3 attempts per failing file. Rules on, repair on (claude-haiku-5-5, claude-haiku-5-5, claude-haiku-5-5, effort high)."
+  },
+  {
+    "role": "user",
+    "content": "Migrate fixtures/mui4-app from mui@4 to mui@5"
+  },
+  {
+    "role": "tool_call",
+    "name": "pre-check",
+    "content": "[\n  \"npm ci --no-audit --no-fund\",\n  \"npm run typecheck\",\n  \"npm run lint\",\n  \"npm test\"\n]"
+  },
+  {
+    "role": "tool_result",
+    "name": "pre-check",
+    "content": "{\n  \"status\": \"ok\",\n  \"reason\": null,\n  \"pre_existing_failures\": 0,\n  \"test_totals\": {\n    \"suites_total\": 10,\n    \"suites_failed\": 0,\n    \"tests_total\": 20,\n    \"tests_passed\": 20,\n    \"tests_failed\": 0,\n    \"tests_skipped\": 0,\n    \"snapshots_total\": 1,\n    \"snapshots_unmatched\": 0,\n    \"snapshots_updated\": 0,\n    \"snapshots_added\": 0,\n    \"snapshots_obsolete\": 0,\n    \"snapshot_files_removed\": 0\n  }\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: install",
+    "content": "{\n  \"kind\": \"install\",\n  \"name\": \"install\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: install",
+    "content": "{\n  \"status\": \"skipped\",\n  \"detail\": \"packages already installed for this package.json\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod preset-safe",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"preset-safe\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod preset-safe",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"12 ok, 0 unchanged\",\n  \"changed_files\": [\n    \"src/App.tsx\",\n    \"src/screens/AccountDialog.tsx\",\n    \"src/screens/Dashboard.tsx\",\n    \"src/screens/Faq.tsx\",\n    \"src/screens/Notifications.tsx\",\n    \"src/screens/ProfileCard.tsx\",\n    \"src/screens/ProfileForm.tsx\",\n    \"src/screens/ResponsiveNav.tsx\",\n    \"src/screens/Search.tsx\",\n    \"src/screens/Settings.tsx\",\n    \"src/screens/UsersTable.tsx\",\n    \"src/theme.ts\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod variant-prop",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"variant-prop\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod variant-prop",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"1 ok, 11 unchanged\",\n  \"changed_files\": [\n    \"src/screens/ProfileForm.tsx\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod link-underline-hover",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"link-underline-hover\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod link-underline-hover",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"1 ok, 11 unchanged\",\n  \"changed_files\": [\n    \"src/screens/Faq.tsx\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: codemod box-sx-prop",
+    "content": "{\n  \"kind\": \"codemod\",\n  \"name\": \"box-sx-prop\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: codemod box-sx-prop",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"1 ok, 11 unchanged\",\n  \"changed_files\": [\n    \"src/screens/Settings.tsx\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: format",
+    "content": "{\n  \"kind\": \"format\",\n  \"name\": \"format\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: format",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"eslint --fix on 12 files\",\n  \"changed_files\": []\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: dependencies",
+    "content": "{\n  \"kind\": \"dependencies\",\n  \"name\": \"dependencies\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: dependencies",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"-@material-ui/core +@mui/material@5.18.0 +@mui/styles@5.18.0 +@emotion/react@11.14.0 +@emotion/styled@11.14.1 -@material-ui/icons +@mui/icons-material@5.18.0 -@material-ui/lab +@mui/lab@5.0.0-alpha.177\",\n  \"changed_files\": [\n    \"package.json\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "rule step: install",
+    "content": "{\n  \"kind\": \"install\",\n  \"name\": \"install\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "rule step: install",
+    "content": "{\n  \"status\": \"ok\",\n  \"detail\": \"npm install --no-audit --no-fund\",\n  \"changed_files\": [\n    \"package-lock.json\"\n  ]\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "verify",
+    "content": "[\n  \"npm run typecheck\",\n  \"npm run lint\",\n  \"npm test\"\n]"
+  },
+  {
+    "role": "tool_result",
+    "name": "verify",
+    "content": "{\n  \"failures\": [\n    {\n      \"source\": \"test\",\n      \"file\": \"src/screens/Faq.tsx\",\n      \"line\": 17,\n      \"column\": 3,\n      \"message\": \"Error: expect(received).toMatchSnapshot()\",\n      \"test_file\": \"src/screens/__tests__/Faq.test.tsx\",\n      \"test_name\": \"Faq \\u203a renders a question header with its expand icon\"\n    }\n  ],\n  \"test_totals\": {\n    \"suites_total\": 10,\n    \"suites_failed\": 1,\n    \"tests_total\": 20,\n    \"tests_passed\": 19,\n    \"tests_failed\": 1,\n    \"tests_skipped\": 0,\n    \"snapshots_total\": 1,\n    \"snapshots_unmatched\": 1,\n    \"snapshots_updated\": 0,\n    \"snapshots_added\": 0,\n    \"snapshots_obsolete\": 0,\n    \"snapshot_files_removed\": 0\n  }\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/theme.ts",
+    "content": "{\n  \"attempts\": 2,\n  \"conversation\": \"repair/src-theme-ts.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/theme.ts",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 2,\n      \"result\": \"failed\",\n      \"failures_left\": 1,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Moved MuiButton overrides.label textTransform to root, since v5 removed the label classKey and its span; text still inherits the transform.\"\n    },\n    {\n      \"number\": 2,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 3,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Moved MuiButton overrides.label textTransform to root, since v5 removed the label classKey and its span; text still inherits the transform.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/theme.ts\": 1\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/AccountDialog.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-AccountDialog-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/AccountDialog.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 5,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Replaced the removed disableBackdropClick with an onClose guard that ignores backdropClick reasons, per the migration guide, so outside clicks keep the dialog open while Escape still closes it.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/screens/AccountDialog.tsx\": 9\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/Dashboard.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-Dashboard-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/Dashboard.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 7,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"v5 theme.spacing returns strings: replaced theme.spacing(1)*3 with theme.spacing(3) and parsed spacing(4) to a number in titleMinHeight (kept numeric since UsersTable uses it for maxHeight).\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/screens/Dashboard.tsx\": 2\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/Faq.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-Faq-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/Faq.tsx",
+    "content": "{\n  \"outcome\": \"Handed off\",\n  \"reason\": \"the repair agent handed off: The failing test is a snapshot test, and its .snap file still holds the v4 output (MuiExpansionPanelSummary-* classes, expandIcon IconButton markup). Migrated v5 AccordionSummary renders different classes and structure, so no code change in Faq.tsx can match it without faking v4 class names. The snapshot is off-limits to me, so a human needs to review the v5 output and regenerate it (jest -u for this test). Side note: the Link underline=\\\"hover\\\" added by the codemod keeps v4 behaviour and is fine.\",\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 3,\n      \"result\": \"handed_off\",\n      \"failures_left\": null,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"The failing test is a snapshot test, and its .snap file still holds the v4 output (MuiExpansionPanelSummary-* classes, expandIcon IconButton markup). Migrated v5 AccordionSummary renders different classes and structure, so no code change in Faq.tsx can match it without faking v4 class names. The snapshot is off-limits to me, so a human needs to review the v5 output and regenerate it (jest -u for this test). Side note: the Link underline=\\\"hover\\\" added by the codemod keeps v4 behaviour and is fine.\"\n    }\n  ],\n  \"patch_lines\": {},\n  \"edits_rejected\": {},\n  \"review\": \"revert\"\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/Notifications.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-Notifications-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/Notifications.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 8,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Replaced invalid Typography variant=\\\"srOnly\\\" with component=\\\"span\\\" plus sx={visuallyHidden} (from @mui/utils, per the guide's Typography srOnly section). @mui/utils is only a transitive dependency via @mui/material, not listed in package.json.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/screens/Notifications.tsx\": 2\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/ProfileCard.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-ProfileCard-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/ProfileCard.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 13,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Pass a defaultTheme (createTheme()) to the @mui/styles makeStyles so it works without a ThemeProvider, matching v4's fallback to the default theme; the test renders bare.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/screens/ProfileCard.tsx\": 5\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/ProfileForm.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-ProfileForm-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/ProfileForm.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 3,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Typed Select onChange handler with SelectChangeEvent<Role> (v5 event type) instead of v4 React.ChangeEvent<{name, value}>, and imported SelectChangeEvent from @mui/material.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/screens/ProfileForm.tsx\": 10\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/ResponsiveNav.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-ResponsiveNav-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/ResponsiveNav.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 7,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Compact-nav cutoff now uses down(960) (v4 md=960 behaviour, 959.95px) because the app theme has v5 default breakpoints (md=900), so down('md') no longer covered 920px; added size=\\\"large\\\" on IconButton earlier. Note: the app theme gets v5 default breakpoints (md 900 vs v4's 960), so other screens using theme.breakpoints shift ~60px; a human should decide whether to add v4 breakpoint values to theme.ts.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/screens/ResponsiveNav.tsx\": 1\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/Search.tsx",
+    "content": "{\n  \"attempts\": 1,\n  \"conversation\": \"repair/src-screens-Search-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/Search.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 15,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Migrated Autocomplete renderOption to v5 signature (props, option): the <li {...props}> is rendered by the component so it gets role=\\\"option\\\"; fixes TS2339 on option.label/country and the missing option role in tests.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/screens/Search.tsx\": 4\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "repair src/screens/Settings.tsx",
+    "content": "{\n  \"attempts\": 2,\n  \"conversation\": \"repair/src-screens-Settings-tsx.json\"\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "repair src/screens/Settings.tsx",
+    "content": "{\n  \"outcome\": \"Migrated by agent\",\n  \"reason\": null,\n  \"attempts\": [\n    {\n      \"number\": 1,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 5,\n      \"result\": \"failed\",\n      \"failures_left\": 3,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Replaced removed Button color \\\"default\\\" with \\\"primary\\\"; the button is disabled when not dirty, so v4's disabled look is unchanged. Note for a human: the Switch defaults to primary in v5 (v4 was secondary), so the Switch may need color=\\\"secondary\\\" to keep its v4 look; left alone as it is not a failure here.\"\n    },\n    {\n      \"number\": 2,\n      \"model\": \"claude-haiku-5-5\",\n      \"tool_calls\": 3,\n      \"result\": \"passed\",\n      \"failures_left\": 0,\n      \"new_failures_elsewhere\": 0,\n      \"note\": \"Replaced removed Button color \\\"default\\\" with \\\"primary\\\"; the button is disabled when not dirty, so v4's disabled look is unchanged. Note for a human: the Switch defaults to primary in v5 (v4 was secondary), so it may need color=\\\"secondary\\\" to keep its v4 look; left alone as it is not a failure here.\"\n    }\n  ],\n  \"patch_lines\": {\n    \"src/screens/Settings.tsx\": 1\n  },\n  \"edits_rejected\": {},\n  \"review\": null\n}"
+  },
+  {
+    "role": "tool_call",
+    "name": "cheating checks",
+    "content": "{\n  \"test_files\": 14\n}"
+  },
+  {
+    "role": "tool_result",
+    "name": "cheating checks",
+    "content": "{\n  \"hits\": [],\n  \"warnings\": [],\n  \"notes\": [\n    {\n      \"check\": \"escape-hatch:eslint-disable\",\n      \"file\": \"src/App.tsx\",\n      \"layer\": \"rules\",\n      \"severity\": \"fail\",\n      \"detail\": \"an `eslint-disable` comment: 0 -> 1\",\n      \"before\": 0,\n      \"after\": 1\n    }\n  ]\n}"
+  },
+  {
+    "role": "assistant",
+    "content": "# Scorecard: mui4-fixture-app · run 2026-11-10-014527-934\n\n`mui@4->mui@5` · configuration `haiku-advisor-opus` · case `fixture-mui4` · 8 min 38 s · **$0.27** of $3.16 cap\n\n**Clean run: yes.** **11 of 12 affected files migrated without a human (92%)**: 2 by rules, 9 by the repair agent. 1 handed off, 0 unmigrated.\n\n| | This run |\n|---|---|\n| Clean run | yes |\n| Migrated without a human | 11 / 12 (92%) |\n| Hand-offs | 1 |\n| Regressions | 0 |\n| Cheating-check hits | 0 (0 warnings); 1 Rules-layer notes |\n| Codemod TODOs left | 0 |\n| Traps | 22 expected · 0 other layer · 0 missed · 1 not scored |\n| Cost / time | $0.27 · 8 min 38 s |\n\n## Files\n\n| File | Outcome | Failures | Note |\n|---|---|---|---|\n| src/screens/AccountDialog.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/screens/Dashboard.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/screens/Faq.tsx | Handed off | 1 | the repair agent handed off: The failing test is a snapshot test, and its .snap file still holds the v4 output (MuiExpansionPanelSummary-* classes, expandIcon IconButton markup). Migrated v5 AccordionSummary renders different classes and structure, so no code change in Faq.tsx can match it without faking v4 class names. The snapshot is off-limits to me, so a human needs to review the v5 output and regenerate it (jest -u for this test). Side note: the Link underline=\"hover\" added by the codemod keeps v4 behaviour and is fine.; revert |\n| src/screens/Notifications.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/screens/ProfileCard.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/screens/ProfileForm.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/screens/ResponsiveNav.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/screens/Search.tsx | Migrated by agent | 0 | 1 attempt(s) |\n| src/screens/Settings.tsx | Migrated by agent | 0 | 2 attempt(s) |\n| src/theme.ts | Migrated by agent | 0 | 2 attempt(s) |\n| 2 files | Migrated by rules | 0 | App, UsersTable |\n\nChanged but not affected: `package-lock.json`, `package.json`.\n\n## Failures\n\n| File | Check | Where | Message |\n|---|---|---|---|\n| src/screens/Faq.tsx | test | Faq › renders a question header with its expand icon | Error: expect(received).toMatchSnapshot() |\n\n## Traps (fixture)\n\n| Result | Expected layer | Traps |\n|---|---|---|\n| Expected | rules | 12: create-theme, grid-justify, fade-alpha, autocomplete-import, autocomplete-option-equal, button-color-default-literal, spacing-px-template, expansion-panel, link-underline, textfield-default-variant, breakpoint-down, box-system-props |\n| Expected | agent | 9: autocomplete-render-option, spacing-arithmetic, dialog-disable-backdrop-click, typography-sr-only, breakpoint-sizes, button-color-expression, button-label-override, select-event-type, styles-needs-theme-provider |\n| Expected | human | 1: faq-snapshot-markup |\n| Not scored | visual-only | 1: switch-default-color |\n\nFixed (their checks now pass at the final verify): autocomplete-render-option, spacing-arithmetic, dialog-disable-backdrop-click, typography-sr-only, breakpoint-sizes, button-color-expression, button-label-override, select-event-type, styles-needs-theme-provider.\n\n## Repair\n\n10 failing files, 12 attempts, 74 tool calls.\n\n| File | Outcome | Attempts | Tool calls | Patch | Why |\n|---|---|---|---|---|---|\n| src/theme.ts | Migrated by agent | 2 | 5 | theme.ts 1 |  |\n| src/screens/AccountDialog.tsx | Migrated by agent | 1 | 5 | AccountDialog.tsx 9 |  |\n| src/screens/Dashboard.tsx | Migrated by agent | 1 | 7 | Dashboard.tsx 2 |  |\n| src/screens/Faq.tsx | Handed off | 1 | 3 | — | the repair agent handed off: The failing test is a snapshot test, and its .snap file still holds the v4 output (MuiExpansionPanelSummary-* classes, expandIcon IconButton markup). Migrated v5 AccordionSummary renders different classes and structure, so no code change in Faq.tsx can match it without faking v4 class names. The snapshot is off-limits to me, so a human needs to review the v5 output and regenerate it (jest -u for this test). Side note: the Link underline=\"hover\" added by the codemod keeps v4 behaviour and is fine. (Review: revert) |\n| src/screens/Notifications.tsx | Migrated by agent | 1 | 8 | Notifications.tsx 2 |  |\n| src/screens/ProfileCard.tsx | Migrated by agent | 1 | 13 | ProfileCard.tsx 5 |  |\n| src/screens/ProfileForm.tsx | Migrated by agent | 1 | 3 | ProfileForm.tsx 10 |  |\n| src/screens/ResponsiveNav.tsx | Migrated by agent | 1 | 7 | ResponsiveNav.tsx 1 |  |\n| src/screens/Search.tsx | Migrated by agent | 1 | 15 | Search.tsx 4 |  |\n| src/screens/Settings.tsx | Migrated by agent | 2 | 8 | Settings.tsx 1 |  |\n\nReview list: `src/screens/Faq.tsx`.\n\n## Cheating checks\n\nNo hits and no warnings on repair-agent patches.\n\nReported, not failing (only repair-agent patches can fail a run):\n\n| File | Layer | Check | Detail |\n|---|---|---|---|\n| src/App.tsx | rules | escape-hatch:eslint-disable | an `eslint-disable` comment: 0 -> 1 |\n\n14 test files checked.\n\n## Rule steps\n\n| # | Step | Status | Changed | Detail |\n|---|---|---|---|---|\n| 1 | install | skipped | 0 | packages already installed for this package.json |\n| 2 | codemod preset-safe | ok | 12 | 12 ok, 0 unchanged |\n| 3 | codemod variant-prop | ok | 1 | 1 ok, 11 unchanged |\n| 4 | codemod link-underline-hover | ok | 1 | 1 ok, 11 unchanged |\n| 5 | codemod box-sx-prop | ok | 1 | 1 ok, 11 unchanged |\n| 6 | format | ok | 0 | eslint --fix on 12 files |\n| 7 | dependencies | ok | 1 | -@material-ui/core +@mui/material@5.18.0 +@mui/styles@5.18.0 +@emotion/react@11.14.0 +@emotion/styled@11.14.1 -@material-ui/icons +@mui/icons-material@5.18.0 -@material-ui/lab +@mui/lab@5.0.0-alpha.177 |\n| 8 | install | ok | 1 | npm install --no-audit --no-fund |\n\n## Pre-check and tests\n\nPre-check: ok, 0 Pre-existing failures.\n\n| | Pre-check | Final verify |\n|---|---|---|\n| Tests run | 20 | 20 |\n| Tests failing | 0 | 1 |\n| Tests skipped | 0 | 0 |\n| Suites failing | 0 of 10 | 1 of 10 |\n| Snapshots | 1 | 1 |\n\n## Cost\n\n$0.27 = $0.10 output + $0.00 input + $0.16 cache (reads $0.00, writes $0.16), claude-haiku-5-5 $0.03 (54 calls); claude-opus-5-5 $0.24 (2 calls), 54 calls. Cache reads covered 79% of input tokens. Run cap $3.16; month cap $20.00, this month $4.93 of $20.00.\n\nNode 20.20.2, npm 10.8.2, migrator 0.1.0.\n"
+  }
+]

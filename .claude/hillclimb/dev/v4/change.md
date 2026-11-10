@@ -1,0 +1,3 @@
+configuration `haiku-high`: Rules, then the repair agent on Claude Haiku 5.5 at high effort, up to 3 attempts per failing file.
+
+Compared with `baseline`: see change.patch.

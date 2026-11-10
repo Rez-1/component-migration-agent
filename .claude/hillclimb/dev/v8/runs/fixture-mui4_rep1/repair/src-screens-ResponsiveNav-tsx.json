@@ -1,0 +1,146 @@
+[
+  {
+    "type": "human",
+    "data": {
+      "content": "## Failing file: `src/screens/ResponsiveNav.tsx`\n\nAttempt 1 of 3.\n\n### Failures in this file (1)\n\n1. **Failing test** `src/screens/__tests__/ResponsiveNav.test.tsx` › \"ResponsiveNav › uses a menu on a small tablet (920px wide)\": Error: Unable to find role=\"button\" and name \"Open menu\" (This test imports this file.)\n\n### What the Rules stage changed in this file\n\n```diff\n--- a/src/screens/ResponsiveNav.tsx\n+++ b/src/screens/ResponsiveNav.tsx\n@@ -13,5 +13,6 @@\n   useMediaQuery,\n-} from '@material-ui/core';\n-import { makeStyles, Theme, useTheme } from '@material-ui/core/styles';\n-import MenuIcon from '@material-ui/icons/Menu';\n+} from '@mui/material';\n+import { Theme, useTheme } from '@mui/material/styles';\n+import makeStyles from '@mui/styles/makeStyles';\n+import MenuIcon from '@mui/icons-material/Menu';\n \n@@ -40,3 +41,3 @@\n   const theme = useTheme();\n-  const compact = useMediaQuery(theme.breakpoints.down('sm'));\n+  const compact = useMediaQuery(theme.breakpoints.down('md'));\n   const [drawerOpen, setDrawerOpen] = useState(false);\n@@ -52,3 +53,8 @@\n         {compact && (\n-          <IconButton edge=\"start\" color=\"inherit\" aria-label=\"Open menu\" onClick={() => setDrawerOpen(true)}>\n+          <IconButton\n+            edge=\"start\"\n+            color=\"inherit\"\n+            aria-label=\"Open menu\"\n+            onClick={() => setDrawerOpen(true)}\n+            size=\"large\">\n             <MenuIcon />\n```\n\n### The file now (85 lines)\n\n```tsx\n 1  import { useState } from 'react';\n 2  import {\n 3    AppBar,\n 4    Drawer,\n 5    IconButton,\n 6    List,\n 7    ListItem,\n 8    ListItemText,\n 9    Tab,\n10    Tabs,\n11    Toolbar,\n12    Typography,\n13    useMediaQuery,\n14  } from '@mui/material';\n15  import { Theme, useTheme } from '@mui/material/styles';\n16  import makeStyles from '@mui/styles/makeStyles';\n17  import MenuIcon from '@mui/icons-material/Menu';\n18  \n19  const useStyles = makeStyles((theme: Theme) => ({\n20    brand: {\n21      flexGrow: 1,\n22    },\n23    drawerList: {\n24      width: 240,\n25    },\n26    tabs: {\n27      marginLeft: theme.spacing(2),\n28    },\n29  }));\n30  \n31  export interface ResponsiveNavProps {\n32    pages: readonly string[];\n33    current: string;\n34    onNavigate: (page: string) => void;\n35  }\n36  \n37  // Phones and small tablets (below 960px wide) get a menu button and a drawer;\n38  // wider screens get tabs.\n39  export function ResponsiveNav({ pages, current, onNavigate }: ResponsiveNavProps) {\n40    const classes = useStyles();\n41    const theme = useTheme();\n42    const compact = useMediaQuery(theme.breakpoints.down('md'));\n43    const [drawerOpen, setDrawerOpen] = useState(false);\n44  \n45    const go = (page: string) => {\n46      setDrawerOpen(false);\n47      onNavigate(page);\n48    };\n49  \n50    return (\n51      <AppBar position=\"static\" component=\"nav\" aria-label=\"Main\">\n52        <Toolbar>\n53          {compact && (\n54            <IconButton\n55              edge=\"start\"\n56              color=\"inherit\"\n57              aria-label=\"Open menu\"\n58              onClick={() => setDrawerOpen(true)}\n59              size=\"large\">\n60              <MenuIcon />\n61            </IconButton>\n62          )}\n63          <Typography variant=\"h6\" className={classes.brand}>\n64            Workspace\n65          </Typography>\n66          {!compact && (\n67            <Tabs className={classes.tabs} value={current} onChange={(_, page: string) => go(page)}>\n68              {pages.map((page) => (\n69                <Tab key={page} value={page} label={page} />\n70              ))}\n71            </Tabs>\n72          )}\n73        </Toolbar>\n74        <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>\n75          <List className={classes.drawerList}>\n76            {pages.map((page) => (\n77              <ListItem button key={page} selected={page === current} onClick={() => go(page)}>\n78                <ListItemText primary={page} />\n79              </ListItem>\n80            ))}\n81          </List>\n82        </Drawer>\n83      </AppBar>\n84    );\n85  }\n```\n\n### Local imports\n\nNone.\n\n### Used by\n\n- `src/App.tsx` imports `ResponsiveNav` from this file.\n\n### Guide sections (keyword lookup: `ResponsiveNav`)\n\n**IconButton › Update size prop (codemod)**\n\nPadding for the default size has been reduced to 8px, bringing it down to 40px.\n\nFor the old default size of 48px, use `size=\"large\"`.\n\nThe change was made to better match Google's products when Material Design stopped documenting the icon button pattern.\n\n```diff\n- <IconButton>\n+ <IconButton size=\"large\">\n```\n\n**Dialog › Remove withMobileDialog component**\n\nRemove the `withMobileDialog` higher-order component.\n\n:::warning\nThis is handled in the [preset-safe codemod](#preset-safe) by applying hard-coded function to prevent application crash, but further fixes are required.\n:::\n\nThe hook API allows a simpler and more flexible solution:\n\n```diff\n-import withMobileDialog from '@mui/material/withMobileDialog';\n+import { useTheme, useMediaQuery } from '@mui/material';\n\n function ResponsiveDialog(props) {\n-  const { fullScreen } = props;\n+  const theme = useTheme();\n+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));\n   const [open, setOpen] = React.useState(false);\n\n // ...\n\n-export default withMobileDialog()(ResponsiveDialog);\n+export default ResponsiveDialog;\n```\n\n**@mui/icons-material › Reduce GitHub icon size**\n\nThe GitHub icon was reduced in size from 24px to 22px wide to match the size of the other icons.\n\nAlso possibly relevant (`search_guide` for the text):\n\n- MenuItem › Update CSS class names\n- Box › Replace render prop with sx\n- Menu › Change default anchorOrigin.vertical value\n- Box › Remove clone prop\n- Menu › Update transition props (codemod)\n- Tab › Update default minWidth and maxWidth\n- Theme structure › Remove px suffix (codemod)\n- MenuItem › Replace listItemClasses prop",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "human",
+      "name": null,
+      "id": null
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "signature": "CAQSrQkKEAgTGAI4AUIIdGhpbmtpbmcSDN8icLWfuuog2K/5wRoMpsvLZfG1jZSz4w97IjCjq601Aedf3v4TyQveoU3sgEkUsTYnLXQm/FrosOVP7ngdRyUVJ1ptRX7kfrJB4mgqyggdkuEGCnZ8VGVSVhhs5+ebGsxGyhetLR314mz0puLGKOLrpauQRFcudtiKnvp0hoDb2hMakwlavQw3HjMp22IvuRbbwIhN/DKt5I/jCcUhdQ+RuHcgl6rU+r3io9YM9quEgq4Xs5L4g2zfoA5q7+AJVDtIhrQwVfPKotEOZz3k8TBp7d30UFezncJmTMUQsCPk4lNkESS/dwx8wXJdoSwX17ZBbbW7Cd3XlyPaIt2kTZA+sib6EBak/K0MKcr5lETnpAtm0QsRuVyjgM2lR8l3R7vFvdwpvFE4FmuQJqpapBZImTToS2JvMoSe1JU89TsgHAeGWdVe3uLxD4Cd79E4befPnJlUH49ydSNZH0z6iF5j/7O2wSbDVUXppnr+9qHz38/uRMEiTsBXgRcc2itRzmvF+4zbhI8vu7kO0hDNU4GSw1NiggFR94S7z5GtsNvQxIwNvZh31c04b3PGdBc335QhpiMQ9gT6Tj3O3lT6iD17XdUC8SMXon7MrjEiIwLCuTGIvbf4Qb4kEwI2dY7wU8Id6Q82Gy31tLLoAQA3fViek3SPN1BvHmXIAheqB5cCSN1Df9xEsW2KJPe9C/uc8ZGsf90mNKRexLUFyDVL4YXC9r+RPeH3y8uuuwJaMsf3gQJh+M0S/Ju0Hj5mBazajlvfvL2GENI5Q/9mYfguByS8Mlxb0OTrc1Y1hCkZMRbU0E5dJDV8tOpiPZZfa+RMQQVv2A1H0tw7BnoAHh0ps1k3PZ3fjruRMwEUu8lq5xxCidUxZkUT/Or95KLK2sv5YslD2B6NDGFiWZsYSbn/GTPUluC2PGyrt9f6Yb+NZq4zOz0FZAITabJlUjCK1GfBSezIU/usnkA+ZrRx7uOTw04e5t6aeZZy3Y2mHYPmBbFoXB+jffQJzd94NGiz4fUY5dLuvB7X0TeUpGOXmsSnpZUVb72YWKoydMJt46vlf1WpKOn9VoLSzvuhNn6Xi8LnW3McGOSoEfjegIjcXRDQGBJK0IzLBTEc8mtbJ/dMNRZg/QZHaUh36mwQbt7oj0/EpbnkHHf/wuIuvAonPtjLJ9yXT3I6HPMIBYdAe+xwx6cZyTxZz83i+oUeNAFXnifiPYYWA+bYOdr+TIyJNxwoy5ZWSIa5OvBmHjjGUoCFR5gONYsetcsBEw4CNPEHD7ViQIMEVzAM/Bb4V9i5WCkeNRkUDkcMg2CqMoYwbtyJsfGhUPlvz1AfbcCxn9vU2wiUzewedr9R1L+5kTKFV5ithkms4Y4bGGx8oOdPLKp9gY4kBN5Z5ZrwVRHXgs8tAlOcDlD2bghulC9Qp2ZdLsibiJJyKFOHmWMvaQosCj3HAyrC6ExzVjE+NQrzZ2HQsazdG6xc2tXz/yotD2eNMbMMS9mGJcQCyLiMezb51LbO9NrJrTHzbpKYXbgOSD2YwFP6fdcCXXNt31JxVjbYIcXhoQPPzU2K65qnzYQYAQ==",
+          "thinking": "I'm checking the breakpoint math: the codemod's down('md') in v5 cuts off below 900px, while v4's down('sm') used 960px, so at 920px the compact flag comes out false. I'm also wondering whether an adaptV4Theme wrapper would change that, but it doesn't seem to.\n\nI'm weighing whether a number argument to down() is the cleaner fix, since v5 accepts one, so I could pass 960 straight to the theme instead of hand-writing a max-width query.\n\n",
+          "type": "thinking"
+        },
+        {
+          "id": "toolu_01EXpKJ84DCXBCyeVCjFrrDL",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/ResponsiveNav.tsx",
+            "old_text": "down('md')",
+            "new_text": "down(960)"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01ChgdmjJ7tqH6MKFopVxM2a",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "note": "v5 md breakpoint is 900px, so down('md') dropped 900–959px; use down(960) to keep v4's \"below 960px\" behaviour."
+          },
+          "name": "run_verify",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtJEqnmb1y5Yvb76zS6n",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-opus-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 2472
+          },
+          "cache_creation_input_tokens": 2472,
+          "cache_read_input_tokens": 1910,
+          "inference_geo": "global",
+          "input_tokens": 4,
+          "output_tokens": 479,
+          "output_tokens_details": {
+            "thinking_tokens": 267
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-opus-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2d9-2ab1-7734-b13e-38c7237c7bbe-0",
+      "tool_calls": [
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/screens/ResponsiveNav.tsx",
+            "old_text": "down('md')",
+            "new_text": "down(960)"
+          },
+          "id": "toolu_01EXpKJ84DCXBCyeVCjFrrDL",
+          "type": "tool_call"
+        },
+        {
+          "name": "run_verify",
+          "args": {
+            "note": "v5 md breakpoint is 900px, so down('md') dropped 900–959px; use down(960) to keep v4's \"below 960px\" behaviour."
+          },
+          "id": "toolu_01ChgdmjJ7tqH6MKFopVxM2a",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 4386,
+        "output_tokens": 479,
+        "total_tokens": 4865,
+        "input_token_details": {
+          "cache_read": 1910,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 2472,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 267
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/screens/ResponsiveNav.tsx so far: +1 −1 lines (1% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01EXpKJ84DCXBCyeVCjFrrDL",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Attempt 1 passed: no failures left in src/screens/ResponsiveNav.tsx and nothing new elsewhere. Patch: `src/screens/ResponsiveNav.tsx` +1 −1 lines (1% of the file). This file is done.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "run_verify",
+      "id": null,
+      "tool_call_id": "toolu_01ChgdmjJ7tqH6MKFopVxM2a",
+      "artifact": null,
+      "status": "success"
+    }
+  }
+]

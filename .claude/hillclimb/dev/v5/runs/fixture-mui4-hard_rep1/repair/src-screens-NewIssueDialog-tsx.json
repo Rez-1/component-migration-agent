@@ -1,0 +1,346 @@
+[
+  {
+    "type": "human",
+    "data": {
+      "content": "## Failing file: `src/screens/NewIssueDialog.tsx`\n\nAttempt 1 of 3.\n\n### Failures in this file (2)\n\n1. **Failing test** `src/screens/__tests__/NewIssueDialog.test.tsx` › \"NewIssueDialog › assigns new issues to the signed-in user, marked in the list\": Error: expect(element).toHaveAttribute(\"aria-selected\", \"true\") // element.getAttribute(\"aria-selected\") === \"true\" (This test imports this file.)\n2. **Failing test** `src/screens/__tests__/NewIssueDialog.test.tsx` › \"NewIssueDialog › creates the issue with a tidied estimate\": Error: expect(jest.fn()).toHaveBeenCalledWith(...expected) (This test imports this file.)\n\n### What the Rules stage changed in this file\n\n```diff\n--- a/src/screens/NewIssueDialog.tsx\n+++ b/src/screens/NewIssueDialog.tsx\n@@ -8,5 +8,6 @@\n   TextField,\n-} from '@material-ui/core';\n-import { Autocomplete } from '@material-ui/lab';\n-import { makeStyles, Theme } from '@material-ui/core/styles';\n+} from '@mui/material';\n+import { Autocomplete } from '@mui/material';\n+import { Theme } from '@mui/material/styles';\n+import makeStyles from '@mui/styles/makeStyles';\n import { CURRENT_USER, Person, TEAM } from '../data/people';\n@@ -53,6 +54,7 @@\n         onClose={() => setOpen(false)}\n-        onEntered={() => titleRef.current?.focus()}\n         aria-labelledby=\"new-issue-title\"\n         fullWidth\n-      >\n+        TransitionProps={{\n+          onEntered: () => titleRef.current?.focus()\n+        }}>\n         <DialogTitle id=\"new-issue-title\">New issue</DialogTitle>\n```\n\n### The file now (107 lines)\n\n```tsx\n  1  import { useRef, useState } from 'react';\n  2  import {\n  3    Button,\n  4    Dialog,\n  5    DialogActions,\n  6    DialogContent,\n  7    DialogTitle,\n  8    TextField,\n  9  } from '@mui/material';\n 10  import { Autocomplete } from '@mui/material';\n 11  import { Theme } from '@mui/material/styles';\n 12  import makeStyles from '@mui/styles/makeStyles';\n 13  import { CURRENT_USER, Person, TEAM } from '../data/people';\n 14  import { personPickerProps } from '../components/personPicker';\n 15  import { DurationInput } from '../components/DurationInput';\n 16  \n 17  const useStyles = makeStyles((theme: Theme) => ({\n 18    field: { marginBottom: theme.spacing(2) },\n 19  }));\n 20  \n 21  export interface NewIssue {\n 22    title: string;\n 23    assignee: string | null;\n 24    reviewer: string | null;\n 25    estimate: string;\n 26  }\n 27  \n 28  export function NewIssueDialog({ onCreate }: { onCreate?: (issue: NewIssue) => void }) {\n 29    const classes = useStyles();\n 30    const [open, setOpen] = useState(false);\n 31    const [title, setTitle] = useState('');\n 32    const [assignee, setAssignee] = useState<Person | null>(CURRENT_USER);\n 33    const [reviewer, setReviewer] = useState<Person | null>(null);\n 34    const titleRef = useRef<HTMLInputElement>(null);\n 35    const estimateRef = useRef<HTMLInputElement>(null);\n 36  \n 37    const create = () => {\n 38      onCreate?.({\n 39        title: title.trim(),\n 40        assignee: assignee?.id ?? null,\n 41        reviewer: reviewer?.id ?? null,\n 42        estimate: estimateRef.current?.value ?? '',\n 43      });\n 44      setOpen(false);\n 45    };\n 46  \n 47    return (\n 48      <>\n 49        <Button variant=\"contained\" color=\"primary\" onClick={() => setOpen(true)}>\n 50          New issue\n 51        </Button>\n 52        <Dialog\n 53          open={open}\n 54          onClose={() => setOpen(false)}\n 55          aria-labelledby=\"new-issue-title\"\n 56          fullWidth\n 57          TransitionProps={{\n 58            onEntered: () => titleRef.current?.focus()\n 59          }}>\n 60          <DialogTitle id=\"new-issue-title\">New issue</DialogTitle>\n 61          <DialogContent>\n 62            <TextField\n 63              id=\"issue-title-field\"\n 64              className={classes.field}\n 65              label=\"Title\"\n 66              fullWidth\n 67              variant=\"outlined\"\n 68              inputRef={titleRef}\n 69              value={title}\n 70              onChange={(e) => setTitle(e.target.value)}\n 71            />\n 72            <Autocomplete\n 73              {...personPickerProps}\n 74              className={classes.field}\n 75              options={TEAM}\n 76              value={assignee}\n 77              onChange={(_, person) => setAssignee(person)}\n 78              renderInput={(params) => <TextField {...params} label=\"Assignee\" variant=\"outlined\" />}\n 79            />\n 80            <Autocomplete\n 81              {...personPickerProps}\n 82              className={classes.field}\n 83              options={TEAM}\n 84              value={reviewer}\n 85              onChange={(_, person) => setReviewer(person)}\n 86              renderInput={(params) => <TextField {...params} label=\"Reviewer\" variant=\"outlined\" />}\n 87            />\n 88            <TextField\n 89              id=\"issue-estimate\"\n 90              label=\"Estimate\"\n 91              placeholder=\"e.g. 90m or 1.5h\"\n 92              fullWidth\n 93              variant=\"outlined\"\n 94              inputRef={estimateRef}\n 95              InputProps={{ inputComponent: DurationInput }}\n 96            />\n 97          </DialogContent>\n 98          <DialogActions>\n 99            <Button onClick={() => setOpen(false)}>Cancel</Button>\n100            <Button color=\"primary\" disabled={!title.trim()} onClick={create}>\n101              Create\n102            </Button>\n103          </DialogActions>\n104        </Dialog>\n105      </>\n106    );\n107  }\n```\n\n### Local imports\n\n- `src/components/DurationInput.tsx`: `export function normaliseDuration(text: string): string`, `export function DurationInput(props: InputBaseComponentProps)`\n- `src/components/personPicker.ts`: `export const personPickerProps`\n- `src/data/people.ts`: `export interface Person { id: string; name: string; initials: string; }`, `export const TEAM: Person[]`, `export const CURRENT_USER: Person`\n\n### Used by\n\n- `src/App.tsx` imports `NewIssueDialog` from this file.\n\n### Guide sections (keyword lookup: `NewIssueDialog`, `toHaveAttribute`, `element.getAttribute`, `jest.fn`, `toHaveBeenCalledWith`)\n\n**Autocomplete › Rename getOptionSelected (codemod)**\n\nRename `getOptionSelected` to `isOptionEqualToValue` to better describe its purpose.\n\n```diff\n <Autocomplete\n-  getOptionSelected={(option, value) => option.title === value.title}\n+  isOptionEqualToValue={(option, value) => option.title === value.title}\n```\n\n**TablePagination › Customize labels with getItemAriaLabel prop**\n\nThe customization of the table pagination's actions labels must be done with the `getItemAriaLabel` prop.\n\nThis increases consistency with the `Pagination` component.\n\n```diff\n  <TablePagination\n-  backIconButtonText=\"Back\"\n-  nextIconButtonText=\"Next\"\n+  getItemAriaLabel={…}\n```\n\n**Still having problems?**\n\nIf you're encountering a problem not covered here, please [create a GitHub issue](https://github.com/mui/material-ui/issues/new/choose) with this title format: **[Migration] Summary of your issue**.\n\nAlso possibly relevant (`search_guide` for the text):\n\n- [Jest] SyntaxError: Unexpected token 'export'\n- Autocomplete › Rename reason arguments\n- GridList › Rename GridList props\n- TypeError: Cannot read properties of undefined (reading 'pxToRem')\n- Why you should migrate\n- ref › Fix ref type specificity\n- Dialog › Remove withMobileDialog component\n- Theme › Replace theme.breakpoints.width (codemod)",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "human",
+      "name": null,
+      "id": null
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "id": "toolu_01SmLoFTwgXDdudXiywBpRsp",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/components/personPicker.ts"
+          },
+          "name": "read_file",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01BwRTJtJRh5YJZsM7eGRGuB",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/components/DurationInput.tsx"
+          },
+          "name": "read_file",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtDxxyDHBjonYdGfqhfz",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-sonnet-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 4898,
+          "inference_geo": "global",
+          "input_tokens": 4,
+          "output_tokens": 113,
+          "output_tokens_details": {
+            "thinking_tokens": 0
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-sonnet-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2a5-db5d-7107-bba7-dac7a36243a4-0",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "args": {
+            "path": "src/components/personPicker.ts"
+          },
+          "id": "toolu_01SmLoFTwgXDdudXiywBpRsp",
+          "type": "tool_call"
+        },
+        {
+          "name": "read_file",
+          "args": {
+            "path": "src/components/DurationInput.tsx"
+          },
+          "id": "toolu_01BwRTJtJRh5YJZsM7eGRGuB",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 4902,
+        "output_tokens": 113,
+        "total_tokens": 5015,
+        "input_token_details": {
+          "cache_read": 4898,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 0
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "src/components/personPicker.ts (8 lines)\n1  import { Person } from '../data/people';\n2  \n3  // Shared by every Autocomplete that picks a team member.\n4  export const personPickerProps = {\n5    getOptionLabel: (person: Person) => person.name,\n6    getOptionSelected: (option: Person, value: Person) => option.id === value.id,\n7    autoHighlight: true,\n8  };",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "read_file",
+      "id": null,
+      "tool_call_id": "toolu_01SmLoFTwgXDdudXiywBpRsp",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "src/components/DurationInput.tsx (33 lines)\n 1  import { FocusEvent } from 'react';\n 2  import { InputBaseComponentProps } from '@mui/material';\n 3  \n 4  // \"90m\", \"1.5h\" or \"1h30\" -> \"1h 30m\"; anything else is left as typed.\n 5  export function normaliseDuration(text: string): string {\n 6    const trimmed = text.trim().toLowerCase();\n 7    const hours = trimmed.match(/^(\\d+(?:\\.\\d+)?)\\s*h$/);\n 8    const minutes = trimmed.match(/^(\\d+)\\s*m$/);\n 9    const both = trimmed.match(/^(\\d+)\\s*h\\s*(\\d+)\\s*m?$/);\n10    let total: number | null = null;\n11    if (hours) total = Math.round(Number(hours[1]) * 60);\n12    else if (minutes) total = Number(minutes[1]);\n13    else if (both) total = Number(both[1]) * 60 + Number(both[2]);\n14    if (total === null) return text;\n15    const h = Math.floor(total / 60);\n16    const m = total % 60;\n17    return [h ? `${h}h` : '', m ? `${m}m` : ''].filter(Boolean).join(' ') || '0m';\n18  }\n19  \n20  // An input that tidies the duration when the user leaves the field.\n21  export function DurationInput(props: InputBaseComponentProps) {\n22    const { inputRef, onBlur, ...other } = props;\n23    return (\n24      <input\n25        {...other}\n26        ref={inputRef}\n27        onBlur={(event: FocusEvent<HTMLInputElement>) => {\n28          event.target.value = normaliseDuration(event.target.value);\n29          onBlur?.(event);\n30        }}\n31      />\n32    );\n33  }",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "read_file",
+      "id": null,
+      "tool_call_id": "toolu_01BwRTJtJRh5YJZsM7eGRGuB",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "signature": "CAQSnQYKEAgTGAI4AUIIdGhpbmtpbmcSDLafkWTrEXPFwoBzMBoMMSx2fH+r93t5f2IIIjC0Ucsu2syUhV5thMnVRH8U7EDCOqlDcbSfZxp5Vd+UFvGAF230vomhOJ/jDoCYKHgqugWAthqJrritpmsvpWwX8dCjgnTrqO9sLdjA/fpUimUB360Sn1bvf0oInnLJQkn+m24jkdHj6tHeUDzPES8AW/FyXb3AFs+dtFDZ3pvV6oTTcpadlYyFH1BtQ3imWjQQZqFJyAgNKX30acVzJZ4Kx1vEPXc9mKg0w4jqe6ZNc4LsO/pt4I5nDTCATEU+sechoVJdcfHqMrtqMRwxmOkPTWqQE41PvcSaC+VrQLqtOoki5KVHpjFUprfNwPjRvgSUptX/eUP+35uplpRwq1XM3A6Q7qJzkFFUXq9+5OFe8ZCBrnjz+5ZV/u//eCGOI4O8Maj8cO+Qa1doVwcF4sUFg0eOFom3uXlHonYvf0IuRhVNtjt0Oias4xdAqhl7KIwQPgml7Hu4D9Ol+zX3jczmQZelsYHxw5VFAxNMkExrBApFvjNe+OLOV4Ueg5mqHeqdq8vah7aBbOvEszyVVB0NO6WNsqhCdmr4MlTJgBY1/r+h3bbi8E5ytKuCNT6prVx/ntFln+c1OxgRdJvkkteIxNiCGqv2sbGma3WTAWo2HvfIcNDZ1fMm+WQN4MHnJ3OfTE6y7aSUGNKTsBMbvBb8NOW3KJXq+oiL4sbyPWQwz7rc2YjN8BU7MYxCoV00qZB8+Gd8I6htIaH6Dz28AamvtRV7nR08HSUiLh37R8cE5zcipjlhCwo+qlUpz5jn1ENvC14uJg4R7Yri6ZgXhfUIOJdNM99VOS4uO8/olJGxvBxaSAuXIaNaxtllBJ1JRTzOqGwAoAtXzrz9ZfpHu8DmrB1zkgN+2GX/pSsfBzgXQWyVQsof+J8oBaGND1INGFNbdz2QUMbhexMQRCPo3PpDhUNZEnmhKSC7zXmtjWr0WnOsrvf1PRSJY520xy5Zxkkc3rq7ZW8SMwhf+LR2flP4HT6sMo2qkF5UMmp0VxgB",
+          "thinking": "Version 5 passes the ref through as `ref` via forwardRef rather than as `inputRef`, so DurationInput has to be wrapped in forwardRef. Since the imported files are local, I can edit them directly, so I'll make both changes.\n\n",
+          "type": "thinking"
+        },
+        {
+          "id": "toolu_01HxnwPMDbWZBoV4DxXzmH8T",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/components/personPicker.ts",
+            "old_text": "getOptionSelected:",
+            "new_text": "isOptionEqualToValue:"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_017p5ASG5MhNYufHdoRvy2Zv",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/components/DurationInput.tsx",
+            "old_text": "export function DurationInput(props: InputBaseComponentProps) {\n  const { inputRef, onBlur, ...other } = props;\n  return (\n    <input\n      {...other}\n      ref={inputRef}\n      onBlur={(event: FocusEvent<HTMLInputElement>) => {\n        event.target.value = normaliseDuration(event.target.value);\n        onBlur?.(event);\n      }}\n    />\n  );\n}",
+            "new_text": "export const DurationInput = forwardRef<HTMLInputElement, InputBaseComponentProps>(\n  function DurationInput(props, ref) {\n    const { onBlur, ...other } = props;\n    return (\n      <input\n        {...other}\n        ref={ref}\n        onBlur={(event: FocusEvent<HTMLInputElement>) => {\n          event.target.value = normaliseDuration(event.target.value);\n          onBlur?.(event);\n        }}\n      />\n    );\n  },\n);"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01P79SRMMxTaDnYfxUoDocdP",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/components/DurationInput.tsx",
+            "old_text": "import { FocusEvent } from",
+            "new_text": "import { FocusEvent, forwardRef } from"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01Asw9Eow1UUzd3jog35Xebm",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "note": "Renamed getOptionSelected to isOptionEqualToValue in personPicker; made DurationInput forwardRef since v5 passes ref not inputRef to inputComponent."
+          },
+          "name": "run_verify",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtDy9EqTrCMJnx9e9Vzi",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-sonnet-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 5833,
+          "inference_geo": "global",
+          "input_tokens": 2,
+          "output_tokens": 835,
+          "output_tokens_details": {
+            "thinking_tokens": 73
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-sonnet-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2a5-e4e4-7392-ab2a-9c98d8ac28f5-0",
+      "tool_calls": [
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/components/personPicker.ts",
+            "old_text": "getOptionSelected:",
+            "new_text": "isOptionEqualToValue:"
+          },
+          "id": "toolu_01HxnwPMDbWZBoV4DxXzmH8T",
+          "type": "tool_call"
+        },
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/components/DurationInput.tsx",
+            "old_text": "export function DurationInput(props: InputBaseComponentProps) {\n  const { inputRef, onBlur, ...other } = props;\n  return (\n    <input\n      {...other}\n      ref={inputRef}\n      onBlur={(event: FocusEvent<HTMLInputElement>) => {\n        event.target.value = normaliseDuration(event.target.value);\n        onBlur?.(event);\n      }}\n    />\n  );\n}",
+            "new_text": "export const DurationInput = forwardRef<HTMLInputElement, InputBaseComponentProps>(\n  function DurationInput(props, ref) {\n    const { onBlur, ...other } = props;\n    return (\n      <input\n        {...other}\n        ref={ref}\n        onBlur={(event: FocusEvent<HTMLInputElement>) => {\n          event.target.value = normaliseDuration(event.target.value);\n          onBlur?.(event);\n        }}\n      />\n    );\n  },\n);"
+          },
+          "id": "toolu_017p5ASG5MhNYufHdoRvy2Zv",
+          "type": "tool_call"
+        },
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/components/DurationInput.tsx",
+            "old_text": "import { FocusEvent } from",
+            "new_text": "import { FocusEvent, forwardRef } from"
+          },
+          "id": "toolu_01P79SRMMxTaDnYfxUoDocdP",
+          "type": "tool_call"
+        },
+        {
+          "name": "run_verify",
+          "args": {
+            "note": "Renamed getOptionSelected to isOptionEqualToValue in personPicker; made DurationInput forwardRef since v5 passes ref not inputRef to inputComponent."
+          },
+          "id": "toolu_01Asw9Eow1UUzd3jog35Xebm",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 5835,
+        "output_tokens": 835,
+        "total_tokens": 6670,
+        "input_token_details": {
+          "cache_read": 5833,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 73
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/components/personPicker.ts so far: +1 −1 lines (12% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01HxnwPMDbWZBoV4DxXzmH8T",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Rejected: with this edit the patch to src/components/DurationInput.tsx would be +15 −13 lines (45% of the file), past the size limit. The file goes to a human; the attempt is over.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_017p5ASG5MhNYufHdoRvy2Zv",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Not run: this file's repair has ended.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01P79SRMMxTaDnYfxUoDocdP",
+      "artifact": null,
+      "status": "error"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Not run: this file's repair has ended.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "run_verify",
+      "id": null,
+      "tool_call_id": "toolu_01Asw9Eow1UUzd3jog35Xebm",
+      "artifact": null,
+      "status": "error"
+    }
+  }
+]

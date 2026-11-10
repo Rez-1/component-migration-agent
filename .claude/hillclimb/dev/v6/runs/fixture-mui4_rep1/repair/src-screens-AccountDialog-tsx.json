@@ -1,0 +1,245 @@
+[
+  {
+    "type": "human",
+    "data": {
+      "content": "## Failing file: `src/screens/AccountDialog.tsx`\n\nAttempt 1 of 3.\n\n### Failures in this file (1)\n\n1. **Failing test** `src/screens/__tests__/AccountDialog.test.tsx` › \"AccountDialog › stays open, keeping what was typed, when the user clicks outside it\": TestingLibraryElementError: Unable to find an accessible element with the role \"dialog\" and name \"Delete your account?\" (This test imports this file.)\n\n### What the Rules stage changed in this file\n\n```diff\n--- a/src/screens/AccountDialog.tsx\n+++ b/src/screens/AccountDialog.tsx\n@@ -9,3 +9,3 @@\n   TextField,\n-} from '@material-ui/core';\n+} from '@mui/material';\n \n@@ -33,3 +33,3 @@\n       {/* A half-typed confirmation must not be lost to a stray click outside. */}\n-      <Dialog open={open} onClose={handleClose} disableBackdropClick aria-labelledby=\"delete-title\">\n+      <Dialog open={open} onClose={handleClose} aria-labelledby=\"delete-title\">\n         <DialogTitle id=\"delete-title\">Delete your account?</DialogTitle>\n```\n\n### The file now (64 lines)\n\n```tsx\n 1  import { useState } from 'react';\n 2  import {\n 3    Button,\n 4    Dialog,\n 5    DialogActions,\n 6    DialogContent,\n 7    DialogContentText,\n 8    DialogTitle,\n 9    TextField,\n10  } from '@mui/material';\n11  \n12  const CONFIRM_WORD = 'DELETE';\n13  \n14  export function AccountDialog({ onDelete }: { onDelete?: () => void }) {\n15    const [open, setOpen] = useState(false);\n16    const [confirmation, setConfirmation] = useState('');\n17  \n18    const handleClose = () => {\n19      setOpen(false);\n20      setConfirmation('');\n21    };\n22  \n23    const handleDelete = () => {\n24      onDelete?.();\n25      handleClose();\n26    };\n27  \n28    return (\n29      <>\n30        <Button color=\"secondary\" variant=\"outlined\" onClick={() => setOpen(true)}>\n31          Delete account\n32        </Button>\n33        {/* A half-typed confirmation must not be lost to a stray click outside. */}\n34        <Dialog open={open} onClose={handleClose} aria-labelledby=\"delete-title\">\n35          <DialogTitle id=\"delete-title\">Delete your account?</DialogTitle>\n36          <DialogContent>\n37            <DialogContentText>\n38              This removes your profile and all your data. Type {CONFIRM_WORD} to confirm.\n39            </DialogContentText>\n40            <TextField\n41              autoFocus\n42              fullWidth\n43              variant=\"outlined\"\n44              id=\"delete-confirmation\"\n45              label=\"Confirmation\"\n46              value={confirmation}\n47              onChange={(e) => setConfirmation(e.target.value)}\n48            />\n49          </DialogContent>\n50          <DialogActions>\n51            <Button onClick={handleClose}>Cancel</Button>\n52            <Button\n53              color=\"secondary\"\n54              variant=\"contained\"\n55              disabled={confirmation !== CONFIRM_WORD}\n56              onClick={handleDelete}\n57            >\n58              Delete\n59            </Button>\n60          </DialogActions>\n61        </Dialog>\n62      </>\n63    );\n64  }\n```\n\n### Local imports\n\nNone.\n\n### Used by\n\n- `src/App.tsx` imports `AccountDialog` from this file.\n\n### Guide sections (keyword lookup: `AccountDialog`, `TestingLibraryElementError`)\n\n**Dialog › Remove withMobileDialog component**\n\nRemove the `withMobileDialog` higher-order component.\n\n:::warning\nThis is handled in the [preset-safe codemod](#preset-safe) by applying hard-coded function to prevent application crash, but further fixes are required.\n:::\n\nThe hook API allows a simpler and more flexible solution:\n\n```diff\n-import withMobileDialog from '@mui/material/withMobileDialog';\n+import { useTheme, useMediaQuery } from '@mui/material';\n\n function ResponsiveDialog(props) {\n-  const { fullScreen } = props;\n+  const theme = useTheme();\n+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));\n   const [open, setOpen] = React.useState(false);\n\n // ...\n\n-export default withMobileDialog()(ResponsiveDialog);\n+export default ResponsiveDialog;\n```\n\n**Dialog › Remove disableBackdropClick prop (codemod)**\n\nRemove the `disableBackdropClick` prop because it is redundant.\n\nIgnore close events from `onClose` when `reason === 'backdropClick'` instead.\n\n```diff\n  <Dialog\n-  disableBackdropClick\n-  onClose={handleClose}\n+  onClose={(event, reason) => {\n+    if (reason !== 'backdropClick') {\n+      handleClose(event, reason);\n+    }\n+  }}\n  />\n```\n\n**Dialog › Remove disableTypography prop (codemod)**\n\nFlatten DialogTitle DOM structure and remove the `disableTypography` prop.\n\n```diff\n-<DialogTitle disableTypography>\n-  <Typography variant=\"h4\" component=\"h2\">\n+<DialogTitle>\n+  <Typography variant=\"h4\" component=\"span\">\n      My header\n   </Typography>\n```\n\nAlso possibly relevant (`search_guide` for the text):\n\n- Fix CSS specificity (optional)\n- Dialog › Update transition props (codemod)\n- Typography › Remove srOnly variant\n- Run codemods\n- Autocomplete › Remove debug prop\n- Update React & TypeScript version › Update TypeScript\n- makeStyles - TypeError: Cannot read property 'drawer' of undefined\n- Style library › Adjust CSS injection order (codemod)",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "human",
+      "name": null,
+      "id": null
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "signature": "CAQSwQoKEAgTGAI4AUIIdGhpbmtpbmcSDCmu59TYepvfPMlWhBoM/vkj5dMykbCUkw/WIjDSps8A6U2lax21xD40R91XTLKyN//8DGm9GzE1nYlAfoz4iAvTDtBQklBjd1iuS6Eq3gkuQivugZ7fVu5LuVnV7Su5OM2/UDNbM/6baUj/9/SvqZZXTTQLDcFzttD0Qf9hpiw5df1fDsAR7gd4cgrLh/q+j8pmMUwpv9bWqMb7GxS3Y6/7F9k0pAMFPvBXIaGRV2cNL2g7jE1nMh7pz56N1TyHGujlYu0HmJgxeyx7Ceu188/S+zKmU2f06m9TCXC4yv3O+IQImz0Z8veHLwqQEaMN589CPi92V/mzry5vL8uOTY/A37N6OvfN7zHm5/93VjNVzv7yfvLcQHU3viHvKu+W87/2coJM8G+MQiEZCAtDzWtywZm7SOe+Tm0oHA6TjQx/PffQSB9Nf4SsR1vzjE0dOcxqc9N9tK3zBOzQpgA0vOryzreWBgYAEeVShWr0BXJydOW/ylRQlLxGQqC4FG8rceQfPuxYf9CmWdxD6jGM6T4gm3JpjkgKh/QBYk3yfA0Wo6G+htfk8+Xh0J+PfsbPCe+Sz8a+3g0/KHwJAJy9Yrx6o8rTCGRpnUI6UUTlV19C4mHKzf4vgpkc8ysZiRmc+wSOpzY24Zdw26wNyyEfQ2Nc61D6YoXXwQX9sGKDYNrHV83slO7qgmzt2yUodZmJR+O96tT59lIBsekfRZhjtM3XmXAkDidvJHXplwpOksi/akVCbaMgj15oxm4JSSOTeH78DkiYxOWian/TFsmuC+wxJPyQyUQNxk0M66WosxvkpAi7Az+OaxcRWDfAx1gjb4LMxGy662PcV1E1xEM//L/Om2F+upgXlc8pA8qlA4ZVcM2JIYuXdJUcaYBkdUdk1stvh4RO6sLmL/D78hnS6dHX0UsNIp+GVQJY0MPpZ8zxW2lk4V+0KOFOjs9jLYxHtWfB+zb5vK0PtVXnO9on6uqadQqo8f6VARPFWqJgcoMUALjRyiMb2iOhMpkTFj0Kgb8ICZfLZJdgZyqV+JTDtZiy7cEha58HxIevElvyH/N1uouMERTtW5cgh7tAamXh8BRO9m8B1m7svFCI5tokTke9DaK1rscV1FssCh3BJvfigquwx2DyWS5nlOBiF6dQItefA37MdPO6BA5sfD5Wej+7l/G6yuSCAQmBCZ3ksoNcgchdR2gwRTiJ3C9B3Clao2JmvDMvBUyyTlYKsk+NLNILjkJnNCA8k5ecySMnTlOpxSJnw5ZjfAvDHb4N+OLLoF3XOvcCK86PlitN69jODCICitvTSryy0c4Q7YDP24xKua5svfOxbdsgB80Ee3DhT5lMA1EzDbst9TWJYT4o4ifzC/EuA6Mecnx3JXiasAs5IlzREV2YoRFnd+xTA0qCB0Ve3dQEb8ktZ8paE5uEPofLgFosqfDAxyZEXbBqib6cI+plk0nDJtaPG/EVJGT2lC5Sl32BObSdi0+iAUz+opzsNI+ol3rjujpjHRKaJWO8lnVjHNc5I4Ta2lo0i7s+D1oZ40KpyMUhg1B5N3tDBwFtpEF8DutNmduwxzRCJ3x6qEcWpyaTJdaDuGlB3q4tXpe0ko4uHzgaoyKzT6pc3sC2qZYDqtkV8M/As7IM3ghb52Vdd1RlMIoOr5K4X7FBmFu/E4c6HFYAvzcIgRdmKnc0lJRoEhUccrjWKlWksZzWyGLzybVS1eX4BlIqS6+awAUp24Zb2NXx7Uv+a3E305yUZTPXz7HqV5nUGfTaGAE=",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "id": "toolu_01M3vU8DNijhNdxTpam5TCys",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/__tests__/AccountDialog.test.tsx"
+          },
+          "name": "read_file",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtEiczdyP4mDc6DuKb6k",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-haiku-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 2103
+          },
+          "cache_creation_input_tokens": 2103,
+          "cache_read_input_tokens": 1872,
+          "inference_geo": "global",
+          "input_tokens": 4,
+          "output_tokens": 335,
+          "output_tokens_details": {
+            "thinking_tokens": 266
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-haiku-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2ae-e4a0-752a-882a-87b059e72f5a-0",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "args": {
+            "path": "src/screens/__tests__/AccountDialog.test.tsx"
+          },
+          "id": "toolu_01M3vU8DNijhNdxTpam5TCys",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 3979,
+        "output_tokens": 335,
+        "total_tokens": 4314,
+        "input_token_details": {
+          "cache_read": 1872,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 2103,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 266
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "src/screens/__tests__/AccountDialog.test.tsx (56 lines)\n 1  import { act, fireEvent, screen } from '@testing-library/react';\n 2  import { renderScreen } from '../../test-utils';\n 3  import { AccountDialog } from '../AccountDialog';\n 4  \n 5  function clickOutsideDialog() {\n 6    // The dialog's container covers the backdrop; a click on it is a backdrop click.\n 7    const container = document.querySelector('.MuiDialog-container');\n 8    if (!container) throw new Error('dialog container not found');\n 9    fireEvent.mouseDown(container);\n10    fireEvent.mouseUp(container);\n11    fireEvent.click(container);\n12  }\n13  \n14  describe('AccountDialog', () => {\n15    beforeEach(() => jest.useFakeTimers());\n16    afterEach(() => jest.useRealTimers());\n17  \n18    it('deletes only after the confirmation word is typed', () => {\n19      const onDelete = jest.fn();\n20      renderScreen(<AccountDialog onDelete={onDelete} />);\n21      fireEvent.click(screen.getByRole('button', { name: 'Delete account' }));\n22  \n23      const del = screen.getByRole('button', { name: 'Delete' });\n24      expect(del).toBeDisabled();\n25      fireEvent.change(screen.getByLabelText('Confirmation'), { target: { value: 'DELETE' } });\n26      fireEvent.click(del);\n27  \n28      expect(onDelete).toHaveBeenCalledTimes(1);\n29    });\n30  \n31    it('stays open, keeping what was typed, when the user clicks outside it', () => {\n32      renderScreen(<AccountDialog />);\n33      fireEvent.click(screen.getByRole('button', { name: 'Delete account' }));\n34      fireEvent.change(screen.getByLabelText('Confirmation'), { target: { value: 'DEL' } });\n35  \n36      clickOutsideDialog();\n37      act(() => {\n38        jest.advanceTimersByTime(1000); // longer than any close transition\n39      });\n40  \n41      expect(screen.getByRole('dialog', { name: 'Delete your account?' })).toBeInTheDocument();\n42      expect(screen.getByLabelText('Confirmation')).toHaveValue('DEL');\n43    });\n44  \n45    it('closes on Cancel', () => {\n46      renderScreen(<AccountDialog />);\n47      fireEvent.click(screen.getByRole('button', { name: 'Delete account' }));\n48  \n49      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));\n50      act(() => {\n51        jest.advanceTimersByTime(1000); // longer than any close transition\n52      });\n53  \n54      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();\n55    });\n56  });",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "read_file",
+      "id": null,
+      "tool_call_id": "toolu_01M3vU8DNijhNdxTpam5TCys",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "signature": "CAQS7QUKEAgTGAI4AUIIdGhpbmtpbmcSDCyR7gnieVfu+ENpfxoM+dL7Da/gfzsUL+iqIjBZ+yE2n2DjPiokByEDFfm86MmVcQGwnSQ+LMGADkdxTese22EBnSYVdgsj74BRn8wqigXHjd0NBl7ll5QxUd0OMgWuIsr6Lch/XNNoqgWbKtxbobZvgHJb5OUM7LNnxlhq/4U81Q+6sE66a+fbi0anPiaqX7W0VMnRTIfSX2yyYQmePLHQEbFmAyvtH1fYO4zyKaO28QTsl5nDPWgXl02DaFf4QrFEWmlaJ353B4H/WU7nF5GzKFnqc8Teb6QWyy/uiDVFrI7kVKORLj3fFLjUL3jg4a8IqIKk6g/NgGyEnPP5z4zP9sIfp2jLMQHD+IJCTMHut7L+34dMDPLkk0ZcJRGuAhmgqQ4UYM0hDJQYUjr2NCwWXiwVMNNDPEXIlhT7SN7ZGHsZu1P4yGVPos9ClHSnjxnNmOvf1iR3GaFfUXHsc8/PxnCY0xCrnhPOID6mWwKZsr43OjRRNDWGd5baTt1xAaRxVoprC2nIikh2+6WBs/sfvwRRH0bRcw8+C/YyHMqnb1xPRlI4CrrJ8QjfXau6gmhb/8xXlWtvv6Iyd8KM6as/D14i1a0CqRSW/OSQ+sXb19DZR8sklBd0wROi7FCeo8BKNjlGIY+a5okwB8/4APRFgRCv9jd9wuEKdvdoQCjYaj3eS7HFFikhBcCIAPgMDQ8rbv49s4JK8q3zHXcd2R/ackkKQd0726djuJMXnsFDoDMFvSaxHuSbQHV7mllgC6sF4MzuiFcPwo+jH/PnpaW5hOVosKjt2yje2hbSBQpYHasx/jxWfbQctzfnl7NjHO6yBXjyZARLr3CpWWIhy+1wHA6i/pjpMHKaAoYKWKe2lPPAIfnIzvpC3lF0yJTxjzvjjndsGD5Gf+KO2/mDSGSYiCx8JRKxkQxa8OidRcK5eS6II28mdzZpkj+n3BM+ZQIiyml5uSilYBgB",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "text": "The codemod dropped `disableBackdropClick`, so a backdrop click now closes the dialog and loses the typed text. The guide's replacement is to ignore only `backdropClick` in `onClose`. That keeps Escape closing the dialog, as it did in v4.",
+          "type": "text"
+        },
+        {
+          "id": "toolu_01NXVQ3YgS9e8Z8W6Yb7MuB9",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/AccountDialog.tsx",
+            "old_text": "      <Dialog open={open} onClose={handleClose} aria-labelledby=\"delete-title\">",
+            "new_text": "      <Dialog\n        open={open}\n        onClose={(event, reason) => {\n          if (reason !== 'backdropClick') {\n            handleClose();\n          }\n        }}\n        aria-labelledby=\"delete-title\"\n      >"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01GrGeUsvy4scTQq9zvu9RLM",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "note": "Replaced the dropped disableBackdropClick prop with an onClose that ignores backdropClick events (guide: Remove disableBackdropClick prop), so a stray click outside keeps the dialog and typed text while Escape still closes it as in v4."
+          },
+          "name": "run_verify",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtEiku9RPEQ3XNtSiUmo",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-haiku-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 1340
+          },
+          "cache_creation_input_tokens": 1340,
+          "cache_read_input_tokens": 3975,
+          "inference_geo": "global",
+          "input_tokens": 2,
+          "output_tokens": 462,
+          "output_tokens_details": {
+            "thinking_tokens": 33
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-haiku-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2ae-ec28-721b-9f6d-4d56d6f88839-0",
+      "tool_calls": [
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/screens/AccountDialog.tsx",
+            "old_text": "      <Dialog open={open} onClose={handleClose} aria-labelledby=\"delete-title\">",
+            "new_text": "      <Dialog\n        open={open}\n        onClose={(event, reason) => {\n          if (reason !== 'backdropClick') {\n            handleClose();\n          }\n        }}\n        aria-labelledby=\"delete-title\"\n      >"
+          },
+          "id": "toolu_01NXVQ3YgS9e8Z8W6Yb7MuB9",
+          "type": "tool_call"
+        },
+        {
+          "name": "run_verify",
+          "args": {
+            "note": "Replaced the dropped disableBackdropClick prop with an onClose that ignores backdropClick events (guide: Remove disableBackdropClick prop), so a stray click outside keeps the dialog and typed text while Escape still closes it as in v4."
+          },
+          "id": "toolu_01GrGeUsvy4scTQq9zvu9RLM",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 5317,
+        "output_tokens": 462,
+        "total_tokens": 5779,
+        "input_token_details": {
+          "cache_read": 3975,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 1340,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 33
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/screens/AccountDialog.tsx so far: +9 −1 lines (14% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01NXVQ3YgS9e8Z8W6Yb7MuB9",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Attempt 1 passed: no failures left in src/screens/AccountDialog.tsx and nothing new elsewhere. Patch: `src/screens/AccountDialog.tsx` +9 −1 lines (14% of the file). This file is done.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "run_verify",
+      "id": null,
+      "tool_call_id": "toolu_01GrGeUsvy4scTQq9zvu9RLM",
+      "artifact": null,
+      "status": "success"
+    }
+  }
+]

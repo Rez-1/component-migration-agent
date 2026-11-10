@@ -1,0 +1,271 @@
+[
+  {
+    "type": "human",
+    "data": {
+      "content": "## Failing file: `src/screens/Faq.tsx`\n\nAttempt 1 of 3.\n\n### Failures in this file (1)\n\n1. **Failing test** `src/screens/__tests__/Faq.test.tsx` › \"Faq › renders a question header with its expand icon\": Error: expect(received).toMatchSnapshot() (This test imports this file.)\n\n### What the Rules stage changed in this file\n\n```diff\n--- a/src/screens/Faq.tsx\n+++ b/src/screens/Faq.tsx\n@@ -1,9 +1,9 @@\n import {\n-  ExpansionPanel,\n-  ExpansionPanelDetails,\n-  ExpansionPanelSummary,\n+  Accordion,\n+  AccordionDetails,\n+  AccordionSummary,\n   Link,\n   Typography,\n-} from '@material-ui/core';\n-import ExpandMoreIcon from '@material-ui/icons/ExpandMore';\n+} from '@mui/material';\n+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';\n \n@@ -40,4 +40,4 @@\n       {QUESTIONS.map((q) => (\n-        <ExpansionPanel key={q.id}>\n-          <ExpansionPanelSummary\n+        <Accordion key={q.id}>\n+          <AccordionSummary\n             expandIcon={<ExpandMoreIcon />}\n@@ -47,10 +47,10 @@\n             <Typography>{q.question}</Typography>\n-          </ExpansionPanelSummary>\n-          <ExpansionPanelDetails>\n+          </AccordionSummary>\n+          <AccordionDetails>\n             <Typography>{q.answer}</Typography>\n-          </ExpansionPanelDetails>\n-        </ExpansionPanel>\n+          </AccordionDetails>\n+        </Accordion>\n       ))}\n       <Typography variant=\"body2\">\n-        Still stuck? <Link href=\"mailto:support@example.com\">Contact support</Link>\n+        Still stuck? <Link href=\"mailto:support@example.com\" underline=\"hover\">Contact support</Link>\n       </Typography>\n```\n\n### The file now (59 lines)\n\n```tsx\n 1  import {\n 2    Accordion,\n 3    AccordionDetails,\n 4    AccordionSummary,\n 5    Link,\n 6    Typography,\n 7  } from '@mui/material';\n 8  import ExpandMoreIcon from '@mui/icons-material/ExpandMore';\n 9  \n10  interface Question {\n11    id: string;\n12    question: string;\n13    answer: string;\n14  }\n15  \n16  const QUESTIONS: Question[] = [\n17    {\n18      id: 'export',\n19      question: 'How do I export my data?',\n20      answer: 'Open Users and choose Export CSV. The file includes every user that matches your filter.',\n21    },\n22    {\n23      id: 'delete',\n24      question: 'Can I delete my account?',\n25      answer: 'Yes. Go to Account and choose Delete account. This cannot be undone.',\n26    },\n27    {\n28      id: 'offices',\n29      question: 'Where are your offices?',\n30      answer: 'Use Search to find the office nearest to you.',\n31    },\n32  ];\n33  \n34  export function Faq() {\n35    return (\n36      <section aria-labelledby=\"faq-title\">\n37        <Typography id=\"faq-title\" variant=\"h5\" component=\"h1\" gutterBottom>\n38          Frequently asked questions\n39        </Typography>\n40        {QUESTIONS.map((q) => (\n41          <Accordion key={q.id}>\n42            <AccordionSummary\n43              expandIcon={<ExpandMoreIcon />}\n44              id={`${q.id}-header`}\n45              aria-controls={`${q.id}-content`}\n46            >\n47              <Typography>{q.question}</Typography>\n48            </AccordionSummary>\n49            <AccordionDetails>\n50              <Typography>{q.answer}</Typography>\n51            </AccordionDetails>\n52          </Accordion>\n53        ))}\n54        <Typography variant=\"body2\">\n55          Still stuck? <Link href=\"mailto:support@example.com\" underline=\"hover\">Contact support</Link>\n56        </Typography>\n57      </section>\n58    );\n59  }\n```\n\n### Local imports\n\nNone.\n\n### Used by\n\n- `src/App.tsx` imports `Faq` from this file.\n\n### Guide sections (keyword lookup: `toMatchSnapshot`)\n\n**ExpansionPanelSummary › Remove IconButtonProps prop**\n\nRemove `IconButtonProps` prop from `AccordionSummary` (formerly `ExpansionPanelSummary`).\n\nThe component renders a `<div>` element instead of an `IconButton`, so the prop is no longer necessary.\n\n**AccordionSummary › Rename expandIcon to expandIconWrapper**\n\nThis change was made to make it clearer that the element is a wrapper around the icon, not the icon itself.\n\nUpdate the CSS class name and the theme overrides accordingly.\n\n```diff\n-'.MuiAccordionSummary-expandIcon': {\n+'.MuiAccordionSummary-expandIconWrapper': {\n```\n\n```diff\n createTheme({\n   components: {\n     MuiAccordionSummary: {\n       styleOverrides: {\n-        expandIcon: {\n+        expandIconWrapper: {\n          // ...\n         },\n       },\n     },\n   },\n });\n```\n\n**ExpansionPanelDetails › Remove display: flex**\n\nRemove `display: flex` from `AccordionDetails` (formerly `ExpansionPanelDetails`) as it was too opinionated—most developers expect `display: block`.\n\nAlso possibly relevant (`search_guide` for the text):\n\n- Rating › Change default empty icon\n- @mui/icons-material › Reduce GitHub icon size\n- Dialog › Remove disableTypography prop (codemod)\n- Autocomplete › Rename closeIcon to clearIcon (codemod)\n- Icon › Remove fontSize=\"default\"\n- IconButton › Update size prop (codemod)\n- Autocomplete › Update renderOption\n- SvgIcon › Remove fontSize=\"default\"",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "human",
+      "name": null,
+      "id": null
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "signature": "CAQSmwkKEAgTGAI4AUIIdGhpbmtpbmcSDNeGesXhgQTL0KVjeRoMTzU5+eBWria+XwHWIjD5ni5aUIz9Rpvx9xg23EC0/Y96OoOE26LOW5L/h1Pypk8WTb3gapY2NeRzPh5EGlIquAgKriDqVJ16DOKASJ0QniajpyLH/SVMrhnEx4+gtIWqliGCJxj4mVV1mR2tB5QF6LLkR90QcJsIY+jaKx9ZV8DXlwnuUkpHPqUFFnB3uAUCyNyGAzqsieFFOlASQGsE4EYb+tnjcKyXeoKWK48DWVZsQqPejOk5GaPtlBZr0++3QmXoDCrpPHfS7wkNJOetFOuPaP0h2d9nYrw628xcFlm6zEA/leCWDrlSpm2EIRf16QNxBf6HNTVdEONCpUaLLzIZ8IDok6q1bkLNOraPT/IMfN2ecCMY1IymbJ37OdAZHV4ixHdq+Nezd/448Aj5Ky1jDPVDBkGaUfZle0l1TeTR9kotefA5XG6hos1IM/ZdBTazS/ljEyFCBqIbdy3luM8OT+MV9/FCl/r2t85oB5i+/xdtR+UR9DS95tSrbEONF448+aknBSsTTwBsX8G1sPZWu8TbmbCFhF+wo6/CxQVfzDGSBRhw90fGcvWH1ReXFmvStDBXFEgluIZYLbPG0ZpDd01rF+Uq4ttDgCaq5RkM4TJxnyminLZtmmIm692brgNU5zR+SDvJKkaOmd4aRlWw6ULjA5d8em/YqlKRlz2M5MGOES27PZvySFNMKxkjigj8aWgMX5d0vZW+RE0oeWhGJY+WcZH0BJSLpe5gqsnVLN6TRF97Puhb1lPYJ8dCKTRwHUsQ1XDLJ78oYBaGSLU7L/i0ettUWuPUeIWyg76SafyHZn49UcWA7J4eyxONzaHCyYR+kbhx9SPISzaywJq6acVoSfW2Yr9i3QELFsD/34STTOePPH47fJTZvuH3TWB1D5aoqy1oaJv+/wh7xXRKcxJjCJTijoL9zs4gsimMng2adw+B/fOHGTkA/w+gPUoLwQt5phTJfVBr3gFEuZ0P1sPGx/jVCl9ra3IYFzRzEm6D1DEx/c77R/hvmkxY3KlWZ/fT7OElzOTHE30Or3Xm75IYJdxS5PnCiO9AbNZjwwmHxR8TKlcLa/1a4rWzvB7XowAhUuiqeEMKOenWTmo6zsOMEo0+DO+A7kjkYYiQ3V05WrZMNW3dSNVak6uIWhrQJhWfVMp69euJOjD8jdrNJv5Z4LYbDpgLG2mqeY5gUH4QKr0xxw7M7aI04w6MNzDIJbvZbPSM8BxzjiJoIcTkJCDZ6Yfql+frdMt3SOVL2h6R7siGd8Y9dOYWAby0LeVTWxzASQJCOQOt4ahjvSqx2nYkBschxIccD8Q5RY6XlfhYROBwjdt4h/tUy2d4Zlm6JEQQtpkbcdylEbcJXfCi/ViMKdRW+yLxAqqbcZF+9vTQAmFwXJUTL341+mj+kmvLOjKB+OeTY305n8OTGq77klivKUji6BKyRm2KuEeExaNc3ZmYnhhJUzlhpx3mq5uR6VTtbF0ToTv6iYITChTFCf4MTCjfS0I/Skv7tVvVzmdodKXESNUYAQ==",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "id": "toolu_01QfCySAbFgaHmjWb3DdiDG2",
+          "input": {
+            "path": "src/screens/__tests__/Faq.test.tsx"
+          },
+          "name": "read_file",
+          "type": "tool_use",
+          "caller": {
+            "type": "direct"
+          },
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01BJF1HDaTbbQz34qQuE9EfK",
+          "input": {
+            "path": "src/screens/__tests__/__snapshots__/Faq.test.tsx.snap"
+          },
+          "name": "read_file",
+          "type": "tool_use",
+          "caller": {
+            "type": "direct"
+          },
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtKKbY2sRLLhoHdAc8JP",
+        "container": null,
+        "context_management": null,
+        "diagnostics": null,
+        "model": "claude-haiku-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 2165
+          },
+          "cache_creation_input_tokens": 2165,
+          "cache_read_input_tokens": 2654,
+          "fallback_credit": null,
+          "inference_geo": "global",
+          "input_tokens": 4,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 0,
+                "ephemeral_5m_input_tokens": 2165
+              },
+              "cache_creation_input_tokens": 2165,
+              "cache_read_input_tokens": 2654,
+              "input_tokens": 4,
+              "model": null,
+              "output_tokens": 333,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 333,
+          "output_tokens_details": {
+            "thinking_tokens": 195
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "input_transformations": null,
+        "model_name": "claude-haiku-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2e6-27f9-768f-aa79-10e943265469-0",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "args": {
+            "path": "src/screens/__tests__/Faq.test.tsx"
+          },
+          "id": "toolu_01QfCySAbFgaHmjWb3DdiDG2",
+          "type": "tool_call"
+        },
+        {
+          "name": "read_file",
+          "args": {
+            "path": "src/screens/__tests__/__snapshots__/Faq.test.tsx.snap"
+          },
+          "id": "toolu_01BJF1HDaTbbQz34qQuE9EfK",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 4823,
+        "output_tokens": 333,
+        "total_tokens": 5156,
+        "input_token_details": {
+          "cache_read": 2654,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 2165,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 195
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "src/screens/__tests__/Faq.test.tsx (31 lines)\n 1  import { fireEvent, screen } from '@testing-library/react';\n 2  import { renderScreen } from '../../test-utils';\n 3  import { Faq } from '../Faq';\n 4  \n 5  describe('Faq', () => {\n 6    it('reveals an answer when its question is clicked', () => {\n 7      renderScreen(<Faq />);\n 8      const question = screen.getByRole('button', { name: 'Can I delete my account?' });\n 9      expect(question).toHaveAttribute('aria-expanded', 'false');\n10  \n11      fireEvent.click(question);\n12  \n13      expect(question).toHaveAttribute('aria-expanded', 'true');\n14      expect(screen.getByText(/This cannot be undone/)).toBeVisible();\n15    });\n16  \n17    it('renders a question header with its expand icon', () => {\n18      renderScreen(<Faq />);\n19  \n20      expect(screen.getByRole('button', { name: 'How do I export my data?' })).toMatchSnapshot();\n21    });\n22  \n23    it('links to support', () => {\n24      renderScreen(<Faq />);\n25  \n26      expect(screen.getByRole('link', { name: 'Contact support' })).toHaveAttribute(\n27        'href',\n28        'mailto:support@example.com',\n29      );\n30    });\n31  });",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "read_file",
+      "id": null,
+      "tool_call_id": "toolu_01QfCySAbFgaHmjWb3DdiDG2",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "src/screens/__tests__/__snapshots__/Faq.test.tsx.snap (43 lines)\n 1  // Jest Snapshot v1, https://goo.gl/fbAQLP\n 2  \n 3  exports[`Faq renders a question header with its expand icon 1`] = `\n 4  <div\n 5    aria-controls=\"export-content\"\n 6    aria-disabled=\"false\"\n 7    aria-expanded=\"false\"\n 8    class=\"MuiButtonBase-root MuiExpansionPanelSummary-root\"\n 9    id=\"export-header\"\n10    role=\"button\"\n11    tabindex=\"0\"\n12  >\n13    <div\n14      class=\"MuiExpansionPanelSummary-content\"\n15    >\n16      <p\n17        class=\"MuiTypography-root MuiTypography-body1\"\n18      >\n19        How do I export my data?\n20      </p>\n21    </div>\n22    <div\n23      aria-disabled=\"false\"\n24      aria-hidden=\"true\"\n25      class=\"MuiButtonBase-root MuiIconButton-root MuiExpansionPanelSummary-expandIcon MuiIconButton-edgeEnd\"\n26    >\n27      <span\n28        class=\"MuiIconButton-label\"\n29      >\n30        <svg\n31          aria-hidden=\"true\"\n32          class=\"MuiSvgIcon-root\"\n33          focusable=\"false\"\n34          viewBox=\"0 0 24 24\"\n35        >\n36          <path\n37            d=\"M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z\"\n38          />\n39        </svg>\n40      </span>\n41    </div>\n42  </div>\n43  `;",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "read_file",
+      "id": null,
+      "tool_call_id": "toolu_01BJF1HDaTbbQz34qQuE9EfK",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "id": "toolu_016xvkMzFymHuUTLwHV6Pns1",
+          "input": {
+            "reason": "The failing assertion is a snapshot of v4 DOM (class names MuiExpansionPanelSummary-root/-content/-expandIcon, MuiIconButton-label inside the expand icon). The v5 AccordionSummary renders different classes and structure (MuiAccordionSummary-*, expandIconWrapper div, no IconButton), so the component can't match it without faking v4 output. The snapshot is a test file I can't change, so it needs regenerating by a human who reviews the new v5 markup."
+          },
+          "name": "hand_off",
+          "type": "tool_use",
+          "caller": {
+            "type": "direct"
+          },
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtKKnz6q8seusNsfPtTQ",
+        "container": null,
+        "context_management": null,
+        "diagnostics": null,
+        "model": "claude-haiku-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 1416
+          },
+          "cache_creation_input_tokens": 1416,
+          "cache_read_input_tokens": 4819,
+          "fallback_credit": null,
+          "inference_geo": "global",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 0,
+                "ephemeral_5m_input_tokens": 1416
+              },
+              "cache_creation_input_tokens": 1416,
+              "cache_read_input_tokens": 4819,
+              "input_tokens": 2,
+              "model": null,
+              "output_tokens": 897,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 897,
+          "output_tokens_details": {
+            "thinking_tokens": 682
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "input_transformations": null,
+        "model_name": "claude-haiku-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2e6-32d6-726a-b200-3e67f1b4238f-0",
+      "tool_calls": [
+        {
+          "name": "hand_off",
+          "args": {
+            "reason": "The failing assertion is a snapshot of v4 DOM (class names MuiExpansionPanelSummary-root/-content/-expandIcon, MuiIconButton-label inside the expand icon). The v5 AccordionSummary renders different classes and structure (MuiAccordionSummary-*, expandIconWrapper div, no IconButton), so the component can't match it without faking v4 output. The snapshot is a test file I can't change, so it needs regenerating by a human who reviews the new v5 markup."
+          },
+          "id": "toolu_016xvkMzFymHuUTLwHV6Pns1",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 6237,
+        "output_tokens": 897,
+        "total_tokens": 7134,
+        "input_token_details": {
+          "cache_read": 4819,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 1416,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 682
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Handed off. A human will see this file and your reason; its repair ends here.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "hand_off",
+      "id": null,
+      "tool_call_id": "toolu_016xvkMzFymHuUTLwHV6Pns1",
+      "artifact": null,
+      "status": "success"
+    }
+  }
+]

@@ -1,0 +1,140 @@
+# Migrator: component-library migrations with an LLM repair agent
+
+The Migrator moves a React codebase from one component-library version to the next. The first supported migration is **Material UI v4 → v5**. Known patterns go through the official codemods. An LLM repair agent (Claude, through LangChain and LangGraph) fixes only what the codemods leave broken, one failing file at a time. Nothing counts as migrated unless the repo's own type-check, lint and tests pass. Every run produces a measured **scorecard** against a codemods-only **Baseline**.
+
+The words used here (Run, Hand-off, Clean run, Trap, …) are defined in [`CONTEXT.md`](CONTEXT.md).
+
+## Results
+
+All numbers are from real runs, measured by the eval harness in this repo. Each row is 2 runs per case. Read them as directional: the cases are purpose-built fixtures with planted **traps** (instances of the guide's breaking changes), not real open-source repos. Real repos come next (M6).
+
+**Held-out case** (`fixture-mui4-holdout`, a warehouse back office; nothing was tuned on it; run once, at the end):
+
+| Configuration | Clean runs | Migrated without a human | Repair traps fixed | Regressions | Cheating-check hits | Cost per run |
+|---|---|---|---|---|---|---|
+| Baseline (codemods and dependency map only) | 0 of 2 | 22% | 0 of 6 | 0 | 0 | $0 |
+| **Opus 5.5, low effort** (the winner on dev) | **2 of 2** | **89%** | **6 of 6** | 0 | 0 | **$0.12** |
+
+The one file not migrated without a human is the case's human-only trap: a test that checks v4 class names (`.MuiStepIcon-completed`). The test has to change, and the repair agent may not edit tests. In both runs it handed the file off, with that reason. 89% is the highest score possible on this case. [Summary](docs/results/opus-low-holdout/experiment-summary.md).
+
+**Dev split** (`fixture-mui4` and the harder `fixture-mui4-hard`, 2 runs each, 4 runs per row), the hill-climb in [`experiments.md`](experiments.md):
+
+| Configuration | Clean runs | Migrated without a human | Repair traps fixed (mean per run, of 9) | Cost per run | Kept? |
+|---|---|---|---|---|---|
+| Baseline | 0 of 4 | 29% | 0 | $0 | reference |
+| **Opus 5.5, low effort** | **4 of 4** | **96%** | **9** | **$0.21** | **best** |
+| Haiku 5.5, high effort | 4 of 4 | 85% | 7 | $0.03 | no |
+| Sonnet 5.5, medium effort | 4 of 4 | 90% | 7.75 | $0.14 | no |
+| Cascade: Haiku first, then Opus | 4 of 4 | 85% | 7 | $0.11 | no |
+| Haiku with Opus as advisor | 4 of 4 | 88% | 7 | $0.17 | no |
+| Opus + guide search weighted by the file's components | 3 of 4 * | 94% | 8.5 | $0.21 | no |
+| Opus + a parse-check warning in `apply_edit` | 3 of 4 * | 94% | 8.5 | $0.21 | no |
+
+\* In each of these two rounds, the cost limit I set for the round stopped repair before the last run's final file. On the three runs that finished, both matched Opus trap for trap at the same cost, so neither could be kept either way.
+
+What the climb found:
+
+- **The cheaper models fail safely.** Every trap Haiku, Sonnet, the cascade or the advisor missed ended as a **hand-off** (the file goes to a human, with a reason). None ended as a wrong fix that passed verification. So every run was clean, but a human got one or two more files per run.
+- **Opus at low effort was already at the ceiling on both dev cases.** Better guide retrieval and a parse-check tool changed nothing. Quality on these cases has no headroom left. The next gains need harder cases (real repos, M6), not more tuning.
+- **Caching does most of the cost work.** Cache reads were 55–93% of input tokens. A run that starts with a cold cache costs about $0.23, one right after it about $0.14.
+- **The advisor pattern was the least efficient here.** Haiku consulted Opus 5 times in 187 calls. Those 5 consultations cost $0.57 of the round's $0.68, because each one reads the whole conversation at Opus prices.
+
+The whole of M5 (7 paid rounds and the held-out run) cost **$4.55**.
+
+## How it works
+
+One checkpointed LangGraph graph per run:
+
+**Scan → Pre-check → Rules → Verify → Repair → Review → Verify → Report**
+
+- **Scan** parses every file with tree-sitter and counts **usages** of the old library: imports, JSX elements and calls. It also forecasts which ones the codemods won't handle (`usage-report.md`).
+- **Pre-check** runs the repo's own type-check, lint and tests before any change, so **pre-existing failures** aren't charged to the run.
+- **Rules** is the deterministic layer: the dependency map plus `@mui/codemod` 9.4.0 (`preset-safe` and three more), each run exactly once (they aren't idempotent, so a resumed run never re-runs them).
+- **Repair** is the repair agent. It gets one failing file, its failures, the matching sections of the official migration guide (vendored at v5.18.0), and five tools: `read_file`, `search_guide`, `apply_edit`, `run_verify` and `hand_off`. It has up to 3 attempts per file and no shell.
+- **Review** pauses at each hand-off with LangGraph `interrupt()`. Its choices are Revert, Keep or Edit. Evals answer automatically, and `migrator resume` continues after a restart.
+- **Report** writes the scorecard: the outcome of every affected file, failures, cost, Codemod TODOs, traps (on eval cases), cheating-check results and a PR body.
+
+**Guardrails are in the tools, not only the prompt.** Test files (including setup files, mocks, snapshots and files only tests import), configs, lockfiles and `package.json` can't be written. Edits that add escape hatches (`@ts-ignore`, `eslint-disable`, `any`) are rejected. A patch over 60 lines or 40% of a file is handed off. **Cheating checks** run on the final diff, for example skipped tests, or a test run that ran fewer tests than the Pre-check.
+
+**A migration is data** ([`migration.toml`](src/migrator/migrations/mui-4-to-5/migration.toml)): detection, usage patterns, ordered rule steps, pinned dependencies, guide settings and repair notes. A second library plugs in without code changes (Angular Material is planned).
+
+## Quick start
+
+Requires Python 3.13 with [uv](https://docs.astral.sh/uv/), Node 20 and npm, and Docker (recommended).
+
+```sh
+uv sync
+uv run migrator scan path/to/repo --from mui@4 --to mui@5          # usage report, free
+uv run migrator migrate path/to/repo --from mui@4 --to mui@5 --dry-run   # Baseline on a throwaway copy, free
+```
+
+With an Anthropic API key in the environment:
+
+```sh
+uv run migrator migrate path/to/repo --from mui@4 --to mui@5 --config opus-low --max-cost 2
+uv run migrator pr path/to/repo/.migrator/runs/<run-id>            # shows the push and PR it would make
+```
+
+A real run works in a `git worktree` on a new branch, `migrate/mui-v5`, with one commit per stage. Your working tree is never touched. `migrator pr --open` pushes and opens the PR, but only to a repo you own or a fork of one, never upstream. Details are in [`docs/running.md`](docs/running.md).
+
+Evals:
+
+```sh
+uv run migrator eval run --split dev --config baseline              # free
+uv run migrator eval run --split dev --config opus-low --max-cost 1.5
+uv run migrator eval summary dev/<experiment>
+```
+
+## Cost and safety
+
+- **Cost caps are on by default:** $5 per run and $20 per month. They are checked against a local ledger of every model call (`~/.config/migrator/ledger.jsonl`). Before each call, its worst case is checked against what's left. If a call doesn't fit, repair stops, the remaining files end Unmigrated with reason "cost cap", and the run still finishes with a scorecard. The ledger covers one machine, and the cap protects against accidents, not intent. **Set a monthly spend limit in the Anthropic Console:** it's the only cap that covers every machine.
+- **Verify runs code an LLM wrote.** The repo's tests import files the repair agent just edited. The Docker sandbox (the default for evals, and `--sandbox auto` for real runs) runs every install, codemod and verify command in a fresh container:
+  - a `node:20` image pinned by digest;
+  - only the workspace mounted;
+  - no network except for package installs, which run before the agent edits anything;
+  - your uid, a read-only root filesystem, no capabilities, memory/CPU/process limits;
+  - none of your environment variables.
+
+  It doesn't stop the edited code from writing inside the workspace, or from using CPU and memory up to those limits. Without Docker, commands run on your machine with your permissions.
+- **Tracing** to LangSmith is off unless `LANGSMITH_TRACING=true`.
+
+## Why these libraries
+
+Each library is here because it does a job that would otherwise be hand-written, not for its own sake.
+
+- **LangGraph** runs the pipeline as one checkpointed graph. The repair loop needs three things it provides: pausing for a human at a hand-off (`interrupt()` with Revert/Keep/Edit), resuming after a crash or restart without re-running the non-idempotent codemods (a SQLite checkpointer for the CLI, in-memory for evals), and conditional edges between stages. Commit nodes sit after stages, never in a node that can pause, so a resume can't commit twice.
+- **LangChain** is used only where it fits:
+  - `ChatAnthropic` with `bind_tools(strict=True)` for the repair agent;
+  - `@tool` functions, with the guardrails inside them;
+  - a `BaseRetriever` for the guide, so keyword vs context-weighted retrieval was a configuration value in M5, not a refactor;
+  - `init_chat_model`, so comparing Opus, Sonnet and Haiku was a configuration value too.
+
+  Left out on purpose: prompt-template chains around single calls, document loaders, memory classes and agent wrappers on top of LangGraph.
+
+  The research behind this ([`docs/research/langchain-claude-support.md`](docs/research/langchain-claude-support.md)) found that `langchain-anthropic` 1.7.10 supports effort, caching, cache-token usage and strict tools on Opus 5.5, but not the Message Batches API. Batches don't suit a tool loop that needs each answer before the next turn, so that gap costs nothing here.
+- **LangSmith** traces each run (`migrator-run`), with every model call nested as `repair <file> · attempt <n>`. Our own ledger stays the record of cost, and LangSmith's figure is a cross-check.
+- **The Anthropic SDK** comes in through `langchain-anthropic` and is pinned below 2 (`anthropic<2`): LangChain is tested against 1.x, and a fresh install would otherwise pull 2.x. The advisor tool's per-model cost comes from the raw `usage.iterations`, which LangChain copies into `response_metadata`.
+- **tree-sitter** (with `tree-sitter-typescript`) parses TSX for the usage scan and for the parse check in prompt v2. That's fast and exact, with no Node process.
+- **`@mui/codemod` 9.4.0**, pinned with its own lockfile, is the deterministic layer: the official transforms, not ours.
+- **Typer + Rich** for the CLI, **Pydantic** for configurations and scorecards, **uv** for a locked, reproducible environment, **Docker** for the sandbox.
+
+## Evals
+
+- Cases are in [`evals/cases/`](evals/cases), split into **dev** (climbed on) and **held-out** (run only at milestones). Each case has its traps with the layer expected to handle each: rules, agent or human. A trap's result is Expected, Other layer, or Missed.
+- The grader, scorecard and cheating checks are covered by `migrator eval climb`'s harness-integrity gate: the climb refuses to run if they changed since the last approval.
+- [`docs/eval-audit.md`](docs/eval-audit.md) lists what the eval can and cannot show.
+- Results: [`docs/results/`](docs/results) and [`.claude/hillclimb/dev/`](.claude/hillclimb/dev) (every round's runs, scorecards and repair transcripts).
+
+## Repo layout
+
+| Path | What |
+|---|---|
+| `src/migrator/` | the tool: CLI, graph, scan, rules, verify, repair, review, report, cost, evals |
+| `src/migrator/migrations/mui-4-to-5/` | the migration spec, pinned codemod tools, the vendored guide (MIT) |
+| `fixtures/` | the purpose-built target repos with planted traps |
+| `evals/` | cases, traps, references and configurations |
+| `docs/` | running, eval audit, research, results, build log |
+
+## Licence
+
+MIT, see [`LICENSE`](LICENSE). The vendored Material UI guide is MIT, © Call-Em-All (licence in its folder).

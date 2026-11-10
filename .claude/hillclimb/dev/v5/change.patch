@@ -1,0 +1,31 @@
+--- evals/configs/baseline.toml
++++ evals/configs/sonnet-medium.toml
+@@ -1,18 +1,20 @@
+-# The Baseline: the rules-only configuration every other configuration is compared
+-# against. Repair is off, so a run makes no LLM calls and costs $0.
++# M5 model comparison: Sonnet 5.5 at medium effort (the skill's starting point for
++# agentic coding on Sonnet 5.5, whose effort levels were recalibrated).
+ schema_version = 1
+-name = "baseline"
+-description = "Rules only: the dependency map and the official codemods, no repair agent."
++name = "sonnet-medium"
++description = "Rules, then the repair agent on Claude Sonnet 5.5 at medium effort, up to 3 attempts per failing file."
+ 
+ [repair]
+-enabled = false
++enabled = true
++attempt_models = ["claude-sonnet-5-5", "claude-sonnet-5-5", "claude-sonnet-5-5"]
++effort = "medium"
++prompt_version = "v1"
++retrieval = "keyword"
++max_attempts = 3
+ 
+-# Caps are recorded on every scorecard even when nothing can be spent (ticket #12).
+ [cost]
+ max_run_usd = 5.0
+ max_month_usd = 20.0
+ 
+-# Every rule step of the migration spec runs; list codemod or script step names in
+-# `skip` to switch one off.
+ [rules]
+ skip = []

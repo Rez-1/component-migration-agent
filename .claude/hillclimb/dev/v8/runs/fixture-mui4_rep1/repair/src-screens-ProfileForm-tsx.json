@@ -1,0 +1,184 @@
+[
+  {
+    "type": "human",
+    "data": {
+      "content": "## Failing file: `src/screens/ProfileForm.tsx`\n\nAttempt 1 of 3.\n\n### Failures in this file (1)\n\n1. **Type error** TS2322, line 64: Type '(event: React.ChangeEvent<{  name?: string;  value: unknown;}>) => void' is not assignable to type '(event: SelectChangeEvent<\"admin\" | \"editor\" | \"viewer\">, child: ReactNode) => void'. Types of parameters 'event' and 'event' are incompatible.\n\n### What the Rules stage changed in this file\n\n```diff\n--- a/src/screens/ProfileForm.tsx\n+++ b/src/screens/ProfileForm.tsx\n@@ -1,4 +1,6 @@\n import { FormEvent, useState } from 'react';\n-import { Button, FormControl, InputLabel, Select, TextField, Typography } from '@material-ui/core';\n-import { makeStyles, Theme } from '@material-ui/core/styles';\n+import { Button, FormControl, InputLabel, Select, TextField, Typography } from '@mui/material';\n+import { Theme } from '@mui/material/styles';\n+\n+import makeStyles from '@mui/styles/makeStyles';\n \n@@ -48,2 +50,3 @@\n       <TextField\n+        variant=\"standard\"\n         id=\"display-name\"\n@@ -52,4 +55,3 @@\n         onChange={(e) => setDisplayName(e.target.value)}\n-        required\n-      />\n+        required />\n       <FormControl variant=\"outlined\">\n@@ -57,2 +59,3 @@\n         <Select\n+          variant=\"standard\"\n           native\n@@ -61,4 +64,3 @@\n           onChange={handleRoleChange}\n-          inputProps={{ id: 'profile-role', name: 'role' }}\n-        >\n+          inputProps={{ id: 'profile-role', name: 'role' }}>\n           {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (\n```\n\n### The file now (79 lines)\n\n```tsx\n 1  import { FormEvent, useState } from 'react';\n 2  import { Button, FormControl, InputLabel, Select, TextField, Typography } from '@mui/material';\n 3  import { Theme } from '@mui/material/styles';\n 4  \n 5  import makeStyles from '@mui/styles/makeStyles';\n 6  \n 7  type Role = 'admin' | 'editor' | 'viewer';\n 8  \n 9  const ROLE_LABELS: Record<Role, string> = {\n10    admin: 'Admin',\n11    editor: 'Editor',\n12    viewer: 'Viewer',\n13  };\n14  \n15  const useStyles = makeStyles((theme: Theme) => ({\n16    form: {\n17      display: 'grid',\n18      gap: theme.spacing(2),\n19      maxWidth: 360,\n20      padding: theme.spacing(2),\n21    },\n22  }));\n23  \n24  export interface ProfileValues {\n25    displayName: string;\n26    role: Role;\n27  }\n28  \n29  export function ProfileForm({ onSubmit }: { onSubmit?: (values: ProfileValues) => void }) {\n30    const classes = useStyles();\n31    const [displayName, setDisplayName] = useState('');\n32    const [role, setRole] = useState<Role>('viewer');\n33    const [message, setMessage] = useState<string | null>(null);\n34  \n35    const handleRoleChange = (event: React.ChangeEvent<{ name?: string; value: unknown }>) => {\n36      setRole(event.target.value as Role);\n37    };\n38  \n39    const handleSubmit = (event: FormEvent) => {\n40      event.preventDefault();\n41      onSubmit?.({ displayName, role });\n42      setMessage(`Saved ${displayName} (${ROLE_LABELS[role]})`);\n43    };\n44  \n45    return (\n46      <form className={classes.form} onSubmit={handleSubmit} aria-labelledby=\"profile-form-title\">\n47        <Typography id=\"profile-form-title\" variant=\"h6\" component=\"h1\">\n48          Edit profile\n49        </Typography>\n50        <TextField\n51          variant=\"standard\"\n52          id=\"display-name\"\n53          label=\"Display name\"\n54          value={displayName}\n55          onChange={(e) => setDisplayName(e.target.value)}\n56          required />\n57        <FormControl variant=\"outlined\">\n58          <InputLabel htmlFor=\"profile-role\">Role</InputLabel>\n59          <Select\n60            variant=\"standard\"\n61            native\n62            label=\"Role\"\n63            value={role}\n64            onChange={handleRoleChange}\n65            inputProps={{ id: 'profile-role', name: 'role' }}>\n66            {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (\n67              <option key={r} value={r}>\n68                {ROLE_LABELS[r]}\n69              </option>\n70            ))}\n71          </Select>\n72        </FormControl>\n73        <Button type=\"submit\" variant=\"contained\" color=\"primary\" disabled={!displayName}>\n74          Save profile\n75        </Button>\n76        {message && <Typography role=\"status\">{message}</Typography>}\n77      </form>\n78    );\n79  }\n```\n\n### Local imports\n\nNone.\n\n### Used by\n\n- `src/App.tsx` imports `ProfileForm` from this file.\n\n### Guide sections (keyword lookup: `onChange`, `handleRoleChange`)\n\n**Select › Update event type (TypeScript)**\n\nThe `event` in `onChange` is now typed as a `SelectChangeEvent<T>` instead of a `React.ChangeEvent`.\n\n```diff\n+ import Select, { SelectChangeEvent } from '@mui/material/Select';\n\n-<Select onChange={(event: React.SyntheticEvent, value: unknown) => {}} />\n+<Select onChange={(event: SelectChangeEvent<T>, child: React.ReactNode) => {}} />\n```\n\nThis was necessary to prevent overriding the `event.target` of the events that caused the change.\n\n**Switch › Remove second onChange argument**\n\nThe second argument from `onChange` has been deprecated.\n\nYou can pull out the checked state by accessing `event.target.checked`.\n\n```diff\n function MySwitch() {\n-  const handleChange = (event: React.ChangeEvent<HTMLInputElement>, checked: boolean) => {\n+  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {\n+    const checked = event.target.checked;\n   };\n\n   return <Switch onChange={handleChange} />;\n }\n```\n\n**Tabs › Update event type (TypeScript)**\n\nThe `event` in `onChange` is now typed as a `React.SyntheticEvent` instead of a `React.ChangeEvent`.\n\n```diff\n-<Tabs onChange={(event: React.ChangeEvent<{}>, value: unknown) => {}} />\n+<Tabs onChange={(event: React.SyntheticEvent, value: unknown) => {}} />\n```\n\nAlso possibly relevant (`search_guide` for the text):\n\n- Slider › Update event type (TypeScript)\n- BottomNavigation › Update event type (TypeScript)\n- ExpansionPanel › Update event type (TypeScript)\n- Modal › Remove disableBackdropClick prop (codemod)\n- Modal › Remove onEscapeKeyDown prop (codemod)\n- Dialog › Remove disableBackdropClick prop (codemod)\n- TextField › Forward ref instead of inputRef prop\n- Autocomplete › Rename reason arguments",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "human",
+      "name": null,
+      "id": null
+    }
+  },
+  {
+    "type": "ai",
+    "data": {
+      "content": [
+        {
+          "signature": "CAQS5wkKEAgTGAI4AUIIdGhpbmtpbmcSDAnyRmRdmiDDeD17ZhoM6/Kv9/HgGT3ljT14IjD7fVtcjxECJ4ifyxxVTq/iKuAL1AuyT6v0UZSsIvxiBui3C/vxIMj3WNifY6DIT1wqhAlj6Vs0Ro/iLTxomSvMaObVZcSR/goLUQ02FkUXNGZvaFEPo7xzWNmx5VZ2JHyOshKgShnPgiRR/1fpXaH7+ntvpiQ+pfzlP17G0HIh0LUmNlB2sJpzock5UfxAPN/fsmboFEBLNDtsHEmpFUn4msSR0+dt4aGxWHSW8yhisblo0aHliOKx8j6itQPZg6ESAuyGklKzADhdNqL1Tumvs+FItGzRmirDsRBzvZclYv8hD6molrqnqC9IFsiLOho+W9yl6qSiZLMm6NHo4rKSyl4OaSKIbPISPvi+CsWUl4PogUHxgNFuFKGUh0Mzf7sdZbEaUc9IH5CCA6p7ja1tiW+g0TKlMo3Ya+Q5FNLJbJHCYTRJkf85dIIWM364Npaf0OsJEK0mizinA1a89tkRLEey1UtEWFYQtyfq4jWKpusN7M6TqNcev3DAsHRFDDaW3/VgBpELDW33k7b8bhL6MgxnMgaCknQszn22Txrzpb+4amjoE8H81AnECMAfNszgK7xqGUtuffXKDajNsGU75PT9KnQ1BTgNR+lg+qyTNQ+FIrnwGMya8pk/S3H4Kb6x6ZrQZsP2o9GcTagVYeTCHnkGX/h+URAlAu9qw/mG6LBP8BkYyxdqeZEQXIBWfodUU0m6cCvknykFbkdJ+jvLhz0xa8JjNjfPPIX+b8Cn7/C9wxPgQEj+sPQB2r+UrDd0ytPmJS9X+iiyKTajTsSCe8hbtheOldlj+Fz8iJLJE/wp8ZHZ78LdI+vGwkBC6R6We+b5Ms0aOxSMufNcWr1gOTuClb9M7I0/sblQ57KPnDmUsNuUiEf6sv0OBaGt3lDYl12PSgVZDAyZHVlk9SjJPNYT078C0QuThxqr8alhlVzBal3eOPl+LoPViQDe6gmg4/+ZPqwgBYFF/Ou3Op3swFy6nDFnyEYkPeupmQKNEmrAPmbyOjvEa/t/5B9CcaP43ZM7+xA/1tw+S+pTEi8dxw/sacs4REaYnWro2xTxAsg5e59aWEHxicG172iRWdhsoehaVSEn/QsXnrKGhgsP9YK/PVWfwiizpz6t10pr2d++Fpkr7FDfyt2AqbVAZQFTyiaHBOXKepSU+2BlTheqfP7uw5o4t4gtrFXX8nvZusdzYfpYFZbA9iFqFHeT+pT4mxXmJmN8dxufyfj5ZTb8DBE/40PhX6CUgMzr57s47OH4Dwwn4B9w2JcvPWJkHb8W3b5SNrrIPnIgZBAIc85bED5qQU9W2utqj++6TPHgN331txNRhD6RdxNa0xXEv0OVGQECz9pwgNoSbACw69V6kos0Lw/+6ILDXKBaKm1aRT5QxQxauU9hJmjizGHoFJbHqgeAWAfEXDPoqis4s/CW4iNbkdCi1oXnOW7rDx01lkEX462uVNq9Qv1s7fYx2B8xoREL8pI5mE9UUIEhznrvmUGWwwL74zLnuK7YfapNgAH+7GKN4Z8wkXDUlLry7Jw+gUp9vVOfimRsjBSIpY0AfyKi4LkXyypbI4/t86T5VURJFut21gi+tZL+ivLRXzP0WsaQT8fVGAE=",
+          "thinking": "I'm going to swap in SelectChangeEvent from '@mui/material' and update the change handler's type. I also want to check whether the codemod's explicit variant=\"standard\" on the Select, inside an outlined FormControl, changes how it renders. My understanding is that in v4 and v5 the Select's variant comes from the FormControl context, so an explicit value could override that.\n\nNow I'm weighing whether to flag the codemod's explicit variant=\"standard\" on the Select, which overrides the outlined FormControl. It might count as a behavior change, but I'm leaning toward just noting it rather than widening the scope. On the typing side, I'll use SelectChangeEvent<Role>, since event.target.value is a string, so the existing cast can stay as it is.\n\n",
+          "type": "thinking"
+        },
+        {
+          "id": "toolu_01YaL3g5uLT8ZqRfc9aLykqg",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/ProfileForm.tsx",
+            "old_text": "  const handleRoleChange = (event: React.ChangeEvent<{ name?: string; value: unknown }>) => {",
+            "new_text": "  const handleRoleChange = (event: SelectChangeEvent<Role>) => {"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01TqPvNCoUpMF6gH64H1sUqV",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "path": "src/screens/ProfileForm.tsx",
+            "old_text": "InputLabel, Select, TextField",
+            "new_text": "InputLabel, Select, SelectChangeEvent, TextField"
+          },
+          "name": "apply_edit",
+          "type": "tool_use",
+          "toolset_name": null
+        },
+        {
+          "id": "toolu_01YZfBjEtxfwShWkMaA6pQdS",
+          "caller": {
+            "type": "direct"
+          },
+          "input": {
+            "note": "Typed Select onChange handler as SelectChangeEvent<Role> per guide; note: codemod-added variant=\"standard\" on Select overrides the FormControl's outlined variant, which may change appearance vs v4."
+          },
+          "name": "run_verify",
+          "type": "tool_use",
+          "toolset_name": null
+        }
+      ],
+      "additional_kwargs": {},
+      "response_metadata": {
+        "id": "msg_011CgtJCxkfyFR6hBZD8DBSu",
+        "container": null,
+        "diagnostics": null,
+        "model": "claude-opus-5-5",
+        "stop_details": null,
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 2642
+          },
+          "cache_creation_input_tokens": 2642,
+          "cache_read_input_tokens": 1910,
+          "inference_geo": "global",
+          "input_tokens": 4,
+          "output_tokens": 657,
+          "output_tokens_details": {
+            "thinking_tokens": 228
+          },
+          "server_tool_use": null,
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "model_name": "claude-opus-5-5",
+        "model_provider": "anthropic"
+      },
+      "type": "ai",
+      "name": null,
+      "id": "lc_run--01a1c2d8-c6ef-76fb-97b3-418d5e335e50-0",
+      "tool_calls": [
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/screens/ProfileForm.tsx",
+            "old_text": "  const handleRoleChange = (event: React.ChangeEvent<{ name?: string; value: unknown }>) => {",
+            "new_text": "  const handleRoleChange = (event: SelectChangeEvent<Role>) => {"
+          },
+          "id": "toolu_01YaL3g5uLT8ZqRfc9aLykqg",
+          "type": "tool_call"
+        },
+        {
+          "name": "apply_edit",
+          "args": {
+            "path": "src/screens/ProfileForm.tsx",
+            "old_text": "InputLabel, Select, TextField",
+            "new_text": "InputLabel, Select, SelectChangeEvent, TextField"
+          },
+          "id": "toolu_01TqPvNCoUpMF6gH64H1sUqV",
+          "type": "tool_call"
+        },
+        {
+          "name": "run_verify",
+          "args": {
+            "note": "Typed Select onChange handler as SelectChangeEvent<Role> per guide; note: codemod-added variant=\"standard\" on Select overrides the FormControl's outlined variant, which may change appearance vs v4."
+          },
+          "id": "toolu_01YZfBjEtxfwShWkMaA6pQdS",
+          "type": "tool_call"
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 4556,
+        "output_tokens": 657,
+        "total_tokens": 5213,
+        "input_token_details": {
+          "cache_read": 1910,
+          "cache_creation": 0,
+          "ephemeral_5m_input_tokens": 2642,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_token_details": {
+          "reasoning": 228
+        }
+      }
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/screens/ProfileForm.tsx so far: +1 −1 lines (1% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01YaL3g5uLT8ZqRfc9aLykqg",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Applied. Patch to src/screens/ProfileForm.tsx so far: +2 −2 lines (3% of the file).",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "apply_edit",
+      "id": null,
+      "tool_call_id": "toolu_01TqPvNCoUpMF6gH64H1sUqV",
+      "artifact": null,
+      "status": "success"
+    }
+  },
+  {
+    "type": "tool",
+    "data": {
+      "content": "Attempt 1 passed: no failures left in src/screens/ProfileForm.tsx and nothing new elsewhere. Patch: `src/screens/ProfileForm.tsx` +2 −2 lines (3% of the file). This file is done.",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "type": "tool",
+      "name": "run_verify",
+      "id": null,
+      "tool_call_id": "toolu_01YZfBjEtxfwShWkMaA6pQdS",
+      "artifact": null,
+      "status": "success"
+    }
+  }
+]
