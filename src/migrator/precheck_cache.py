@@ -34,8 +34,8 @@ from migrator.verify import PrecheckResult
 
 _SKIP = {".git", "node_modules", ".migrator"}
 # Bumped whenever what a Pre-check records changes shape (2: failure text with the run's
-# temporary folder written as "..", so every run names a failure the same way).
-CACHE_FORMAT = 2
+# temporary folder written as ".."; 3: test names cleaned the same way).
+CACHE_FORMAT = 3
 _LOCKS: dict[str, threading.Lock] = {}
 _LOCKS_LOCK = threading.Lock()
 

@@ -284,7 +284,11 @@ def parse_jest_json(
         for test in assertions:
             if test.get("status") != "failed":
                 continue
-            name = " › ".join([*test.get("ancestorTitles", []), test.get("title", "")])
+            # Cleaned too: a test can name a path (kubeflow: "should be in sync with
+            # <path>"), and the name is part of the failure's key across verifies.
+            name = clean(
+                " › ".join([*test.get("ancestorTitles", []), test.get("title", "")]), workspace
+            )
             message = first_line(clean("\n".join(test.get("failureMessages", [])), workspace))
             location = test.get("location") or {}
             failures.append(
