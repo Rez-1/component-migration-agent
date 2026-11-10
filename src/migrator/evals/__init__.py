@@ -452,6 +452,8 @@ class ExperimentPlan(BaseModel):
     parallel: int = 1
     # Reuse each case's install and Pre-check across runs (M6 speed-up 2).
     precheck_cache: bool = False
+    # One long-lived container per run (M6 speed-up 3).
+    run_container: bool = False
 
 
 class ExperimentOutcome(BaseModel):
@@ -578,6 +580,7 @@ def run_experiment(
             mode="eval",
             sandbox=plan.sandbox,
             precheck_cache=plan.precheck_cache,
+            run_container=plan.run_container,
         )
         started = time.monotonic()
         failure: tuple[FailureClass, str] | None = None

@@ -60,3 +60,34 @@ def test_the_baseline_in_docker_scores_the_committed_scorecard(
     assert "network bridge" in (logs / "precheck-install.log").read_text()
     for name in ("verify-typecheck.log", "verify-lint.log", "verify-test.log"):
         assert "network none" in (logs / name).read_text(), name
+
+
+@pytest.mark.docker
+def test_one_run_container_installs_online_then_runs_offline_and_cleans_up(
+    tmp_path: Path,
+) -> None:
+    """Speed-up 3 (M6): one container per run, the network only while installing."""
+    from migrator.execs import NODE_IMAGES, RunContainerRunner
+
+    ws, logs = tmp_path / "ws", tmp_path / "logs"
+    ws.mkdir()
+    (ws / "package.json").write_text('{"name":"x","version":"1.0.0","dependencies":{}}')
+    (ws / "package-lock.json").write_text(
+        '{"lockfileVersion":3,"name":"x","version":"1.0.0","packages":{"":{"name":"x","version":"1.0.0"}}}'
+    )
+    runner = RunContainerRunner(NODE_IMAGES["20"], read_only=[tmp_path / "tools"])
+    try:
+        assert runner.run(["npm", "ci", "--no-audit"], ws, log_file=logs / "i.log").ok
+        net = runner.run(
+            "node -e \"require('dns').lookup('example.com',e=>console.log(e?'offline':'online'))\"",
+            ws,
+            log_file=logs / "n.log",
+        )
+        assert net.output.strip() == "offline"
+        slow = runner.run("sleep 5", ws, timeout_s=2, log_file=logs / "t.log")
+        assert slow.timed_out and slow.exit_code == -1
+        name = runner.container
+        assert name is not None
+    finally:
+        runner.close()
+    assert runner.container is None

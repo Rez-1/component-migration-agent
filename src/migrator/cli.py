@@ -555,6 +555,13 @@ def eval_run(
             "~/.cache/migrator/precheck, keyed on the repo's files, config and Node image)."
         ),
     ] = True,
+    run_container: Annotated[
+        bool,
+        typer.Option(
+            help="One long-lived container per run, commands by docker exec, instead of a "
+            "new container per command."
+        ),
+    ] = False,
 ) -> None:
     """Run an experiment: every case in a split under one configuration, N runs each."""
     base = _repo_root(root)
@@ -586,6 +593,7 @@ def eval_run(
             sandbox=_resolve_sandbox(sandbox, allow_auto=False),
             parallel=parallel,
             precheck_cache=precheck_cache,
+            run_container=run_container,
         )
     except (ConfigurationError, ConfigError, EvalError) as exc:
         raise _fail(str(exc)) from exc

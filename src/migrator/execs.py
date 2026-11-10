@@ -21,10 +21,11 @@ import os
 import secrets
 import shlex
 import subprocess
+import threading
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
@@ -464,14 +465,146 @@ class DockerRunner:
         return result
 
 
+class RunContainerRunner(DockerRunner):
+    """One long-lived container per run (M6 speed-up 3): the first command in a folder
+    starts it with that folder (the run's workspace), the log folder and the read-only
+    tools mounted, and every later command there runs in it with ``docker exec``. The
+    container has no network except while a package install runs (it is connected to
+    the bridge network for the install only). A command anywhere else (installing the
+    codemod tools) gets its own container, as with ``DockerRunner``. ``close()`` removes
+    the container; the pipeline calls it when the run ends.
+
+    Same image, user, limits, read-only root and clean environment as ``DockerRunner``;
+    a command's timeout is enforced inside the container (``timeout -s KILL``)."""
+
+    def __init__(self, image: str, **kw: Any):
+        super().__init__(image, **kw)
+        self.container: str | None = None
+        self.home: Path | None = None  # the folder the container was started for
+        self.logs: Path | None = None
+        self._lock = threading.Lock()
+
+    def _start(self, cwd: Path, log_file: Path | None) -> None:
+        name = f"migrator-run-{secrets.token_hex(6)}"
+        argv = self.argv(["sleep", "infinity"], cwd, name=name, log_file=log_file)
+        argv[argv.index("run") + 1 : argv.index("run") + 2] = ["-d"]  # detached, kept
+        argv[argv.index("--network") + 1] = "bridge"
+        started = self._docker(*argv[1:], timeout_s=120)
+        if started.returncode != 0:
+            raise SandboxError(f"could not start the run's container: {started.stdout.strip()}")
+        self._docker("network", "disconnect", "bridge", name, timeout_s=60)
+        self.container = name
+        self.home = cwd.resolve()
+        self.logs = log_file.parent.resolve() if log_file is not None else None
+
+    def _inside(self, cwd: Path, log_file: Path | None) -> bool:
+        if self.home is None or cwd.resolve() != self.home:
+            return False
+        if log_file is None:
+            return True
+        logs = log_file.parent.resolve()
+        return logs.is_relative_to(self.home) or (self.logs is not None and logs == self.logs)
+
+    def run(
+        self,
+        command: str | Sequence[str],
+        cwd: Path,
+        *,
+        env: Mapping[str, str] | None = None,
+        timeout_s: float | None = None,
+        log_file: Path | None = None,
+    ) -> CommandResult:
+        self.check()
+        self._ensure_cache()
+        with self._lock:
+            if self.container is None and not any(
+                cwd.resolve().is_relative_to(p) for p in self.read_only
+            ):
+                self._start(cwd, log_file)
+            inside = self._inside(cwd, log_file)
+        if not inside:
+            return super().run(command, cwd, env=env, timeout_s=timeout_s, log_file=log_file)
+        assert self.container is not None
+        if log_file is not None:
+            log_file.parent.mkdir(parents=True, exist_ok=True)
+        settle(cwd)
+        network = needs_network(command)
+        limit = int(timeout_s or self.default_timeout_s)
+        if network:
+            assert not isinstance(command, str)
+            script = f"{_WAIT_FOR_PACKAGE_JSON} && exec {shlex.join(command)}"
+            self._docker("network", "connect", "bridge", self.container, timeout_s=60)
+        else:
+            script = command if isinstance(command, str) else shlex.join(command)
+        envs: list[str] = []
+        for key, value in {
+            "HOME": "/tmp",
+            "npm_config_cache": NPM_CACHE_DIR,
+            "npm_config_update_notifier": "false",
+            "YARN_CACHE_FOLDER": f"{NPM_CACHE_DIR}/yarn",
+            "CI": "1",
+            "FORCE_COLOR": "0",
+            "NO_COLOR": "1",
+            **(env or {}),
+        }.items():
+            envs += ["-e", f"{key}={value}"]
+        argv = [
+            self.docker, "exec", "-w", str(cwd.resolve()), "--user", self.user, *envs,
+            self.container, "timeout", "-s", "KILL", str(limit), "sh", "-c", script,
+        ]  # fmt: skip
+        started = time.monotonic()
+        try:
+            proc = subprocess.run(
+                argv,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                errors="replace",
+                timeout=limit + 60,
+                check=False,
+            )
+            code, output = proc.returncode, proc.stdout
+        except subprocess.TimeoutExpired as exc:
+            code, output = -1, _decode(exc.stdout)
+        finally:
+            if network:
+                self._docker("network", "disconnect", "bridge", self.container, timeout_s=60)
+        timed_out = code in (124, 137) and time.monotonic() - started >= limit - 1
+        result = CommandResult(
+            command=display(command),
+            cwd=str(cwd),
+            exit_code=-1 if timed_out else code,
+            output=output,
+            duration_s=round(time.monotonic() - started, 2),
+            timed_out=timed_out,
+        )
+        _write_log(
+            log_file,
+            result,
+            f"# sandbox: docker {self.image} (run container), "
+            f"network {'bridge' if network else 'none'}\n",
+        )
+        return result
+
+    def close(self) -> None:
+        with self._lock:
+            if self.container is not None:
+                self._docker("rm", "-f", self.container, timeout_s=60)
+                self.container = None
+
+
 def make_runner(
-    sandbox: Sandbox, node: str | None, *, read_only: Iterable[Path] = ()
+    sandbox: Sandbox, node: str | None, *, read_only: Iterable[Path] = (), per_run: bool = False
 ) -> CommandRunner:
     """The runner for a run: Docker (checked now, so a missing daemon fails at the
-    start, not at the first command) or local."""
+    start, not at the first command) or local. ``per_run``: one long-lived container."""
     if sandbox == "local":
         return LocalRunner()
-    runner = DockerRunner(node_image(node), read_only=read_only)
+    runner: DockerRunner = (
+        RunContainerRunner(node_image(node), read_only=read_only)
+        if per_run
+        else DockerRunner(node_image(node), read_only=read_only)
+    )
     runner.check()
     return runner
 

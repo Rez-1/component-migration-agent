@@ -118,6 +118,8 @@ class RunOptions(BaseModel):
     branch: str | None = None
     # Reuse each case's install and Pre-check across runs (M6 speed-up 2; evals).
     precheck_cache: bool = False
+    # One long-lived container per run, commands by docker exec (M6 speed-up 3; evals).
+    run_container: bool = False
 
 
 class RunResult(BaseModel):
@@ -238,7 +240,10 @@ def write_run_record(run_dir: Path, record: RunRecord) -> None:
 
 
 def sandbox_runner(
-    sandbox: Sandbox, config: ResolvedRepoConfig, tools_cache: Path | None
+    sandbox: Sandbox,
+    config: ResolvedRepoConfig,
+    tools_cache: Path | None,
+    per_run: bool = False,
 ) -> tuple[CommandRunner, Path | None]:
     """The run's runner and its codemod tools cache. Docker installs the tools inside
     the container (for Linux), so they get a cache of their own per image, mounted
@@ -248,7 +253,7 @@ def sandbox_runner(
     image = node_image(config.node)
     tag = re.sub(r"[^A-Za-z0-9.]+", "-", image.split("@")[0])
     cache = (tools_cache or tools_cache_root() / "docker" / tag).resolve()
-    return make_runner("docker", config.node, read_only=[cache]), cache
+    return make_runner("docker", config.node, read_only=[cache], per_run=per_run), cache
 
 
 def default_branch(spec: MigrationSpec) -> str:
@@ -441,11 +446,18 @@ def start_run(
             check_real_run(repo, branch)
         except GitError as exc:
             raise RunError(str(exc)) from exc
+    owned: CommandRunner | None = None  # a runner made here, closed when the run ends
     if runner is None:
         try:
-            runner, tools_cache = sandbox_runner(opts.sandbox, config, opts.tools_cache)
+            runner, tools_cache = sandbox_runner(
+                opts.sandbox,
+                config,
+                opts.tools_cache,
+                per_run=opts.run_container and opts.mode == "eval",
+            )
         except SandboxError as exc:
             raise RunError(str(exc)) from exc
+        owned = runner
         opts = opts.model_copy(update={"tools_cache": tools_cache})
     base_runner: CommandRunner = runner
     if opts.ceiling_s is not None:
@@ -506,12 +518,17 @@ def start_run(
         state, paused = _drive(graph, first, config_, reviewer, durability)
         return _finish(state, paused, run_dir, record, opts.keep_workspace)
 
-    if checkpointer is not None:
-        return go(checkpointer)
-    if use_sqlite:
-        with sqlite_checkpointer(run_dir) as saver:
-            return go(saver)
-    return go(InMemorySaver())
+    try:
+        if checkpointer is not None:
+            return go(checkpointer)
+        if use_sqlite:
+            with sqlite_checkpointer(run_dir) as saver:
+                return go(saver)
+        return go(InMemorySaver())
+    finally:
+        close = getattr(owned, "close", None)
+        if callable(close):
+            close()  # the run's container (speed-up 3)
 
 
 def _finish(
