@@ -554,7 +554,7 @@ def eval_run(
             help="Reuse each case's install and Pre-check across runs (cached under "
             "~/.cache/migrator/precheck, keyed on the repo's files, config and Node image)."
         ),
-    ] = False,
+    ] = True,
 ) -> None:
     """Run an experiment: every case in a split under one configuration, N runs each."""
     base = _repo_root(root)
