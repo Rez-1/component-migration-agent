@@ -230,6 +230,13 @@ def settle(root: Path, settle_s: float = SETTLE_S) -> float:
     return 0.0
 
 
+# Up to 15 s for package.json to parse inside the container (see DockerRunner.argv).
+_WAIT_FOR_PACKAGE_JSON = (
+    'i=0; until node -e \'JSON.parse(require("fs").readFileSync("package.json","utf8"))\' '
+    "2>/dev/null; do i=$((i+1)); [ $i -ge 30 ] && break; sleep 0.5; done"
+)
+
+
 class SandboxError(RuntimeError):
     """The sandbox cannot run: Docker is missing or stopped, or no image is pinned."""
 
@@ -402,7 +409,14 @@ class DockerRunner:
         for key, value in container_env.items():
             args += ["--env", f"{key}={value}"]
         args += ["--workdir", str(cwd.resolve()), self.image]
-        args += ["sh", "-c", command] if isinstance(command, str) else list(command)
+        if needs_network(command):
+            # Docker Desktop's file sharing can show a just-rewritten package.json
+            # truncated for a moment, longer under load (M6: two parallel runs). Wait
+            # until it parses, then install; the install itself is unchanged.
+            assert not isinstance(command, str)
+            args += ["sh", "-c", f"{_WAIT_FOR_PACKAGE_JSON} && exec {shlex.join(command)}"]
+        else:
+            args += ["sh", "-c", command] if isinstance(command, str) else list(command)
         return args
 
     def run(

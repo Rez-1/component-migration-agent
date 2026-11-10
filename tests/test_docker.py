@@ -74,7 +74,11 @@ def test_verify_runs_offline_as_a_non_root_user_in_a_locked_down_container(
 def test_installs_get_the_bridge_network_and_argv_stays_a_list(tmp_path: Path) -> None:
     argv = runner(tmp_path).argv(["npm", "ci", "--no-audit"], tmp_path, name="m2")
     assert argv[argv.index("--network") + 1] == "bridge"
-    assert argv[-3:] == ["npm", "ci", "--no-audit"]
+    # The install waits until package.json parses (Docker Desktop's file sharing can show
+    # a just-rewritten file truncated), then runs unchanged.
+    assert argv[-3:-1] == ["sh", "-c"]
+    assert argv[-1].endswith("&& exec npm ci --no-audit")
+    assert "JSON.parse" in argv[-1]
 
 
 def test_installing_the_tools_mounts_only_their_folder(tmp_path: Path) -> None:
