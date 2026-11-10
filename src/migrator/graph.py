@@ -72,7 +72,7 @@ from migrator.cost import (
     reserve_run,
     run_cost,
 )
-from migrator.execs import CommandRunner, node_image
+from migrator.execs import CommandRunner, RunContainerRunner, node_image
 from migrator.migrations import MigrationSpec
 from migrator.precheck_cache import (
     CachedPrecheck,
@@ -421,17 +421,24 @@ class RunGraph:
                     create_dry_run_workspace(d.repo, workspace)
                     node_version, npm_version, pre = self.run_precheck(state, workspace)
                     if pre.status == "ok":
+                        volume = self.snapshot_node_modules(key)
                         cache.put(
                             key,
                             workspace,
                             self.logs(state),
                             CachedPrecheck(
-                                precheck=pre, node_version=node_version, npm_version=npm_version
+                                precheck=pre,
+                                node_version=node_version,
+                                npm_version=npm_version,
+                                node_modules_volume=volume,
                             ),
                             untouched,
                         )
                 else:
                     d.say("Pre-check", "reusing this case's cached install and Pre-check")
+                    run_box = _base_runner(d.runner)
+                    if hit.node_modules_volume and isinstance(run_box, RunContainerRunner):
+                        run_box.seed_node_modules(hit.node_modules_volume)
                     clone_tree(cache.workspace(key), workspace)
                     restore_logs(cache, key, self.logs(state))
                     untouched.parent.mkdir(parents=True, exist_ok=True)
@@ -491,7 +498,22 @@ class RunGraph:
     def where(self) -> str:
         """Where commands run, as part of the Pre-check cache key."""
         d = self.d
-        return f"docker:{node_image(d.config.node)}" if d.sandbox == "docker" else "local"
+        if d.sandbox != "docker":
+            return "local"
+        box = _base_runner(d.runner)
+        volume = isinstance(box, RunContainerRunner) and box.node_modules_volume
+        return f"docker:{node_image(d.config.node)}" + (":node_modules-volume" if volume else "")
+
+    def snapshot_node_modules(self, key: str) -> str | None:
+        """With node_modules in the run's volume (speed-up 4): copy it to a cache volume."""
+        box = _base_runner(self.d.runner)
+        if not isinstance(box, RunContainerRunner) or box.volume is None:
+            return None
+        name = f"migrator-nm-cache-{key}"
+        box._docker("volume", "rm", "-f", name, timeout_s=60)
+        box.new_volume(name)
+        box.copy_volume(box.volume, name)
+        return name
 
     def run_precheck(
         self, state: RunState, workspace: Path
@@ -531,6 +553,8 @@ class RunGraph:
         else:
             rules = apply_rules(
                 RulesInput(
+                    probe_bins=isinstance(_base_runner(d.runner), RunContainerRunner)
+                    and _base_runner(d.runner).node_modules_volume,
                     workspace=workspace,
                     spec=d.spec,
                     config=d.config,
@@ -1501,6 +1525,13 @@ def final_layers(
         if after_rules.get(path) != final.get(path):
             layers[path] = "rules" if path in ours else "human" if path in human else "agent"
     return layers
+
+
+def _base_runner(runner: Any) -> Any:
+    """The runner under any wrappers (the run's DeadlineRunner)."""
+    while hasattr(runner, "inner"):
+        runner = runner.inner
+    return runner
 
 
 def test_fitting_reason(

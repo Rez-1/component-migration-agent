@@ -562,6 +562,13 @@ def eval_run(
             "new container per command."
         ),
     ] = False,
+    node_modules_volume: Annotated[
+        bool,
+        typer.Option(
+            help="With --run-container: node_modules in a Docker volume instead of on the "
+            "file share with the host."
+        ),
+    ] = False,
 ) -> None:
     """Run an experiment: every case in a split under one configuration, N runs each."""
     base = _repo_root(root)
@@ -594,6 +601,7 @@ def eval_run(
             parallel=parallel,
             precheck_cache=precheck_cache,
             run_container=run_container,
+            node_modules_volume=node_modules_volume,
         )
     except (ConfigurationError, ConfigError, EvalError) as exc:
         raise _fail(str(exc)) from exc

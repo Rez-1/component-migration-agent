@@ -454,6 +454,8 @@ class ExperimentPlan(BaseModel):
     precheck_cache: bool = False
     # One long-lived container per run (M6 speed-up 3).
     run_container: bool = False
+    # node_modules in a Docker volume of that container (M6 speed-up 4).
+    node_modules_volume: bool = False
 
 
 class ExperimentOutcome(BaseModel):
@@ -581,6 +583,7 @@ def run_experiment(
             sandbox=plan.sandbox,
             precheck_cache=plan.precheck_cache,
             run_container=plan.run_container,
+            node_modules_volume=plan.node_modules_volume,
         )
         started = time.monotonic()
         failure: tuple[FailureClass, str] | None = None

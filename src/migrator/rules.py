@@ -51,6 +51,8 @@ class RulesInput(BaseModel):
     affected_files: list[str]
     tools_dir: Path
     log_dir: Path
+    # node_modules lives in the sandbox's volume (speed-up 4): look for a tool inside it.
+    probe_bins: bool = False
 
 
 class RuleStepResult(BaseModel):
@@ -273,13 +275,19 @@ class _Run:
             return "skipped", "no changed source files", 0.0, ""
         deps = all_dependencies(read_package_json(self.ws))
         bin_dir = self.ws / "node_modules" / ".bin"
-        if "prettier" in deps and (bin_dir / "prettier").exists():
+
+        def has(tool: str) -> bool:
+            if not self.inp.probe_bins:
+                return (bin_dir / tool).exists()
+            return self.runner.run(f"test -e node_modules/.bin/{tool}", self.ws).ok
+
+        if "prettier" in deps and has("prettier"):
             # Relative to the workspace: inside the sandbox the absolute host path may not
             # exist (macOS /var/folders is mounted at its resolved /private/var path).
             result = self.run(["node_modules/.bin/prettier", "--write", *files], step.name)
             failed = not result.ok
             tool = "prettier --write"
-        elif "eslint" in deps and (bin_dir / "eslint").exists():
+        elif "eslint" in deps and has("eslint"):
             result = self.run(["node_modules/.bin/eslint", "--fix", *files], step.name)
             failed = result.exit_code not in (0, 1)  # 1 = unfixable lint errors remain
             tool = "eslint --fix"
