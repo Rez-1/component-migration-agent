@@ -274,7 +274,7 @@ def _matches_glob(path: str, glob: str) -> bool:
 
 def resolve_import(importer: str, spec: str, files: Iterable[str]) -> str | None:
     if not spec.startswith("."):
-        return None
+        return _resolve_bare(spec, files)
     base = PurePosixPath(importer).parent / spec
     parts: list[str] = []
     for part in base.parts:
@@ -288,6 +288,28 @@ def resolve_import(importer: str, spec: str, files: Iterable[str]) -> str | None
     candidates = [target] + [target + ext for ext in CODE_EXTENSIONS]
     candidates += [f"{target}/index{ext}" for ext in CODE_EXTENSIONS]
     return next((c for c in candidates if c in known), None)
+
+
+def _resolve_bare(spec: str, files: Iterable[str]) -> str | None:
+    """A non-relative import that names a repo file through a ``baseUrl`` alias (M6):
+    ``src/components/SidePanel`` with ``baseUrl: "."`` (kubeflow), or
+    ``components/SidePanel`` with CRA's ``baseUrl: "src"``. Only when its first segment
+    is a folder of the repo (or of ``src/``), so a package import such as ``react`` or
+    ``@mui/material`` never resolves to a file."""
+    if spec.startswith("@") or "/" not in spec:
+        return None
+    known = set(files)
+    head = spec.split("/", 1)[0]
+    for root in ("", "src/"):
+        if not any(f.startswith(f"{root}{head}/") for f in known):
+            continue
+        target = f"{root}{spec}"
+        candidates = [target] + [target + ext for ext in CODE_EXTENSIONS]
+        candidates += [f"{target}/index{ext}" for ext in CODE_EXTENSIONS]
+        found = next((c for c in candidates if c in known), None)
+        if found is not None:
+            return found
+    return None
 
 
 def import_graph(files: Mapping[str, str]) -> dict[str, set[str]]:

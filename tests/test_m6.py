@@ -421,3 +421,24 @@ def test_m6_v3_configuration_adds_test_fitting_hand_offs() -> None:
     v2 = find_configuration("m6-opus-low-v2", CONFIGS)
     assert v3.repair.test_fitting_hand_off and not v2.repair.test_fitting_hand_off
     assert v3.repair.model_copy(update={"test_fitting_hand_off": False}) == v2.repair
+
+
+def test_a_base_url_import_makes_a_component_a_source_file_not_a_test_file() -> None:
+    from migrator.checks import TestFileRules, find_test_files, resolve_import
+
+    files = {
+        "src/components/SidePanel.tsx": "export default () => null;\n",
+        "src/components/SidePanel.test.tsx": "import SidePanel from './SidePanel';\n",
+        "src/pages/RunDetails.tsx": "import SidePanel from 'src/components/SidePanel';\n",
+    }
+    assert resolve_import("src/pages/RunDetails.tsx", "src/components/SidePanel", files) == (
+        "src/components/SidePanel.tsx"
+    )
+    assert resolve_import("src/a.tsx", "react", files) is None
+    assert resolve_import("src/a.tsx", "@mui/material/Button", files) is None
+    assert resolve_import("src/a.tsx", "components/SidePanel", files) == (
+        "src/components/SidePanel.tsx"  # CRA's baseUrl "src"
+    )
+    tests = find_test_files(files, set(files), TestFileRules())
+    assert "src/components/SidePanel.tsx" not in tests  # kubeflow: was "imported only by tests"
+    assert "src/components/SidePanel.test.tsx" in tests
