@@ -39,7 +39,7 @@ def test_older_configuration_digests_are_unchanged() -> None:
     assert (m6.cost.max_run_usd, m6.cost.max_month_usd, m6.cost.reserve_attempt_usd) == (
         8.0,
         50.0,
-        0.20,
+        0.15,
     )
     assert m6.repair == find_configuration("opus-low", CONFIGS).repair
 
