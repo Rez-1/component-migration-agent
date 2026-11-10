@@ -64,6 +64,7 @@ Requires Python 3.13 with [uv](https://docs.astral.sh/uv/), Node 20 and npm, and
 
 ```sh
 uv sync
+uv run migrator init path/to/repo                                   # writes a commented migrate.toml to check
 uv run migrator scan path/to/repo --from mui@4 --to mui@5          # usage report, free
 uv run migrator migrate path/to/repo --from mui@4 --to mui@5 --dry-run   # Baseline on a throwaway copy, free
 ```

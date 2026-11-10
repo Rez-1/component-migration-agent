@@ -274,6 +274,34 @@ def _print_tracing() -> None:
         console.print(line)
 
 
+@app.command("init")
+def init_command(
+    repo: Annotated[Path, typer.Argument(help="The target repo (default: this folder).")] = Path(),
+    force: Annotated[bool, typer.Option(help="Overwrite an existing migrate.toml.")] = False,
+    stdout: Annotated[
+        bool, typer.Option("--stdout", help="Print the file instead of writing it.")
+    ] = False,
+) -> None:
+    """Detect the repo's package manager, Node, test runner, verify commands and source
+    globs, and write a commented migrate.toml to check. No LLM, no network."""
+    from migrator.init import InitError, detect, render_migrate_toml, write_migrate_toml
+
+    repo = repo.resolve()
+    try:
+        if stdout:
+            result = detect(repo)
+            print(render_migrate_toml(result), end="")
+        else:
+            path, result = write_migrate_toml(repo, force=force)
+            console.print(f"Wrote {path}. Check every value before the first run.")
+    except (InitError, ConfigError) as exc:
+        raise _fail(str(exc)) from exc
+    if result.todos:
+        err.print(f"[bold]{len(result.todos)} TODO[/] (not detected, fill in by hand):")
+        for todo in result.todos:
+            err.print(f"  - {todo}")
+
+
 @app.command("migrate")
 def migrate_command(
     repo: RepoArg,

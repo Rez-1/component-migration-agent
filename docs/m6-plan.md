@@ -34,6 +34,7 @@ The M0–M5 results come from three small fixture apps we wrote ourselves (750�
 - **Runners:** kubeflow uses Vitest 4 (supported in the code but never exercised by a case); OpossumUI and wps use Jest under CRA, with yarn v1.
 - **Snapshot tests:** MUI v5 changes class names, so snapshots fail even when the migration is right (kubeflow's PR updated 39 `.snap` files). When a file's only failures are snapshot mismatches, the Migrator itself (never the agent) updates those snapshots and lists each one in the PR for a human to approve. They count as **snapshots to review**, not as failures or hand-offs. Every other test change stays blocked, and the cheating checks still run.
 - **Extra dependency upgrades:** an optional per-repo list in `migrate.toml` / `case.toml`, written by a human, never by the LLM. For wps, fill it from the reference PR (devexpress grid v2 → v3, the date-picker change).
+- **`migrator init`** (added during M6, agreed with the owner): detects the package manager, Node version, test runner, verify commands and source globs, and writes a commented `migrate.toml` with the source of each value and TODOs for what it can't detect. Checked against the three cases' hand-written `[repo]` sections.
 - **Expected hand-offs:** some failures can only be fixed in test code (OpossumUI's reference PR edited `test-helpers/`). Those stay hand-offs.
 
 ## Budget

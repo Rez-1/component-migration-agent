@@ -2,6 +2,19 @@
 
 How a normal run lands its changes (ticket #9), how a pull request is opened (ticket #10 and the brief's PR rule), where commands run (ticket #15) and how LangSmith tracing is switched on (ticket #3). Built in M4.
 
+## Setting up a repo: `migrator init`
+
+```sh
+migrator init path/to/repo            # writes path/to/repo/migrate.toml
+migrator init path/to/repo --stdout   # prints it instead
+```
+
+It reads the repo's files and writes a commented `migrate.toml` for you to check: the package manager (from the lockfile), the Node major (`.nvmrc`, `.node-version`, then `package.json` `engines.node`), the test runner (Vitest, Jest, or CRA's `react-scripts`, which runs Jest), the verify commands from the `package.json` scripts, the source globs from the file types under `src/`, and install-only environment variables for dependencies that download binaries at install (Electron, Playwright, Cypress, Puppeteer). Every value has a comment saying which file it came from. Anything it can't detect is written as a `TODO` line and printed. No LLM, no network.
+
+It never picks a lint script that runs `--fix` (verify must not change files), adds `--watchAll=false` to a `react-scripts test` script, and treats a Node version the sandbox has no pinned image for as a TODO. It never overwrites an existing `migrate.toml` without `--force`.
+
+The verify commands decide what counts as migrated, so read them: a test script that skips part of the suite, or a lint script with a different config, changes every result.
+
 ## Dry run or real run
 
 | | `migrator migrate <repo> --from mui@4 --to mui@5 --dry-run` | `migrator migrate <repo> --from mui@4 --to mui@5` |
