@@ -20,7 +20,9 @@ reference_head = "ac2e156b668696de6199d37a457a38f091361012"  # the squash merge 
 # TypeScript 4.4, React 17, CRA 5 (Jest 27), yarn v1. package.json says Node ~14;
 # CRA 5 runs on 16, the oldest Node the sandbox pins.
 node = "16"
-install_flags = []
+# package.json pins engines.node ~14.x, which the sandbox doesn't pin; yarn refuses
+# Node 16 without this. CRA 5 and Jest 27 run on 16.
+install_flags = ["--ignore-engines"]
 source_globs = ["src/**/*.ts", "src/**/*.tsx"]
 exclude = ["**/node_modules/**"]
 coverage = true
