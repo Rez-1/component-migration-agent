@@ -65,13 +65,24 @@ class TestTotals(BaseModel):
 
 
 def clean(text: str, workspace: str | None = None) -> str:
-    """Strip colour codes and the workspace's absolute path."""
+    """Strip colour codes and the workspace's absolute path; the folder around the
+    workspace (a run's own temporary folder) becomes ``..``, so a test that names a path
+    next to the workspace has the same name in every run (M6: kubeflow's
+    ``should be in sync with …/backend/…`` test; with a different temp folder per run its
+    failure never matched the Pre-check's, once the Pre-check came from a cache)."""
     text = _ANSI.sub("", text)
     if workspace:
         root = workspace.rstrip("/") + "/"
-        text = text.replace(root, "")
-        if root.startswith("/private/"):  # macOS: /tmp is /private/tmp
-            text = text.replace(root.removeprefix("/private"), "")
+        parent = root.rstrip("/").rsplit("/", 1)[0] + "/"
+        for prefix in (root, root.removeprefix("/private") if root.startswith("/private/") else ""):
+            if prefix:
+                text = text.replace(prefix, "")
+        for prefix in (
+            parent,
+            parent.removeprefix("/private") if parent.startswith("/private/") else "",
+        ):
+            if prefix and prefix != "/":
+                text = text.replace(prefix, "../")
     return text
 
 

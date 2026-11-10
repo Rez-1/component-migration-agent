@@ -500,3 +500,17 @@ def test_m6_v4_adds_a_sonnet_reviewer_and_a_two_dollar_stop() -> None:
     assert v4.repair.reviewer_model not in v4.repair.attempt_models
     assert v4.cost.stop_run_usd == 2.0 and v4.cost.max_run_usd == 8.0
     assert v4.repair.model_copy(update={"reviewer_model": None}) == v3.repair
+
+
+def test_a_path_next_to_the_workspace_reads_the_same_in_every_run() -> None:
+    from migrator.verify.parsers import clean
+
+    def name(run: str) -> str:
+        ws = f"/private/var/folders/mw/x/T/migrator-{run}/workspace"
+        return clean(f"in sync with /private/var/folders/mw/x/T/migrator-{run}/backend/c.json", ws)
+
+    assert (
+        name("2026-11-10-1-aaa-x1")
+        == name("2026-11-10-2-bbb-y2")
+        == "in sync with ../backend/c.json"
+    )

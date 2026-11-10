@@ -33,6 +33,9 @@ from migrator.config import ResolvedRepoConfig
 from migrator.verify import PrecheckResult
 
 _SKIP = {".git", "node_modules", ".migrator"}
+# Bumped whenever what a Pre-check records changes shape (2: failure text with the run's
+# temporary folder written as "..", so every run names a failure the same way).
+CACHE_FORMAT = 2
 _LOCKS: dict[str, threading.Lock] = {}
 _LOCKS_LOCK = threading.Lock()
 
@@ -62,7 +65,8 @@ def tree_hash(root: Path) -> str:
 def cache_key(repo: Path, config: ResolvedRepoConfig, where: str) -> str:
     """``where``: the sandbox and its image, such as ``docker:node:16…@sha256:…``."""
     digest = hashlib.sha256()
-    for part in (__version__, where, config.model_dump_json(), tree_hash(repo)):
+    parts = (str(CACHE_FORMAT), __version__, where, config.model_dump_json(), tree_hash(repo))
+    for part in parts:
         digest.update(part.encode() + b"\0")
     return digest.hexdigest()[:24]
 
