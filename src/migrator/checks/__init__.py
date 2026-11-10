@@ -190,8 +190,29 @@ def _strip_root(value: str) -> str:
     return value.removeprefix("<rootDir>/").removeprefix("./")
 
 
+def _without_coverage(text: str) -> str:
+    """The config without its ``coverage: { ... }`` blocks: their ``include`` lists the
+    files to measure, not tests (M6: kubeflow's covers every source file, which made
+    every file a Test file)."""
+    out, i = [], 0
+    for m in re.finditer(r"\bcoverage\s*:\s*\{", text):
+        if m.start() < i:
+            continue
+        depth, j = 0, m.end() - 1
+        while j < len(text):
+            depth += {"{": 1, "}": -1}.get(text[j], 0)
+            if depth == 0:
+                break
+            j += 1
+        out.append(text[i : m.start()])
+        i = j + 1
+    out.append(text[i:])
+    return "".join(out)
+
+
 def _config_arrays(text: str) -> dict[str, list[str]]:
     """``key: ['a', 'b']`` (or a single string) for the keys the checks need."""
+    text = _without_coverage(text)
     found: dict[str, list[str]] = {"test": [], "setup": []}
     for key, group in _ARRAY_KEYS.items():
         for m in re.finditer(rf"\b{key}\s*:\s*(\[[^\]]*\]|['\"`][^'\"`]+['\"`])", text):

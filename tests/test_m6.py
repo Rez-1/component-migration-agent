@@ -180,3 +180,17 @@ def test_tests_lost_after_rules_are_not_charged_to_the_agent() -> None:
     assert [f.layer for f in worse] == ["agent"]
     no_rules = _totals_findings(pre, _totals(506), "agent")  # type: ignore[arg-type]
     assert [f.layer for f in no_rules] == ["agent"]
+
+
+def test_a_vitest_coverage_include_is_not_a_test_glob(tmp_path: Path) -> None:
+    from migrator.checks import read_test_rules
+
+    (tmp_path / "vitest.config.mts").write_text(
+        "export default defineConfig({ test: { setupFiles: ['src/vitest.setup.ts'],\n"
+        "  include: ['src/**/*.{test,spec}.{ts,tsx}'],\n"
+        "  coverage: { provider: 'v8', include: ['src/**/*.{ts,tsx,js,jsx}'],\n"
+        "    exclude: ['src/apis/**'] } } });\n"
+    )
+    rules = read_test_rules(tmp_path)
+    assert rules.test_globs == ["src/**/*.{test,spec}.{ts,tsx}"]
+    assert "src/vitest.setup.ts" in rules.setup_files
