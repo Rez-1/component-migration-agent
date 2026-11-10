@@ -83,6 +83,24 @@ class FileResult(BaseModel):
     note: str = ""
 
 
+class CoverageSummary(BaseModel):
+    """Test coverage of the files migrated without a human (M6), measured once at the
+    Pre-check: covered means a test ran at least one of the file's functions."""
+
+    covered: list[str]
+    not_covered: list[str]
+
+
+class SnapshotUpdate(BaseModel):
+    """A snapshot file the Migrator itself updated (never the repair agent), because the
+    only failures of its test file were snapshot mismatches (M6). A human reviews each."""
+
+    test_file: str
+    snapshot_file: str | None
+    tests: list[str]
+    stage: str  # "verify" (after Rules) or "final"
+
+
 class StepSummary(BaseModel):
     kind: str
     name: str
@@ -171,6 +189,7 @@ class RepairSummary(BaseModel):
     stopped_by_cost_cap: bool
     cost_cap_reason: str | None
     human_changed: list[str]
+    reserved_usd: float | None = None
 
 
 class RunMeta(BaseModel):
@@ -210,6 +229,9 @@ class Scorecard(BaseModel):
     # Schema 3 fields default, so schema-2 scorecards (M2 experiments) still load.
     repair: RepairSummary | None = None  # None when repair is off (the Baseline)
     regressions: list[str] = []
+    # M6 sections; None (and left out of the stable view) on runs that don't use them.
+    coverage: CoverageSummary | None = None
+    snapshots_to_review: list[SnapshotUpdate] | None = None
     cost: RunCost
     meta: RunMeta
 
@@ -232,6 +254,7 @@ class ReportInput(BaseModel):
     repair: RepairReport | None = None
     # Who changed each file after Rules ("agent" or "human"); None: nobody did.
     later_layers: dict[str, Layer] | None = None
+    snapshots_to_review: list[SnapshotUpdate] | None = None
     meta: RunMeta
 
 
@@ -515,6 +538,15 @@ def build_scorecard(inp: ReportInput) -> Scorecard:
         traps=trap_counts,
     )
     pre = inp.precheck
+    coverage: CoverageSummary | None = None
+    if pre.covered is not None:
+        migrated = [
+            f.path for f in files if f.outcome in ("Migrated by rules", "Migrated by agent")
+        ]
+        coverage = CoverageSummary(
+            covered=[p for p in migrated if pre.covered.get(p)],
+            not_covered=[p for p in migrated if not pre.covered.get(p)],
+        )
     return Scorecard(
         migration=inp.usage.migration,
         target_repo=inp.usage.target_repo,
@@ -568,6 +600,8 @@ def build_scorecard(inp: ReportInput) -> Scorecard:
         cheating=cheating,
         repair=_repair_summary(repair, files) if repair else None,
         regressions=regressions,
+        coverage=coverage,
+        snapshots_to_review=inp.snapshots_to_review,
         cost=inp.cost,
         meta=inp.meta,
     )
@@ -618,6 +652,7 @@ def _repair_summary(repair: RepairReport, files: list[FileResult]) -> RepairSumm
         stopped_by_cost_cap=repair.stopped_by_cost_cap,
         cost_cap_reason=repair.cost_cap_reason,
         human_changed=repair.human_changed,
+        reserved_usd=repair.reserved_usd,
     )
 
 
@@ -627,7 +662,13 @@ def stable_view(scorecard: Scorecard | dict[str, Any]) -> dict[str, Any]:
         scorecard.model_dump(mode="json") if isinstance(scorecard, Scorecard) else dict(scorecard)
     )
     data.pop("meta", None)
+    for key in _M6_KEYS:
+        if data.get(key) is None:
+            data.pop(key, None)
     return data
+
+
+_M6_KEYS = ("coverage", "snapshots_to_review")
 
 
 def write_json(model: BaseModel, path: Path) -> None:

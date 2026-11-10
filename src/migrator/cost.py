@@ -430,6 +430,11 @@ class Ledger:
                 out.append(LedgerRow.model_validate_json(line))
         return out
 
+    def repair_rows(self) -> list[LedgerRow]:
+        """Rows of repair runs: not the reference judge's (run id ``judge:...``, M6), so
+        cost-per-attempt estimates only average repair attempts."""
+        return [r for r in self.rows() if not r.run_id.startswith("judge:")]
+
     def month_spent(self, at: str | None = None) -> float:
         month = _month(at or now_utc())
         return round(sum(r.cost_usd for r in self.rows() if _month(r.at) == month), 6)
@@ -438,7 +443,7 @@ class Ledger:
         """Cost per attempt (run, file, attempt) for attempts whose first call used ``model``."""
         per: dict[tuple[str, str | None, int | None], float] = defaultdict(float)
         first: dict[tuple[str, str | None, int | None], str] = {}
-        for r in self.rows():
+        for r in self.repair_rows():
             key = (r.run_id, r.file, r.attempt)
             first.setdefault(key, r.requested_model)
             per[key] += r.cost_usd
@@ -641,7 +646,7 @@ class LedgerPreflight:
         """Mean attempts per run at each attempt number (1, 2, 3, ...), over every run in
         the ledger whatever its model; the prior split of ticket #12's guess without one."""
         per: dict[tuple[str, str | None, int | None], None] = {}
-        for r in self.ledger.rows():
+        for r in self.ledger.repair_rows():
             per.setdefault((r.run_id, r.file, r.attempt), None)
         runs = {k[0] for k in per}
         if len(per) < MIN_ATTEMPTS_FOR_AVERAGE or not runs:

@@ -1,0 +1,33 @@
+# Case: the kubeflow/pipelines frontend (a real open-source repo, M6), scored against
+# its merged MUI v4 -> v5 PR. Cloned into the Migrator's cache on the first run; see
+# evals/m6-cases/opossum-ui/case.toml and docs/m6-plan.md.
+
+id = "kubeflow-pipelines"
+migration = "mui@4->mui@5"
+split = "dev"
+runner = "vitest"
+reference = "upstream"
+ceiling_s = 5400
+
+[upstream]
+repo = "https://github.com/kubeflow/pipelines.git"
+commit = "72fdd6badecd36063855f6fd328e9c02cc78b1bb"         # the squash merge's parent on master
+subdir = "frontend"
+reference_pr = "https://github.com/kubeflow/pipelines/pull/12925"
+reference_head = "c3f9f67c2b4d9c682907aabd332ca268b5be350b"  # the squash merge (2026-03-02)
+
+[repo]
+# TypeScript 4.9, React 17, Vite 7, Vitest 4, npm (lockfile v3); .nvmrc says 22.19.
+node = "22"
+install_flags = []
+source_globs = ["src/**/*.ts", "src/**/*.tsx"]
+exclude = ["**/node_modules/**", "src/apis/**", "src/apisv2beta1/**", "src/generated/**", "src/third_party/**"]
+coverage = true
+update_snapshots = true
+
+[repo.verify]
+# The repo's own typecheck and lint scripts, called as binaries; the tests as its `test`
+# script does, after its `pretest` (the Tailwind build the tests import).
+typecheck = "node_modules/.bin/tsc --noEmit"
+lint = "node_modules/.bin/eslint --ext js,ts,tsx src --max-warnings=0"
+test = "node_modules/.bin/tailwindcss build -i src/tailwind.css -o src/build/tailwind.output.css && LC_ALL=en_US.UTF-8 node_modules/.bin/vitest run"

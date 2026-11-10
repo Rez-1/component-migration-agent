@@ -1,0 +1,47 @@
+# Case: bcgov/wps `web/` (a real open-source repo, M6), the HELD-OUT case: nothing is
+# tuned on it and it runs once, at the end. Scored against its merged MUI v4 -> v5 PR.
+# See evals/m6-cases/opossum-ui/case.toml and docs/m6-plan.md.
+
+id = "bcgov-wps"
+migration = "mui@4->mui@5"
+split = "held-out"
+runner = "jest"
+reference = "upstream"
+ceiling_s = 7200
+
+[upstream]
+repo = "https://github.com/bcgov/wps.git"
+commit = "aff9040a43d46b0641203979a05bc04edea354d1"         # the squash merge's parent on main
+subdir = "web"
+reference_pr = "https://github.com/bcgov/wps/pull/1933"
+reference_head = "ac2e156b668696de6199d37a457a38f091361012"  # the squash merge (2022-04-26)
+
+[repo]
+# TypeScript 4.4, React 17, CRA 5 (Jest 27), yarn v1. package.json says Node ~14;
+# CRA 5 runs on 16, the oldest Node the sandbox pins.
+node = "16"
+install_flags = []
+source_globs = ["src/**/*.ts", "src/**/*.tsx"]
+exclude = ["**/node_modules/**"]
+coverage = true
+update_snapshots = true
+
+[repo.install_env]
+CYPRESS_INSTALL_BINARY = "0"  # Cypress downloads its binary at install; no unit test needs it
+
+# Written by a human from the reference PR's package.json, never by the LLM: the
+# third-party grid that wraps MUI needs its v3 for MUI v5, and the reference replaced
+# @material-ui/pickers (and its date-io adapter) with @mui/lab's date picker.
+[repo.extra_dependencies]
+"@devexpress/dx-react-core" = "3.0.2"
+"@devexpress/dx-react-grid" = "3.0.2"
+"@devexpress/dx-react-grid-material-ui" = "3.0.2"
+"@material-ui/pickers" = ""
+"@date-io/luxon" = ""
+
+[repo.verify]
+typecheck = "node_modules/.bin/tsc --noEmit"
+lint = "node_modules/.bin/eslint './src/**/*.{ts,tsx}'"
+# The repo's own `test` script; collectCoverageFrom is widened because the repo's own
+# setting leaves out src/app/, which would label those files "not covered" unmeasured.
+test = "node_modules/.bin/react-scripts test --watchAll=false --transformIgnorePatterns 'node_modules/(?!ol)/' --collectCoverageFrom='src/**/*.{ts,tsx}' --collectCoverageFrom='!src/**/*.d.ts'"

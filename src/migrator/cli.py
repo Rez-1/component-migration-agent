@@ -466,6 +466,10 @@ ResultsOpt = Annotated[
 ]
 
 
+# The judge shares M6's month cap (evals/configs/m6-*.toml).
+M6_MONTH_CAP_USD = 50.0
+
+
 @eval_app.command("run")
 def eval_run(
     split: Annotated[str, typer.Option(help="dev or held-out.")] = "dev",
@@ -499,6 +503,13 @@ def eval_run(
     ] = "docker",
     root: RootOpt = None,
     results_dir: ResultsOpt = None,
+    cases_dir: Annotated[
+        Path | None,
+        typer.Option(
+            help="Folder of cases (default <root>/evals/cases; M6's real repos are in "
+            "<root>/evals/m6-cases)."
+        ),
+    ] = None,
 ) -> None:
     """Run an experiment: every case in a split under one configuration, N runs each."""
     base = _repo_root(root)
@@ -515,7 +526,7 @@ def eval_run(
             if (configs / "baseline.toml").is_file()
             else None
         )
-        cases = load_cases(base / "evals" / "cases", split_name, case)
+        cases = load_cases((cases_dir or base / "evals" / "cases").resolve(), split_name, case)
         plan = ExperimentPlan(
             root=base,
             results_dir=results,
@@ -635,6 +646,81 @@ def eval_summary(
 
 
 DEFAULT_FLOW = Path(".claude") / "hillclimb" / "dev"
+
+
+@eval_app.command("score-reference")
+def eval_score_reference(
+    experiment: Annotated[
+        Path, typer.Argument(help="An experiment folder of real-repo runs, e.g. runs/m6/dev/v1.")
+    ],
+    max_cost: Annotated[
+        float | None,
+        typer.Option("--max-cost", help="USD cap for the judge calls; required unless --plan."),
+    ] = None,
+    plan: Annotated[
+        bool, typer.Option("--plan", help="Only count the judge calls needed; call nothing.")
+    ] = False,
+    root: RootOpt = None,
+    cases_dir: Annotated[Path | None, typer.Option(help="Default <root>/evals/m6-cases.")] = None,
+) -> None:
+    """Score each run of an experiment against its case's merged migration PR (M6)."""
+    from migrator.cost import CostGuard, Ledger
+    from migrator.evals import read_manifest, read_rows
+    from migrator.evals.reference import (
+        ClaudeJudge,
+        JudgeCache,
+        pending_judgements,
+        read_run,
+        render_reference_score,
+        score_run,
+    )
+    from migrator.report import write_json
+
+    base = _repo_root(root)
+    variant = experiment.resolve()
+    try:
+        manifest = read_manifest(variant)
+    except EvalError as exc:
+        raise _fail(str(exc)) from exc
+    folder = (cases_dir or base / "evals" / "m6-cases").resolve()
+    cases = {c.id: c for c in (load_case(p) for p in sorted(folder.glob("*/case.toml")))}
+    cache = JudgeCache(variant.parent.parent / "judge-cache")
+    rows = read_rows(variant)
+    todo = []
+    for row in rows:
+        case = cases.get(row.prompt_id)
+        if case is None or case.upstream is None:
+            raise _fail(f"{row.prompt_id} is not a real-repo case in {folder}")
+        run_dir = variant / "runs" / f"{row.prompt_id}_rep{row.rep}"
+        todo.append((case, run_dir, read_run(run_dir)))
+    needed = sum(
+        pending_judgements(c, [r for cc, _d, r in todo if cc.id == c.id], cache)
+        for c in {c.id: c for c, _d, _r in todo}.values()
+    )
+    console.print(
+        f"{manifest.experiment}: {len(todo)} runs, {needed} judge calls needed "
+        f"(not cached), on claude-opus-5-5 at low effort"
+    )
+    if plan or not todo:
+        return
+    if needed and max_cost is None:
+        raise _fail("judge calls cost money: pass --max-cost")
+    _check_max_cost(max_cost)
+    ledger = Ledger()
+    guard = CostGuard(max_cost or 0.01, M6_MONTH_CAP_USD, ledger)
+    for case, run_dir, inputs in todo:
+        judge = ClaudeJudge(case.id, guard, ledger)
+        score = score_run(case, inputs, judge, cache)
+        write_json(score, run_dir / "reference-score.json")
+        (run_dir / "reference-score.md").write_text(render_reference_score(score), "utf-8")
+        guard.run_cap_usd = max(0.01, round(guard.run_cap_usd - judge.spent, 6))
+        c = score.counts
+        console.print(
+            f"{run_dir.name}: matches {c['matches']}, other valid {c['other valid fix']}, "
+            f"wrong {c['wrong']}, untouched {c['untouched']}, out of scope "
+            f"{c['out of scope']}; silent misses {score.silent_misses}; judge "
+            f"{score.judge_calls} calls ${score.judge_cost_usd:.2f}"
+        )
 
 
 @eval_app.command("climb")

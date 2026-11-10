@@ -183,8 +183,13 @@ class DeadlineRunner:
 # works on arm64 Macs and amd64 CI). Node 20 is the fixture's declared target
 # (case.toml). Adding a version means adding its pin here, never a floating tag.
 NODE_IMAGES: dict[str, str] = {
+    # Node 16 (end of life since 2023) only for real repos that need it (M6: CRA 4/5).
+    "16": "node:16.20.2-bookworm-slim"
+    "@sha256:89061680359f5d9103d24f0066e2c96a8018c24d5c4fe8eb8d59d16dd4ab64ba",
     "20": "node:20.20.2-bookworm-slim"
     "@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0",
+    "22": "node:22.21.1-bookworm-slim"
+    "@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c",
 }
 DEFAULT_NODE = "20"
 NPM_CACHE_VOLUME = "migrator-npm-cache"
@@ -387,6 +392,7 @@ class DockerRunner:
         container_env = {
             "HOME": "/tmp",
             "npm_config_cache": NPM_CACHE_DIR,
+            "YARN_CACHE_FOLDER": f"{NPM_CACHE_DIR}/yarn",
             "npm_config_update_notifier": "false",
             "CI": "1",
             "FORCE_COLOR": "0",

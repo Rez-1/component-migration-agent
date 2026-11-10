@@ -157,6 +157,30 @@ def apply_dependency_map(
     return notes
 
 
+def apply_extra_dependencies(package: dict[str, object], extra: dict[str, str]) -> list[str]:
+    """A repo's human-written dependency changes: set each package's version where it is
+    already listed (dependencies by default), or remove it when the version is ""."""
+    notes: list[str] = []
+    sections = [s for s in ("dependencies", "devDependencies", "peerDependencies")
+                if isinstance(package.get(s), dict)]  # fmt: skip
+    for name, version in sorted(extra.items()):
+        held = [s for s in sections if name in package[s]]  # type: ignore[operator]
+        if not version:
+            for s in held:
+                del package[s][name]  # type: ignore[attr-defined]
+            if held:
+                notes.append(f"-{name} (repo config)")
+            continue
+        for s in held or ["dependencies"]:
+            deps = package.setdefault(s, {})
+            assert isinstance(deps, dict)
+            if deps.get(name) != version:
+                deps[name] = version
+                notes.append(f"+{name}@{version} (repo config)")
+            package[s] = dict(sorted(deps.items()))
+    return notes
+
+
 def _indent_of(text: str) -> int:
     m = re.search(r'^(\s+)"', text, re.MULTILINE)
     return len(m.group(1)) if m else 2
@@ -247,11 +271,13 @@ class _Run:
         deps = all_dependencies(read_package_json(self.ws))
         bin_dir = self.ws / "node_modules" / ".bin"
         if "prettier" in deps and (bin_dir / "prettier").exists():
-            result = self.run([str(bin_dir / "prettier"), "--write", *files], step.name)
+            # Relative to the workspace: inside the sandbox the absolute host path may not
+            # exist (macOS /var/folders is mounted at its resolved /private/var path).
+            result = self.run(["node_modules/.bin/prettier", "--write", *files], step.name)
             failed = not result.ok
             tool = "prettier --write"
         elif "eslint" in deps and (bin_dir / "eslint").exists():
-            result = self.run([str(bin_dir / "eslint"), "--fix", *files], step.name)
+            result = self.run(["node_modules/.bin/eslint", "--fix", *files], step.name)
             failed = result.exit_code not in (0, 1)  # 1 = unfixable lint errors remain
             tool = "eslint --fix"
         else:
@@ -265,6 +291,7 @@ class _Run:
         text = path.read_text("utf-8")
         package = read_package_json(self.ws)
         notes = apply_dependency_map(package, self.inp.spec.dependency_map)
+        notes += apply_extra_dependencies(package, self.inp.config.extra_dependencies)
         if not notes:
             return "skipped", "no mapped dependencies", 0.0, ""
         path.write_text(

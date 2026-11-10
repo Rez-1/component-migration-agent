@@ -36,7 +36,7 @@ import tempfile
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal, TypedDict
 
 from langchain_core.messages import (
@@ -86,6 +86,7 @@ from migrator.repair.tools import (
 from migrator.report import (
     ReportInput,
     RunMeta,
+    SnapshotUpdate,
     build_scorecard,
     render_pr_body,
     render_scorecard,
@@ -103,6 +104,7 @@ from migrator.verify import (
     VerifyInput,
     VerifyResult,
     precheck,
+    update_snapshots,
     verify,
 )
 from migrator.workspace import (
@@ -156,6 +158,7 @@ class RunState(TypedDict, total=False):
     cheating: dict[str, Any] | None
     scorecard_path: str | None
     commits: list[dict[str, Any]]  # StageCommit, one per stage that changed files (real runs)
+    snapshot_updates: list[dict[str, Any]]  # SnapshotUpdate: snapshots the Migrator rewrote
 
 
 class RunDeps:
@@ -451,11 +454,58 @@ class RunGraph:
             d.runner,
         )
         d.say("Verify", f"{len(result.failures)} failures in {len(result.failing_files())} files")
+        updates: list[dict[str, Any]] = []
+        if d.config.update_snapshots:
+            result, updates = self.update_snapshots(state, result, "verify")
+            if updates:
+                # The Migrator's own change, before repair: part of the Rules layer.
+                _save_files(
+                    self.snapshots(state) / "after-rules.json",
+                    read_files(self.workspace(state)),
+                )
         return {
             "verify": result.model_dump(mode="json"),
             "known_failures": _dump_failures(result.failures),
+            "snapshot_updates": updates,
             "timings": self.timed(state, "verify", t0),
         }
+
+    def update_snapshots(
+        self, state: RunState, result: VerifyResult, stage: str
+    ) -> tuple[VerifyResult, list[dict[str, Any]]]:
+        """The snapshot policy (M6): rewrite snapshot-only failures, list each one."""
+        d = self.d
+        workspace = self.workspace(state)
+        result, run = update_snapshots(
+            VerifyInput(
+                workspace=workspace,
+                commands=d.config.verify,
+                runner=d.config.runner,
+                log_dir=self.logs(state),
+                label=stage,
+            ),
+            result,
+            d.runner,
+            lambda: snapshot_hashes(workspace),
+        )
+        if run is None:
+            return result, []
+        snaps = run.changed_files
+        updates = [
+            SnapshotUpdate(
+                test_file=t,
+                snapshot_file=next((s for s in snaps if snapshot_belongs(s, t)), None),
+                tests=names,
+                stage=stage,
+            ).model_dump(mode="json")
+            for t, names in run.updated.items()
+        ]
+        d.say(
+            "Verify",
+            f"snapshots: updated {len(updates)} test files whose only failures were "
+            f"snapshot mismatches ({len(snaps)} snapshot files changed), for a human to review",
+        )
+        return result, updates
 
     # ------------------------------------------------------------------ repair
 
@@ -470,6 +520,36 @@ class RunGraph:
             return {"test_files": tests, "queue": [], "review_queue": []}
         order = repair_order(failing, after)
         d.say("Repair", f"{len(order)} failing files to repair: {', '.join(order) or 'none'}")
+        reserve = d.configuration.cost.reserve_attempt_usd
+        if reserve is not None and order:
+            # Runs must finish (M6): reserve the whole worst case before the first call.
+            # Failing test files are handed off without a model call, so they cost nothing.
+            paid = [p for p in order if p not in tests]
+            attempts = d.configuration.repair.max_attempts
+            worst = round(len(paid) * attempts * reserve, 2)
+            month_left = round(d.month_cap_usd - d.ledger.month_spent(), 2)
+            available = round(min(d.run_cap_usd, month_left), 2)
+            report = self.report_of(state)
+            report.reserved_usd = worst
+            if worst > available:
+                why = (
+                    f"the worst case ({len(paid)} files x {attempts} attempts x ${reserve:.2f} "
+                    f"= ${worst:.2f}) is more than the ${available:.2f} available (run cap "
+                    f"${d.run_cap_usd:.2f}, ${month_left:.2f} left this month), so repair "
+                    "did not start"
+                )
+                report.stopped_by_cost_cap = True
+                report.cost_cap_reason = why
+                d.say("Repair", why)
+            else:
+                d.say("Repair", f"reserved ${worst:.2f} of ${available:.2f} available")
+            return {
+                "test_files": tests,
+                "queue": order,
+                "review_queue": [],
+                "messages": [],
+                "repair": report.model_dump(mode="json"),
+            }
         return {"test_files": tests, "queue": order, "review_queue": [], "messages": []}
 
     def next_file_node(self, state: RunState) -> RunState:
@@ -944,6 +1024,9 @@ class RunGraph:
                 ),
                 d.runner,
             )
+        final_snapshots: list[dict[str, Any]] = []
+        if d.config.update_snapshots:
+            final, final_snapshots = self.update_snapshots(state, final, "final")
         final_usage = scan(
             ScanInput(
                 repo=workspace,
@@ -955,13 +1038,17 @@ class RunGraph:
         final_usage_path = self.run_dir(state) / "state" / "final-usage.json"
         write_json(final_usage, final_usage_path)
         final_files = read_files(workspace)
+        # The final code, for scoring against a reference PR afterwards (M6).
+        _save_files(self.snapshots(state) / "final.json", final_files)
         after = self.after_rules(state)
         cheating = run_checks(
             CheckInput(
                 before=self.untouched(state),
                 after_rules=after,
                 final=final_files,
-                later_layers=final_layers(after, final_files, report),
+                later_layers=final_layers(
+                    after, final_files, report, self.migrator_snapshots(state, final_snapshots)
+                ),
                 test_rules=read_test_rules(workspace),
                 precheck_totals=pre.test_totals,
                 final_totals=final.test_totals,
@@ -973,8 +1060,16 @@ class RunGraph:
             "final": final.model_dump(mode="json"),
             "final_usage_path": str(final_usage_path),
             "cheating": cheating.model_dump(mode="json"),
+            "snapshot_updates": [*(state.get("snapshot_updates") or []), *final_snapshots],
             "timings": self.timed(state, "final_verify", t0),
         }
+
+    def migrator_snapshots(
+        self, state: RunState, extra: list[dict[str, Any]] | None = None
+    ) -> set[str]:
+        """Snapshot files the Migrator itself rewrote (never the agent's layer)."""
+        rows = [*(state.get("snapshot_updates") or []), *(extra or [])]
+        return {str(r["snapshot_file"]) for r in rows if r.get("snapshot_file")}
 
     def report_node(self, state: RunState) -> RunState:
         d = self.d
@@ -1018,7 +1113,10 @@ class RunGraph:
             and final is not None
         ):
             layers = final_layers(
-                self.after_rules(state), read_files(self.workspace(state)), report
+                self.after_rules(state),
+                read_files(self.workspace(state)),
+                report,
+                self.migrator_snapshots(state),
             )
         cost = run_cost(
             calls,
@@ -1044,6 +1142,11 @@ class RunGraph:
                 cost=cost,
                 repair=report if d.configuration.repair.enabled else None,
                 later_layers=layers,
+                snapshots_to_review=[
+                    SnapshotUpdate.model_validate(r) for r in state.get("snapshot_updates") or []
+                ]
+                if d.config.update_snapshots
+                else None,
                 case=d.case.id if d.case else (d.traps.case if d.traps else None),
                 meta=meta,
             )
@@ -1173,14 +1276,40 @@ def review_commit_body(report: RepairReport) -> str:
     return "\n".join(lines)
 
 
-def final_layers(after_rules: FileSet, final: FileSet, report: RepairReport) -> dict[str, Layer]:
-    """Who changed each file after the Rules stage: the human (at Review) or the agent."""
+def final_layers(
+    after_rules: FileSet,
+    final: FileSet,
+    report: RepairReport,
+    migrator_snapshots: set[str] | None = None,
+) -> dict[str, Layer]:
+    """Who changed each file after the Rules stage: the human (at Review) or the agent.
+    Snapshot files the Migrator itself rewrote at the final verify (the snapshot policy,
+    M6) count as the Rules layer: deterministic, and listed for a human to review."""
     human = set(report.human_changed)
+    ours = migrator_snapshots or set()
     layers: dict[str, Layer] = {}
     for path in after_rules.keys() | final.keys():
         if after_rules.get(path) != final.get(path):
-            layers[path] = "human" if path in human else "agent"
+            layers[path] = "rules" if path in ours else "human" if path in human else "agent"
     return layers
+
+
+def snapshot_hashes(workspace: Path) -> dict[str, str]:
+    """sha256 of every snapshot file in the workspace (not in node_modules)."""
+    out: dict[str, str] = {}
+    for folder, dirs, files in workspace.walk():
+        dirs[:] = [x for x in dirs if x not in ("node_modules", ".git")]
+        for name in files:
+            if name.endswith(".snap"):
+                path = folder / name
+                out[path.relative_to(workspace).as_posix()] = hash_file(path)
+    return out
+
+
+def snapshot_belongs(snapshot: str, test_file: str) -> bool:
+    """``a/__snapshots__/B.test.tsx.snap`` belongs to ``a/B.test.tsx``."""
+    snap, test = PurePosixPath(snapshot), PurePosixPath(test_file)
+    return snap.name == f"{test.name}.snap" and snap.parent.parent == test.parent
 
 
 def initial_state(run_id: str, run_dir: Path) -> RunState:

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Runner = Literal["jest", "vitest"]
 VerifyName = Literal["typecheck", "lint", "test"]
@@ -40,6 +40,19 @@ class RepoConfig(_Model):
     exclude: list[str] | None = None
     runner: Runner | None = None
     verify: VerifyCommands | None = None
+    # Environment for package installs only, e.g. ELECTRON_SKIP_BINARY_DOWNLOAD=1.
+    install_env: dict[str, str] | None = None
+    # Extra dependency changes a human wrote for this repo (never the LLM), applied by
+    # the dependencies rule step after the migration's own dependency map: a package
+    # name and its new version, or "" to remove it (M6, e.g. a third-party MUI wrapper
+    # whose next major needs the new library).
+    extra_dependencies: dict[str, str] | None = None
+    # Run the Pre-check's tests once with coverage, to label each migrated file covered
+    # or not covered by a test (M6).
+    coverage: bool | None = None
+    # The snapshot policy (M6): when a test file's only failures are snapshot
+    # mismatches, the Migrator updates its snapshots and lists them for a human.
+    update_snapshots: bool | None = None
 
     def merged_over(self, base: RepoConfig) -> RepoConfig:
         """This config's set fields on top of ``base``; verify commands merge per command."""
@@ -52,18 +65,41 @@ class RepoConfig(_Model):
         return RepoConfig.model_validate(data)
 
 
+class Upstream(_Model):
+    """A real repo case (M6): a public repo cloned at the reference PR's base commit
+    into the Migrator's cache (never into this repository)."""
+
+    repo: str  # a git URL
+    commit: str  # the reference PR's base commit: what the run migrates
+    subdir: str = ""  # the target repo's folder inside the upstream repo
+    reference_pr: str  # the merged migration PR's URL
+    reference_head: str  # the PR's last commit: the reference is commit..reference_head
+
+
 class CaseConfig(_Model):
     id: str
     migration: str
-    source: str
+    # A fixture's folder, relative to this repository; empty for an upstream case,
+    # whose source is its cached checkout.
+    source: str = ""
     split: Literal["dev", "held-out"]
     runner: Runner
     reference: str
     traps: str | None = None
+    upstream: Upstream | None = None
+    # The run's wall-clock ceiling in seconds, when the case needs more than the default
+    # (real repos with slow test suites).
+    ceiling_s: float | None = None
     repo: RepoConfig = RepoConfig()
 
     # Set by the loader: the case's folder. Not part of the TOML.
     folder: Path = Field(default=Path(), exclude=True)
+
+    @model_validator(mode="after")
+    def _one_source(self) -> CaseConfig:
+        if bool(self.source) == (self.upstream is not None):
+            raise ValueError("a case names either a fixture `source` or an [upstream] repo")
+        return self
 
     def traps_path(self) -> Path | None:
         return self.folder / self.traps if self.traps else None
@@ -173,6 +209,10 @@ class ResolvedRepoConfig(_Model):
     exclude: list[str]
     runner: Runner | None
     verify: VerifyCommands
+    install_env: dict[str, str] = {}
+    extra_dependencies: dict[str, str] = {}
+    coverage: bool = False
+    update_snapshots: bool = False
 
 
 def resolve_repo_config(
@@ -201,6 +241,10 @@ def resolve_repo_config(
         exclude=config.exclude or default_exclude,
         runner=config.runner or detect_runner(repo),
         verify=verify,
+        install_env=config.install_env or {},
+        extra_dependencies=config.extra_dependencies or {},
+        coverage=bool(config.coverage),
+        update_snapshots=bool(config.update_snapshots),
     )
 
 

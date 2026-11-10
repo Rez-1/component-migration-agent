@@ -35,6 +35,8 @@ def test_shipped_configurations_load() -> None:
         "haiku-advisor-opus",
         "haiku-debug",
         "haiku-high",
+        "m6-baseline",
+        "m6-opus-low",
         "opus-low",
         "opus-low-context",
         "opus-low-imports",

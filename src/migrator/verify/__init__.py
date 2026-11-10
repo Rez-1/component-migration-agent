@@ -9,6 +9,9 @@ verifies exclude.
 
 from __future__ import annotations
 
+import json
+import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
@@ -72,6 +75,8 @@ class VerifyInput(BaseModel):
     # Narrow verify (the repair agent's run_verify): run only the tests related to
     # these files (``jest --findRelatedTests``). None runs every test.
     related_to: list[str] | None = None
+    # Also measure test coverage into this folder (the Pre-check, M6).
+    coverage_dir: Path | None = None
 
 
 class VerifyResult(BaseModel):
@@ -134,11 +139,24 @@ def _run_one(
         args = ["--json", f"--outputFile={json_out}", "--testLocationInResults"]
         if inp.related_to is not None:
             args += ["--passWithNoTests", "--findRelatedTests", *inp.related_to]
+        if inp.coverage_dir is not None:
+            args += [
+                "--coverage",
+                "--coverageReporters=json-summary",
+                f"--coverageDirectory={inp.coverage_dir.resolve()}",
+            ]
         run_command = with_args(command, args)
     elif name == "test" and inp.runner == "vitest":
         # Vitest's JSON reporter writes the same shape as Jest's (not yet exercised by a case).
         json_out = (inp.log_dir / f"{inp.label}-vitest.json").resolve()
-        run_command = with_args(command, ["--reporter=json", f"--outputFile={json_out}"])
+        args = ["--reporter=json", f"--outputFile={json_out}"]
+        if inp.coverage_dir is not None:
+            args += [
+                "--coverage.enabled=true",
+                "--coverage.reporter=json-summary",
+                f"--coverage.reportsDirectory={inp.coverage_dir.resolve()}",
+            ]
+        run_command = with_args(command, args)
     if json_out is not None:
         json_out.unlink(missing_ok=True)
 
@@ -239,7 +257,7 @@ def install(
 ) -> CommandResult:
     """Install the workspace's packages and record what was installed."""
     command = install_command(config.package_manager, frozen, config.install_flags)
-    result = runner.run(command, workspace, log_file=log_file)
+    result = runner.run(command, workspace, env=config.install_env or None, log_file=log_file)
     if result.ok:
         record_install(workspace, config.lockfile)
     return result
@@ -258,6 +276,9 @@ class PrecheckResult(BaseModel):
     reason: str | None = None
     install: CommandOutcome | None = None
     verify: VerifyResult | None = None
+    # With coverage on (M6): every file the coverage report lists, True when a test ran
+    # code in it. None when coverage was not measured (or its report is missing).
+    covered: dict[str, bool] | None = None
 
     @property
     def pre_existing_failures(self) -> list[Failure]:
@@ -286,6 +307,7 @@ def precheck(inp: PrecheckInput, runner: CommandRunner) -> PrecheckResult:
             f"see {log.name}",
             install=installed,
         )
+    coverage_dir = inp.log_dir / "coverage" if inp.config.coverage else None
     verified = verify(
         VerifyInput(
             workspace=inp.workspace,
@@ -293,9 +315,11 @@ def precheck(inp: PrecheckInput, runner: CommandRunner) -> PrecheckResult:
             runner=inp.config.runner,
             log_dir=inp.log_dir,
             label="precheck",
+            coverage_dir=coverage_dir,
         ),
         runner,
     )
+    covered = read_coverage(coverage_dir, inp.workspace) if coverage_dir else None
     type_errors = [f for f in verified.failures if f.source == "typecheck"]
     if type_errors:
         files = sorted({f.file or "(no file)" for f in type_errors})
@@ -307,5 +331,107 @@ def precheck(inp: PrecheckInput, runner: CommandRunner) -> PrecheckResult:
             ),
             install=installed,
             verify=verified,
+            covered=covered,
         )
-    return PrecheckResult(status="ok", install=installed, verify=verified)
+    return PrecheckResult(status="ok", install=installed, verify=verified, covered=covered)
+
+
+def read_coverage(coverage_dir: Path, workspace: Path) -> dict[str, bool] | None:
+    """``coverage-summary.json`` (Jest's and Vitest's json-summary reporter) as
+    repo-relative path -> covered. A file counts as covered when a test ran at least one
+    of its functions (just importing it runs only module-level code), or, for a file
+    without functions, at least one of its lines."""
+    path = coverage_dir / "coverage-summary.json"
+    if not path.is_file():
+        return None
+    data = json.loads(path.read_text("utf-8"))
+    root = workspace.resolve()
+    out: dict[str, bool] = {}
+    for key, summary in data.items():
+        if key == "total" or not isinstance(summary, dict):
+            continue
+        try:
+            rel = Path(key).resolve().relative_to(root).as_posix()
+        except ValueError:
+            continue
+        functions = summary.get("functions") or {}
+        lines = summary.get("lines") or {}
+        if functions.get("total", 0):
+            out[rel] = functions.get("covered", 0) > 0
+        else:
+            out[rel] = lines.get("covered", 0) > 0
+    return dict(sorted(out.items()))
+
+
+# --------------------------------------------------------------------------- snapshots (M6)
+
+# A failed test whose message is a snapshot mismatch: Jest's matcher line, or Vitest's.
+# Inline snapshots are left out: updating them rewrites the test file itself.
+_SNAPSHOT_FAILURE = re.compile(r"\.toMatchSnapshot\(|Snapshot .+ mismatched")
+
+
+def is_snapshot_failure(f: Failure) -> bool:
+    return f.source == "test" and bool(_SNAPSHOT_FAILURE.search(f.message))
+
+
+def snapshot_only_test_files(result: VerifyResult) -> list[str]:
+    """Test files whose every charged failure is a snapshot mismatch."""
+    by_file: dict[str, list[Failure]] = {}
+    for f in result.failures:
+        if f.source == "test" and f.test_file:
+            by_file.setdefault(f.test_file, []).append(f)
+    return sorted(t for t, fs in by_file.items() if all(is_snapshot_failure(f) for f in fs))
+
+
+class SnapshotRun(BaseModel):
+    """What one snapshot update did: the test files whose snapshots were rewritten and
+    now pass, their failures (removed from the result), and the snapshot files changed."""
+
+    updated: dict[str, list[str]]  # test file -> the snapshot tests it rewrote
+    changed_files: list[str]  # snapshot files whose content changed
+    log: str
+
+
+def update_snapshots(
+    inp: VerifyInput,
+    result: VerifyResult,
+    runner: CommandRunner,
+    snapshot_hashes: Callable[[], dict[str, str]],
+) -> tuple[VerifyResult, SnapshotRun | None]:
+    """The snapshot policy (M6): for each test file whose only failures are snapshot
+    mismatches, the Migrator itself (never the repair agent) re-runs it with the
+    runner's update flag. A file that passes afterwards loses its failures from the
+    result; each rewritten snapshot is listed for a human to review. Every other test
+    failure stays."""
+    files = snapshot_only_test_files(result)
+    command = inp.commands.test
+    if not files or not command or inp.runner not in ("jest", "vitest"):
+        return result, None
+    inp.log_dir.mkdir(parents=True, exist_ok=True)
+    log = inp.log_dir / f"{inp.label}-snapshots-update.log"
+    json_out = (inp.log_dir / f"{inp.label}-snapshots-update.json").resolve()
+    json_out.unlink(missing_ok=True)
+    if inp.runner == "jest":
+        args = ["--ci=false", "-u", "--json", f"--outputFile={json_out}",
+                "--runTestsByPath", *files]  # fmt: skip
+    else:
+        args = ["-u", "--reporter=json", f"--outputFile={json_out}", *files]
+    before = snapshot_hashes()
+    runner.run(with_args(command, args), inp.workspace, log_file=log)
+    after = snapshot_hashes()
+    changed = sorted(p for p in before.keys() | after.keys() if before.get(p) != after.get(p))
+    if not json_out.is_file():
+        return result, SnapshotRun(updated={}, changed_files=changed, log=log.name)
+    still, _ = parse_jest_json(
+        json_out.read_text("utf-8"), str(inp.workspace.resolve()), lambda p: True
+    )
+    failing_now = {f.test_file for f in still}
+    fixed = [t for t in files if t not in failing_now]
+    updated = {
+        t: sorted({f.test_name or "" for f in result.failures if f.test_file == t}) for t in fixed
+    }
+    kept = [f for f in result.failures if f.test_file not in fixed]
+    return (
+        result.model_copy(update={"failures": kept}),
+        SnapshotRun(updated=updated, changed_files=changed, log=log.name),
+    )

@@ -38,6 +38,7 @@ from migrator import __version__
 from migrator.config import CaseConfig, load_case
 from migrator.configuration import Configuration, ensure_runnable
 from migrator.cost import CostPreflight, Ledger, LedgerPreflight, PlannedExperiment, Usage
+from migrator.evals.upstream import case_repo
 from migrator.execs import CommandRunner, RunTimeoutError, Sandbox
 from migrator.migrations import MigrationSpec, available_specs
 from migrator.pipeline import RunError, RunOptions, RunResult, dry_run, new_run_id
@@ -109,7 +110,11 @@ def spec_for(case: CaseConfig) -> MigrationSpec:
 
 
 def case_prompt(case: CaseConfig, spec: MigrationSpec) -> str:
-    return f"Migrate {case.source} from {spec.from_} to {spec.to}"
+    where = case.source
+    if case.upstream is not None:
+        up = case.upstream
+        where = f"{up.repo}@{up.commit[:12]}" + (f" ({up.subdir})" if up.subdir else "")
+    return f"Migrate {where} from {spec.from_} to {spec.to}"
 
 
 # --------------------------------------------------------------------------- records
@@ -556,13 +561,24 @@ def run_experiment(
         spec = spec_for(case)
         run_id = new_run_id()
         run_ids.add(run_id)
+        try:
+            repo = case_repo(case, plan.root)
+        except Exception as exc:  # a clone that failed: not a failure of the system
+            errors += 1
+            _append(
+                variant / "errors.jsonl",
+                ErrorRow(prompt_id=case.id, rep=rep, failure_class="harness",
+                         message=f"fetching the case failed: {exc}", at=now()),
+            )  # fmt: skip
+            emit(RunEvent(case=case.id, rep=rep, kind="error", message=f"fetch: {exc}"))
+            continue
         opts = RunOptions(
-            repo=(plan.root / case.source).resolve(),
+            repo=repo,
             spec=spec,
             run_dir=run_dir,
             case=case,
             configuration=config,
-            ceiling_s=plan.ceiling_s,
+            ceiling_s=max(plan.ceiling_s, case.ceiling_s or 0.0),
             tools_cache=plan.tools_cache,
             run_id=run_id,
             max_run_usd=run_cap,

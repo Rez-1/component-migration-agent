@@ -1,0 +1,25 @@
+# M6: the M5 winner (opus-low) on real repos, with M6's caps (docs/m6-plan.md).
+# Same repair settings as opus-low.toml; only the cost section differs.
+schema_version = 1
+name = "m6-opus-low"
+description = "Rules, then the repair agent on Claude Opus 5.5 at low effort, up to 3 attempts per failing file (M6 caps)."
+
+[repair]
+enabled = true
+attempt_models = ["claude-opus-5-5", "claude-opus-5-5", "claude-opus-5-5"]
+effort = "low"
+prompt_version = "v1"
+retrieval = "keyword"
+max_attempts = 3
+
+[cost]
+max_run_usd = 8.0
+max_month_usd = 50.0
+# Runs must finish (M6): before repair starts, the run reserves every failing file x
+# max_attempts x this much. If the run cap (or what is left of the month or the
+# experiment) can't cover it, repair doesn't start. Set from the largest Opus attempt
+# measured so far ($0.09 on the fixtures), doubled for bigger real files.
+reserve_attempt_usd = 0.20
+
+[rules]
+skip = []

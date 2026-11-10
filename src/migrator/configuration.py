@@ -114,6 +114,10 @@ class CostCaps(_Model):
 
     max_run_usd: float = Field(default=DEFAULT_MAX_RUN_USD, gt=0)
     max_month_usd: float = Field(default=DEFAULT_MAX_MONTH_USD, gt=0)
+    # Runs must finish (M6): when set, repair starts only if the run can cover its whole
+    # worst case, every failing file x max_attempts x this, from what is left of the run
+    # and month caps. None (every configuration before M6): no reservation.
+    reserve_attempt_usd: float | None = Field(default=None, gt=0)
 
 
 class RulesSettings(_Model):
@@ -143,6 +147,8 @@ class Configuration(_Model):
         for key, off in _DIGEST_OPTIONAL.items():
             if repair.get(key) == off:
                 repair.pop(key)
+        if data["cost"].get("reserve_attempt_usd") is None:
+            data["cost"].pop("reserve_attempt_usd", None)
         blob = json.dumps(data, sort_keys=True).encode()
         return hashlib.sha256(blob).hexdigest()[:12]
 

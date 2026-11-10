@@ -69,6 +69,8 @@ class RepairReport(BaseModel):
     stopped_by_cost_cap: bool = False
     cost_cap_reason: str | None = None
     human_changed: list[str] = []  # files changed at Review (Edit, or while paused)
+    # The worst case reserved before repair started (M6), when the configuration asks.
+    reserved_usd: float | None = None
 
     @property
     def tool_calls(self) -> int:

@@ -1,0 +1,43 @@
+# Case: OpossumUI (a real open-source repo, M6), scored against its merged MUI v4 -> v5
+# PR instead of planted traps. The first run clones the repo into the Migrator's cache
+# (~/.cache/migrator/repos/) and extracts the base commit (~/.cache/migrator/cases/);
+# nothing of it lands in this repository. See docs/m6-plan.md.
+
+id = "opossum-ui"
+migration = "mui@4->mui@5"
+split = "dev"
+runner = "jest"
+# The merged migration PR: what each run is scored against (migrator.evals.reference).
+reference = "upstream"
+# Tests take about 3 minutes in the sandbox, so a run needs more than the default 30.
+ceiling_s = 5400
+
+[upstream]
+repo = "https://github.com/opossum-tool/OpossumUI.git"
+commit = "bf4195c7b0676304da3f91bce2fb49470cca49c1"       # the PR's merge base on main
+reference_pr = "https://github.com/opossum-tool/OpossumUI/pull/218"
+reference_head = "7456bd4b01e2fbbcdf1580a2d08200332e66e539" # the PR's last commit (merged 2021-11-26)
+
+[repo]
+# CRA 4.0.3 (Jest 26), TypeScript 4.5, Electron 13, yarn v1.
+node = "16"
+install_flags = []
+source_globs = ["src/**/*.ts", "src/**/*.tsx"]
+exclude = ["**/node_modules/**", "src/e2e-tests/**"]
+# M6: label migrated files covered / not covered (Pre-check runs the tests with
+# coverage once), and let the Migrator update snapshot-only failures for a human.
+coverage = true
+update_snapshots = true
+
+[repo.install_env]
+# Electron and Playwright download binaries at install; no test here needs them.
+ELECTRON_SKIP_BINARY_DOWNLOAD = "1"
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1"
+
+[repo.verify]
+# The repo's own `compile-all`, `lint-check` and unit + integration tests (its `lint`
+# script runs --fix, and its e2e tests need Electron), called as binaries so yarn's
+# network check never runs offline.
+typecheck = "node_modules/.bin/tsc -p ./ && node_modules/.bin/tsc --noEmit -p src/ElectronBackend"
+lint = "node_modules/.bin/eslint -c .eslintrc.js 'src/**/*.{ts,tsx}'"
+test = "node_modules/.bin/react-scripts test --watchAll=false --testPathIgnorePatterns=src/e2e-tests --testMatch '**/__(tests|tests-ci)__/**/*.ts?(x)'"
