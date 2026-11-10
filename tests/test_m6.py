@@ -194,3 +194,29 @@ def test_a_vitest_coverage_include_is_not_a_test_glob(tmp_path: Path) -> None:
     rules = read_test_rules(tmp_path)
     assert rules.test_globs == ["src/**/*.{test,spec}.{ts,tsx}"]
     assert "src/vitest.setup.ts" in rules.setup_files
+
+
+def test_coverage_from_a_vitest_report_without_a_summary(tmp_path: Path) -> None:
+    ws = tmp_path / "ws"
+    (ws / "src").mkdir(parents=True)
+    report = tmp_path / "precheck-vitest.json"
+    report.write_text(
+        json.dumps(
+            {
+                "coverageMap": {
+                    str(ws / "src/A.tsx"): {"path": str(ws / "src/A.tsx"), "f": {"0": 2}, "s": {}},
+                    str(ws / "src/B.tsx"): {
+                        "path": str(ws / "src/B.tsx"),
+                        "f": {"0": 0},
+                        "s": {"0": 1},
+                    },
+                    str(ws / "src/c.ts"): {"path": str(ws / "src/c.ts"), "f": {}, "s": {"0": 1}},
+                }
+            }
+        )
+    )
+    assert read_coverage(tmp_path / "missing", ws, report) == {
+        "src/A.tsx": True,
+        "src/B.tsx": False,
+        "src/c.ts": True,
+    }

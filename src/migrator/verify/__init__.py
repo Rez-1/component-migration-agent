@@ -319,7 +319,10 @@ def precheck(inp: PrecheckInput, runner: CommandRunner) -> PrecheckResult:
         ),
         runner,
     )
-    covered = read_coverage(coverage_dir, inp.workspace) if coverage_dir else None
+    covered = None
+    if coverage_dir is not None:
+        report = inp.log_dir / f"precheck-{inp.config.runner}.json"
+        covered = read_coverage(coverage_dir, inp.workspace, report)
     type_errors = [f for f in verified.failures if f.source == "typecheck"]
     if type_errors:
         files = sorted({f.file or "(no file)" for f in type_errors})
@@ -336,16 +339,25 @@ def precheck(inp: PrecheckInput, runner: CommandRunner) -> PrecheckResult:
     return PrecheckResult(status="ok", install=installed, verify=verified, covered=covered)
 
 
-def read_coverage(coverage_dir: Path, workspace: Path) -> dict[str, bool] | None:
+def read_coverage(
+    coverage_dir: Path, workspace: Path, runner_report: Path | None = None
+) -> dict[str, bool] | None:
     """``coverage-summary.json`` (Jest's and Vitest's json-summary reporter) as
     repo-relative path -> covered. A file counts as covered when a test ran at least one
     of its functions (just importing it runs only module-level code), or, for a file
     without functions, at least one of its lines."""
     path = coverage_dir / "coverage-summary.json"
-    if not path.is_file():
-        return None
-    data = json.loads(path.read_text("utf-8"))
     root = workspace.resolve()
+    if not path.is_file():
+        # Vitest 4 with its JSON reporter puts the coverage in that report
+        # (``coverageMap``, Istanbul's per-file counts) and wrote no summary (M6).
+        if runner_report is None or not runner_report.is_file():
+            return None
+        cmap = json.loads(runner_report.read_text("utf-8")).get("coverageMap")
+        if not isinstance(cmap, dict):
+            return None
+        return _covered_from_map(cmap, root)
+    data = json.loads(path.read_text("utf-8"))
     out: dict[str, bool] = {}
     for key, summary in data.items():
         if key == "total" or not isinstance(summary, dict):
@@ -360,6 +372,23 @@ def read_coverage(coverage_dir: Path, workspace: Path) -> dict[str, bool] | None
             out[rel] = functions.get("covered", 0) > 0
         else:
             out[rel] = lines.get("covered", 0) > 0
+    return dict(sorted(out.items()))
+
+
+def _covered_from_map(cmap: dict[str, object], root: Path) -> dict[str, bool]:
+    """The same rule from an Istanbul coverage map: ``f`` counts calls per function,
+    ``s`` per statement."""
+    out: dict[str, bool] = {}
+    for key, entry in cmap.items():
+        if not isinstance(entry, dict):
+            continue
+        try:
+            rel = Path(str(entry.get("path") or key)).resolve().relative_to(root).as_posix()
+        except ValueError:
+            continue
+        functions = list((entry.get("f") or {}).values())
+        statements = list((entry.get("s") or {}).values())
+        out[rel] = any(n > 0 for n in functions) if functions else any(n > 0 for n in statements)
     return dict(sorted(out.items()))
 
 
