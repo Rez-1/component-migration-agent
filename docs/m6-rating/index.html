@@ -1,0 +1,187 @@
+<title>M6 Judge Check</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one item at a time, the two diffs side by side (stacked on a phone), verdict buttons pinned below. */
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --fg: #1b1f27; --muted: #5d6676; --line: #d9dde4;
+  --accent: #2f5bd3; --add: #e3f4e8; --add-fg: #1d6b37; --del: #fbe6e6; --del-fg: #9a2a2a; --hunk: #eef1fb;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12151b; --panel: #1a1e26; --fg: #e4e7ed; --muted: #98a1b2; --line: #2c323d;
+  --accent: #7d9cf0; --add: #183324; --add-fg: #8fd8a6; --del: #3a1d1f; --del-fg: #f0a2a2; --hunk: #212842; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12151b; --panel: #1a1e26; --fg: #e4e7ed; --muted: #98a1b2; --line: #2c323d;
+  --accent: #7d9cf0; --add: #183324; --add-fg: #8fd8a6; --del: #3a1d1f; --del-fg: #f0a2a2; --hunk: #212842; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--sans); }
+.wrap { max-width: 1400px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 40px; display: grid; gap: 16px; }
+h1 { font-size: 1.35rem; font-weight: 600; margin: 0; text-wrap: balance; }
+.intro { color: var(--muted); max-width: 72ch; margin: 0; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.progress { font-variant-numeric: tabular-nums; color: var(--muted); }
+.dots { display: flex; flex-wrap: wrap; gap: 4px; }
+.dot { width: 26px; height: 26px; border-radius: 4px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); font: 500 11px var(--mono); cursor: pointer; }
+.dot.done { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.dot.here { outline: 2px solid var(--fg); outline-offset: 1px; }
+.file { font: 500 14px var(--mono); word-break: break-all; }
+.meta { color: var(--muted); font-size: 13px; }
+.diffs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 860px) { .diffs { grid-template-columns: 1fr; } }
+.diff { min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; display: grid; grid-template-rows: auto 1fr; }
+.diff h2 { margin: 0; padding: 8px 12px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); }
+.code { overflow: auto; max-height: 62vh; font: 12.5px/1.45 var(--mono); }
+.code div { white-space: pre; padding: 0 12px; }
+.code .a { background: var(--add); color: var(--add-fg); }
+.code .d { background: var(--del); color: var(--del-fg); }
+.code .h { background: var(--hunk); color: var(--muted); }
+.code .empty { color: var(--muted); padding: 12px; white-space: normal; }
+.verdicts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+.v { text-align: left; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: inherit; cursor: pointer; display: grid; gap: 2px; }
+.v b { font-weight: 600; }
+.v span { color: var(--muted); font-size: 12.5px; }
+.v[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.v:focus-visible, .dot:focus-visible, .nav button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+textarea { width: 100%; box-sizing: border-box; min-height: 56px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--fg); font: inherit; }
+.nav { display: flex; gap: 8px; justify-content: space-between; flex-wrap: wrap; align-items: center; }
+.nav button { padding: 8px 14px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: inherit; cursor: pointer; }
+.nav button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.status { color: var(--muted); font-size: 13px; }
+.notice { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px; color: var(--muted); }
+</style>
+
+<div class="wrap">
+  <header style="display:grid;gap:6px">
+    <h1>Rate the migration, file by file</h1>
+    <p class="intro">Each item is one file from a real repo's MUI v4 → v5 migration. Left: what the project's own developers changed in their merged PR. Right: what an automated run changed, against the same v4 code. Judge only the migration; ignore extras the developers did on top (a makeStyles → sx rewrite, refactors). Which run and which configuration made the right-hand diff is hidden, and so is the LLM judge's verdict.</p>
+  </header>
+
+  <div class="bar">
+    <span class="progress" id="progress">Loading items…</span>
+    <div class="dots" id="dots"></div>
+  </div>
+
+  <section id="item" hidden style="display:grid;gap:12px">
+    <div>
+      <div class="file" id="file"></div>
+      <div class="meta" id="meta"></div>
+    </div>
+    <div class="diffs">
+      <div class="diff"><h2>Reference: the developers' PR</h2><div class="code" id="ref"></div></div>
+      <div class="diff"><h2>Candidate: the automated run</h2><div class="code" id="cand"></div></div>
+    </div>
+    <div class="verdicts" id="verdicts"></div>
+    <label for="note" class="meta">Note (optional): what decided it</label>
+    <textarea id="note" placeholder="e.g. misses the .Mui-selected border the developers added"></textarea>
+    <div class="nav">
+      <button id="prev" type="button">← Previous</button>
+      <span class="status" id="status"></span>
+      <button id="next" type="button" class="primary">Save and next →</button>
+    </div>
+  </section>
+
+  <div class="notice" id="empty" hidden></div>
+</div>
+
+<script>
+const VERDICTS = [
+  ["matches", "Matches", "The same migration changes, or equivalent ones."],
+  ["other valid fix", "Other valid fix", "Different from the reference, but a correct v5 migration."],
+  ["wrong", "Wrong", "Would compile, but behaves differently or leaves out a migration change."],
+  ["untouched", "Untouched", "The run changed nothing; the reference has migration changes."],
+  ["out of scope", "Out of scope", "The reference made no migration changes here at all."],
+];
+const $ = (id) => document.getElementById(id);
+let db = null, items = [], ratings = {}, at = 0, choice = null;
+
+function renderDiff(el, text) {
+  el.textContent = "";
+  if (!text) { const p = document.createElement("div"); p.className = "empty"; p.textContent = "(no changes)"; el.append(p); return; }
+  for (const line of text.split("\n")) {
+    if (line.startsWith("---") || line.startsWith("+++")) continue;
+    const d = document.createElement("div");
+    d.className = line.startsWith("@@") ? "h" : line.startsWith("+") ? "a" : line.startsWith("-") ? "d" : "";
+    d.textContent = line || " ";
+    el.append(d);
+  }
+}
+
+function render() {
+  const done = items.filter((it) => ratings[it.id]).length;
+  $("progress").textContent = items.length ? `${done} of ${items.length} rated` : "No items yet";
+  const dots = $("dots"); dots.textContent = "";
+  items.forEach((it, i) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "dot" + (ratings[it.id] ? " done" : "") + (i === at ? " here" : "");
+    b.textContent = String(i + 1); b.title = it.path; b.setAttribute("aria-label", `Item ${i + 1}`);
+    b.onclick = () => { at = i; load(); };
+    dots.append(b);
+  });
+  if (!items.length) return;
+  const it = items[at];
+  $("item").hidden = false; $("empty").hidden = true;
+  $("file").textContent = it.path;
+  $("meta").textContent = `Item ${at + 1} · ${it.repo}`;
+  renderDiff($("ref"), it.reference_diff);
+  renderDiff($("cand"), it.candidate_diff);
+  const vs = $("verdicts"); vs.textContent = "";
+  for (const [key, label, help] of VERDICTS) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "v"; b.setAttribute("aria-pressed", String(choice === key));
+    const t = document.createElement("b"); t.textContent = label;
+    const h = document.createElement("span"); h.textContent = help;
+    b.append(t, h); b.onclick = () => { choice = key; render(); };
+    vs.append(b);
+  }
+  $("prev").disabled = at === 0;
+  $("next").textContent = at === items.length - 1 ? "Save" : "Save and next →";
+}
+
+function load() {
+  const r = ratings[items[at]?.id];
+  choice = r ? r.verdict : null;
+  $("note").value = r ? r.note || "" : "";
+  $("status").textContent = r ? "Saved" : "";
+  render();
+}
+
+async function save() {
+  const it = items[at];
+  if (!choice) { $("status").textContent = "Pick a verdict first."; return false; }
+  if (!db) { $("status").textContent = "Saving needs you signed in to claude.ai."; return false; }
+  const body = { verdict: choice, note: $("note").value.trim(), at: new Date().toISOString() };
+  $("status").textContent = "Saving…";
+  try {
+    await db.doc("ratings/" + it.id).set(body);
+    ratings[it.id] = body; $("status").textContent = "Saved"; return true;
+  } catch (e) {
+    $("status").textContent = e && e.code === "not_granted" || e?.code === "permission_denied"
+      ? "Only the page owner can save ratings." : "Could not save. Try again in a moment.";
+    return false;
+  }
+}
+
+$("prev").onclick = () => { if (at > 0) { at--; load(); } };
+$("next").onclick = async () => { if (await save() && at < items.length - 1) { at++; load(); } else render(); };
+
+function showEmpty(text) { $("item").hidden = true; const e = $("empty"); e.hidden = false; e.textContent = text; }
+
+(async () => {
+  showEmpty("Loading the items to rate…");
+  const timer = setTimeout(() => { if (!items.length) showEmpty("The items didn't load. Reopen the page in a minute."); }, 10000);
+  db = await claude.use("db");
+  if (!db) { clearTimeout(timer); showEmpty("This page keeps its items and your ratings in its own database, which needs you signed in to claude.ai."); return; }
+  db.collection("ratings").onSnapshot((snap) => {
+    ratings = {}; for (const d of snap.docs) ratings[d.id] = d.data();
+    if (items.length) render();
+  });
+  db.collection("items").orderBy("order").onSnapshot((snap) => {
+    clearTimeout(timer);
+    const first = !items.length;
+    items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (!items.length) { showEmpty("No items yet. Claude adds them after the first runs are scored."); return; }
+    if (first) { const i = items.findIndex((it) => !ratings[it.id]); at = i < 0 ? 0 : i; load(); } else render();
+  }, () => { clearTimeout(timer); showEmpty("The items couldn't be read. Reopen the page in a minute."); });
+})();
+</script>
