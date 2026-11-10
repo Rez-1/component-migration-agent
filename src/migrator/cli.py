@@ -561,7 +561,7 @@ def eval_run(
             help="One long-lived container per run, commands by docker exec, instead of a "
             "new container per command."
         ),
-    ] = False,
+    ] = True,
     node_modules_volume: Annotated[
         bool,
         typer.Option(
@@ -572,7 +572,7 @@ def eval_run(
     incremental_typecheck: Annotated[
         bool,
         typer.Option(help="Run the type-check's tsc with --incremental (build info kept per run)."),
-    ] = False,
+    ] = True,
 ) -> None:
     """Run an experiment: every case in a split under one configuration, N runs each."""
     base = _repo_root(root)
