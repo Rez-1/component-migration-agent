@@ -69,6 +69,9 @@ class GuideConfig(_Model):
     codemod_marker: str | None = None
     drop_sections: list[str] = []
     link_base: str | None = None
+    # A guide that lists a section's changes as top-level bullet points, not headings
+    # (Angular's MDC guide): each bullet becomes one change (M7).
+    change_bullets: bool = False
 
 
 class ToolsConfig(_Model):

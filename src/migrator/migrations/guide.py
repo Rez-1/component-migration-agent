@@ -99,18 +99,76 @@ def parse_guide_file(name: str, text: str, config: GuideConfig) -> list[GuideCha
     return changes
 
 
+_BULLET = re.compile(r"^[*-] +(.*)$")
+
+
+def bullet_changes(change: GuideChange) -> list[GuideChange]:
+    """One change per top-level bullet of a section (``change_bullets``). Text before the
+    first bullet stays as the section's own entry; nested lines and code blocks belong
+    to the bullet above them."""
+    bullets: list[list[str]] = []
+    intro: list[str] = []
+    in_fence = False
+    for line in change.body.splitlines():
+        if _FENCE.match(line):
+            in_fence = not in_fence
+        m = None if in_fence else _BULLET.match(line)
+        if m:
+            bullets.append([m.group(1)])
+        elif bullets:
+            bullets[-1].append(line)
+        else:
+            intro.append(line)
+    if not bullets:
+        return [change]
+    out = (
+        [change.model_copy(update={"body": "\n".join(intro).strip()})]
+        if "".join(intro).strip()
+        else []
+    )
+    for lines in bullets:
+        paragraph = []
+        for line in lines:
+            if not line.strip():
+                break
+            paragraph.append(line.strip())
+        text = " ".join(" ".join(paragraph).split())
+        title = re.split(r"(?<=[.:])\s", text, maxsplit=1)[0][:120].rstrip(".:")
+        out.append(
+            GuideChange(
+                id=f"{change.id}/{slug(title)[:60]}",
+                file=change.file,
+                section=change.section,
+                title=_plain(title),
+                kind="change",
+                codemod_handled=False,
+                body="\n".join(lines).strip(),
+            )
+        )
+    return out
+
+
 def load_guide(guide_dir: Path, config: GuideConfig) -> list[GuideChange]:
     changes: list[GuideChange] = []
     for name in config.files:
-        changes.extend(parse_guide_file(name, (guide_dir / name).read_text("utf-8"), config))
+        parsed = parse_guide_file(name, (guide_dir / name).read_text("utf-8"), config)
+        if config.change_bullets:
+            parsed = [c for section in parsed for c in bullet_changes(section)]
+        changes.extend(parsed)
     return changes
 
 
 def changes_for_symbol(symbol: str, changes: list[GuideChange]) -> list[GuideChange]:
     """Breaking changes that are about ``symbol``: the change headings of its own
     section (``## Button``), or a change heading that names it as a word
-    (``### ✅ Rename fade to alpha``)."""
+    (``### ✅ Rename fade to alpha``). A kebab-case symbol (an Angular entry point's
+    last part or a template tag: ``form-field``, ``mat-form-field``) also matches the
+    section of the same slug (``### Form Field``)."""
     word = re.compile(rf"(?<![\w$]){re.escape(symbol)}(?![\w$])")
+    kebab = symbol.removeprefix("mat-") if re.fullmatch(r"[a-z]+(-[a-z]+)*", symbol) else None
     return [
-        c for c in changes if c.kind == "change" and (c.section == symbol or word.search(c.title))
+        c
+        for c in changes
+        if c.kind == "change"
+        and (c.section == symbol or word.search(c.title) or (kebab and slug(c.section) == kebab))
     ]

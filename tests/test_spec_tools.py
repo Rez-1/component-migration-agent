@@ -121,3 +121,20 @@ def test_the_cli_exits_non_zero_on_a_failing_spec(tmp_path: Path) -> None:
     assert checked.exit_code == 1 and "placeholders" in checked.output
     ok = runner.invoke(app, ["spec", "check", "mui-4-to-5"])
     assert ok.exit_code == 0 and "0 failed" in ok.output
+
+
+def test_the_angular_spec_passes_and_its_bullets_are_changes() -> None:
+    from migrator.migrations import load_spec
+    from migrator.migrations.guide import changes_for_symbol, load_guide
+
+    folder = MIGRATIONS_DIR / "angular-material-legacy-to-mdc"
+    assert failures(check_spec(folder)) == []
+    spec = load_spec(folder)
+    assert spec.tools is None and spec.dependency_map == []
+    assert spec.detection.majors == [15, 16] and spec.detection.requires_old_usage
+    guide = load_guide(spec.guide_dir(), spec.guide)
+    form_field = changes_for_symbol("form-field", guide)
+    assert form_field[0].section == "Form Field"
+    assert form_field[0].title.startswith('The "legacy" and "standard" form-field appearance')
+    assert "as these have been dropped" in form_field[0].title  # joined across wrapped lines
+    assert changes_for_symbol("mat-slide-toggle", guide)[0].section == "Slide Toggle"
