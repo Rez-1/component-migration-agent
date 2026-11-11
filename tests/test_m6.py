@@ -373,6 +373,68 @@ def test_an_installed_package_and_an_unchanged_file_are_left_alone() -> None:
     assert revert_false_positives("a.tsx", before, before, lib, [])[1] == []
 
 
+PARENS_BEFORE = """import { ThemeProvider } from '@material-ui/core'
+
+const Row = () => {
+  return (
+    <ThemeProvider theme={t}>
+      <Cell />
+    </ThemeProvider>
+  )
+}
+"""
+# What preset-safe writes on bcgov/wps: the return's parentheses end up as JSX text.
+PARENS_AFTER = """import { ThemeProvider, StyledEngineProvider } from '@mui/material'
+
+const Row = () => {
+  return (
+    <StyledEngineProvider injectFirst>
+      (
+      <ThemeProvider theme={t}>
+        <Cell />
+      </ThemeProvider>
+      )
+    </StyledEngineProvider>
+  )
+}
+
+const Inline = () => (
+  <StyledEngineProvider injectFirst>(<ThemeProvider theme={t}>{field()}</ThemeProvider>)\
+</StyledEngineProvider>
+)
+"""
+
+
+def test_stray_parentheses_inside_a_new_styled_engine_provider_are_removed() -> None:
+    from migrator.false_positives import remove_stray_parens
+
+    text, found = remove_stray_parens("src/Row.tsx", PARENS_BEFORE, PARENS_AFTER)
+    assert [(f.kind, f.element, f.line, f.imported_from) for f in found] == [
+        ("stray_parens", "StyledEngineProvider", 5, "@mui/material"),
+        ("stray_parens", "StyledEngineProvider", 16, "@mui/material"),
+    ]
+    row = text.split("const Inline")[0]
+    assert row.count("(") == 2 and row.count(")") == 2  # `Row = ()` and `return (...)`
+    assert (
+        "<StyledEngineProvider injectFirst><ThemeProvider theme={t}>{field()}</ThemeProvider>"
+        "</StyledEngineProvider>"
+    ) in text
+    assert text.count("(") == PARENS_AFTER.count("(") - 2
+    assert found[0].kept.startswith("<StyledEngineProvider injectFirst> <ThemeProvider")
+
+
+def test_parentheses_the_author_wrote_are_left_alone() -> None:
+    from migrator.false_positives import remove_stray_parens
+
+    # Already in the file before the codemods: the author's, not the codemod's.
+    before = "const a = <StyledEngineProvider>(<b />)</StyledEngineProvider>\n"
+    after = before + "const c = 1\n"
+    assert remove_stray_parens("a.tsx", before, after) == (after, [])
+    # Parentheses with other text beside them are content, not the artifact.
+    after = "const a = <StyledEngineProvider>(see <b />)</StyledEngineProvider>\n"
+    assert remove_stray_parens("a.tsx", "const a = 1\n", after)[1] == []
+
+
 TOPBAR_AFTER_RULES = """      <IconButton
         tooltipTitle="open file"
         icon={

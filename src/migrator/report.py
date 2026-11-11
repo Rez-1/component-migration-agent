@@ -1131,7 +1131,10 @@ def _m6_review_section(card: Scorecard) -> list[str]:
     if card.codemod_false_positives:
         out += ["", "## Codemod false positives (undone by Rules)", ""]
         out += [
-            f"- `{f.file}` line {f.line}: `<{f.element}>` is the repo's own (from "
+            f"- `{f.file}` line {f.line}: `<{f.element}>` had stray `(` and `)` text "
+            f"around its child; removed them from `{_md_cell(f.reverted, 160)}`"
+            if f.kind == "stray_parens"
+            else f"- `{f.file}` line {f.line}: `<{f.element}>` is the repo's own (from "
             f"`{f.imported_from}`); undid `{_md_cell(f.reverted, 160)}`"
             for f in card.codemod_false_positives
         ]
@@ -1253,8 +1256,11 @@ def render_pr_body(card: Scorecard) -> str:
     if card.codemod_false_positives:
         lines += ["", "Codemod false positives, undone by Rules (check them):", ""]
         lines += [
-            f"- [ ] `{f.file}` line {f.line}: `<{f.element}>` from `{f.imported_from}` is the "
-            "repo's own; the codemod's change was undone"
+            f"- [ ] `{f.file}` line {f.line}: the codemod left `(` and `)` as text inside "
+            f"`<{f.element}>`; they were removed"
+            if f.kind == "stray_parens"
+            else f"- [ ] `{f.file}` line {f.line}: `<{f.element}>` from `{f.imported_from}` is "
+            "the repo's own; the codemod's change was undone"
             for f in card.codemod_false_positives
         ]
     if card.repeated_edits:

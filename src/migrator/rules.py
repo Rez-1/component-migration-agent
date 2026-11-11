@@ -17,7 +17,11 @@ from pydantic import BaseModel, ConfigDict
 
 from migrator.config import ResolvedRepoConfig, all_dependencies, read_package_json
 from migrator.execs import CommandResult, CommandRunner
-from migrator.false_positives import CodemodFalsePositive, revert_false_positives
+from migrator.false_positives import (
+    CodemodFalsePositive,
+    remove_stray_parens,
+    revert_false_positives,
+)
 from migrator.migrations import (
     CodemodStep,
     DependenciesStep,
@@ -356,7 +360,8 @@ def find_codemod_todos(
 def undo_false_positives(
     inp: RulesInput, originals: dict[str, bytes], sources: list[str]
 ) -> list[CodemodFalsePositive]:
-    """Undo the codemods' changes to the repo's own components (``false_positives``)."""
+    """Undo the codemods' changes to the repo's own components, and remove the stray
+    parentheses they leave inside a new wrapper (``false_positives``)."""
     usage = inp.spec.usage
     packages = all_dependencies(read_package_json(inp.workspace))
     found: list[CodemodFalsePositive] = []
@@ -366,13 +371,12 @@ def undo_false_positives(
         if before is None or not path.is_file():
             continue
         after = path.read_text("utf-8")
+        original = before.decode("utf-8", "replace")
         text, fps = revert_false_positives(
-            rel,
-            before.decode("utf-8", "replace"),
-            after,
-            lambda m: usage.is_old(m) or usage.is_new(m),
-            packages,
+            rel, original, after, lambda m: usage.is_old(m) or usage.is_new(m), packages
         )
+        text, parens = remove_stray_parens(rel, original, text)
+        fps = sorted(fps + parens, key=lambda f: f.line)
         if fps:
             path.write_text(text, "utf-8")
             found += fps

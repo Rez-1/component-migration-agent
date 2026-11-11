@@ -15,12 +15,20 @@ Elements are paired before and after by their position among same-named elements
 the file (the codemods change props, they don't add or remove elements); a file where
 the counts differ is left alone. Calls are not handled: no codemod in the MUI spec
 rewrites a call on a local name.
+
+A second kind (``stray_parens``): when a codemod wraps a returned element in a new
+``<StyledEngineProvider>``, it can keep the ``(`` and ``)`` that were around the element
+in the return statement, now as JSX text inside the provider. They render as visible
+parentheses and nothing checks for them (bcgov/wps). A provider whose only children are
+a ``(`` text, one element or expression, and a ``)`` text has the two parentheses
+removed. A file that already had that shape before the codemods is left alone.
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterable
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -30,6 +38,9 @@ _ELEMENTS = ("jsx_opening_element", "jsx_self_closing_element")
 
 
 class CodemodFalsePositive(BaseModel):
+    # own_component: a codemod changed the repo's own component (``imported_from``);
+    # stray_parens: a codemod left "(" and ")" as JSX text inside the element.
+    kind: Literal["own_component", "stray_parens"] = "own_component"
     file: str
     line: int  # 1-based, in the codemods' output
     element: str
@@ -197,3 +208,85 @@ def revert_false_positives(
     for s, e, text in sorted(edits, reverse=True):
         out = out[:s] + text + out[e:]
     return out.decode("utf-8"), sorted(found, key=lambda f: f.line)
+
+
+# Providers the MUI codemods add around a returned element.
+_WRAPPERS = ("StyledEngineProvider",)
+
+Paren = tuple[str, int, int, int, list[tuple[int, int]]]  # (name, start, end, line, cuts)
+
+
+def _stray_parens(source: bytes, path: str) -> list[Paren]:
+    """Every wrapper whose only children are "(", one element or expression, and ")",
+    with the byte span of each of the two parentheses."""
+    out: list[Paren] = []
+    for node in walk(parse_tree(source, path).root_node):
+        if node.type != "jsx_element" or not node.children:
+            continue
+        name = node.children[0].child_by_field_name("name")
+        if name is None or node_text(name) not in _WRAPPERS:
+            continue
+        kids = [
+            c
+            for c in node.children
+            if c.type not in ("jsx_opening_element", "jsx_closing_element")
+            and not (c.type == "jsx_text" and not node_text(c).strip())
+        ]
+        if len(kids) != 3:
+            continue
+        first, middle, last = kids
+        if not (
+            first.type == last.type == "jsx_text"
+            and node_text(first).strip() == "("
+            and node_text(last).strip() == ")"
+            and middle.type in ("jsx_element", "jsx_self_closing_element", "jsx_expression")
+        ):
+            continue
+        cuts = []
+        for text_node, char in ((first, b"("), (last, b")")):
+            at = text_node.start_byte + source[text_node.start_byte : text_node.end_byte].index(
+                char
+            )
+            cuts.append((at, at + 1))
+        out.append(
+            (node_text(name), node.start_byte, node.end_byte, node.start_point.row + 1, cuts)
+        )
+    return out
+
+
+def _cut(source: bytes, cuts: list[tuple[int, int]]) -> bytes:
+    for s, e in sorted(cuts, reverse=True):
+        source = source[:s] + source[e:]
+    return source
+
+
+def remove_stray_parens(
+    path: str, before: str, after: str
+) -> tuple[str, list[CodemodFalsePositive]]:
+    """``after`` with the "(" and ")" a codemod left inside a new wrapper removed."""
+    if before == after:
+        return after, []
+    b_bytes, a_bytes = before.encode("utf-8"), after.encode("utf-8")
+    if _stray_parens(b_bytes, path):
+        return after, []  # the shape was there before the codemods: it is the author's
+    hits = _stray_parens(a_bytes, path)
+    if not hits:
+        return after, []
+    imports = _imports(parse_tree(a_bytes, path).root_node)
+    found: list[CodemodFalsePositive] = []
+    for name, start, end, line, cuts in hits:
+        element = a_bytes[start:end]
+        local = [(s - start, e - start) for s, e in cuts]
+        found.append(
+            CodemodFalsePositive(
+                kind="stray_parens",
+                file=path,
+                line=line,
+                element=name,
+                imported_from=imports.get(name, ""),
+                reverted=_squash(element.decode("utf-8", "replace"))[:300],
+                kept=_squash(_cut(element, local).decode("utf-8", "replace"))[:300],
+            )
+        )
+    out = _cut(a_bytes, [c for hit in hits for c in hit[4]])
+    return out.decode("utf-8"), found
