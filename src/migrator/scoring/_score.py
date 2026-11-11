@@ -8,7 +8,7 @@ from typing import Any
 from migrator.checks import Layer
 from migrator.config import Trap
 from migrator.repair.records import RepairReport
-from migrator.scoring.evidence import Evidence
+from migrator.scoring.evidence import AgentChanges, Evidence, MigratorChanges
 from migrator.scoring.scorecard import (
     OUTCOMES,
     AttemptSummary,
@@ -80,11 +80,13 @@ def _score_trap(
     handed_off: set[str],
     rules_ok: bool,
     rules_changed: set[str],
+    rules_stage: bool = True,
 ) -> TrapResult:
     """One trap's result. A rules trap counts as handled when the Rules stage changed its
     file and its check stays quiet (a later agent edit to the same file doesn't undo
-    that); a human trap is Expected when its file was handed off, even though its check
-    still fires at the final verify."""
+    that); with no Rules stage, a rules trap the agent handled is Other layer. A human
+    trap is Expected when its file was handed off, even though its check still fires
+    at the final verify."""
     file = trap.location.file
     checks: list[TrapCheck] = []
     evidence: list[str] = []
@@ -96,7 +98,7 @@ def _score_trap(
     result: TrapResultName
     if trap.expected_layer == "visual-only":
         result = "Not scored"
-    elif trap.expected_layer == "rules":
+    elif trap.expected_layer == "rules" and rules_stage:
         handled = rules_ok and file in rules_changed and not caught
         result = "Expected" if handled else "Missed"
     elif trap.expected_layer == "human" and file in handed_off:
@@ -191,21 +193,42 @@ def _commands(outcomes: list[Any]) -> list[CommandSummary]:
 def score(evidence: Evidence) -> Scorecard:
     """The Scorecard of one finished workspace."""
     ev = evidence
-    ch = ev.changes
+    if isinstance(ev.changes, AgentChanges):
+        return _score(ev, MigratorChanges(rules=None), ev.changes)
+    return _score(ev, ev.changes, None)
+
+
+def _score(ev: Evidence, ch: MigratorChanges, agent: AgentChanges | None) -> Scorecard:
+    """The scoring rules. ``agent`` is set for a workspace with no Rules stage; ``ch`` is
+    then empty (no Rules, no repair, no review aids)."""
     affected = ev.usage.affected_files()
-    rules_ok = ch.rules is not None and ch.rules.status == "ok"
     failures = ev.verify.failures if ev.verify else []
     rules_changed = set(ch.rules.changed_files) if ch.rules else set()
     layers: dict[str, Layer] = {p: "rules" for p in rules_changed}
     layers.update(ch.later_layers or {})
     repair = ch.repair
     records = {f.path: f for f in repair.files} if repair else {}
-    handed_off: set[str] = set(repair.review_list) if repair else set()
+    handed_off: list[str] = list(repair.review_list) if repair else []
+    unfinished: dict[str, str] = {}
+    if agent is None:
+        rules_ok = ch.rules is not None and ch.rules.status == "ok"
+        before = ch.rules_verify or ev.verify
+        failing_before = {f.file for f in before.failures if f.file} if before else set()
+        changed_by_run: set[str] = set()
+        changed = rules_changed
+    else:
+        # No Rules stage: everything the agent changed is layer Agent, its unfinished
+        # files are its Hand-offs, and Regressions are counted against the Pre-check.
+        rules_ok = True
+        layers = dict.fromkeys(agent.changed_files, "agent")
+        unfinished = {u.path: u.reason for u in agent.unfinished}
+        handed_off = list(unfinished)
+        failing_before = {f.file for f in ev.precheck.pre_existing_failures if f.file}
+        changed_by_run = set(agent.changed_files)
+        changed = changed_by_run
     cheating = ev.cheating
     hit_files = cheating.hit_files() if cheating else set()
     hits = cheating.hits if cheating else []
-    before = ch.rules_verify or ev.verify
-    failing_before = {f.file for f in before.failures if f.file} if before else set()
 
     if ev.precheck.status == "rejected":
         status: RunStatus = "rejected"
@@ -216,8 +239,12 @@ def score(evidence: Evidence) -> Scorecard:
         status, reason = "completed", None
 
     failing_files = sorted({f.file for f in failures if f.file})
-    # A Regression: a file with no failures after Rules that fails at the final verify.
-    regressions = sorted(p for p in failing_files if p not in failing_before)
+    # A Regression: a file with no failures before (after Rules, or at the Pre-check)
+    # that fails at the final verify. A file the producer changed itself is not one: it
+    # ends Unmigrated with its failures.
+    regressions = sorted(
+        p for p in failing_files if p not in failing_before and p not in changed_by_run
+    )
 
     files: list[FileResult] = []
     for path in affected:
@@ -233,6 +260,8 @@ def score(evidence: Evidence) -> Scorecard:
         elif path in hit_files:
             checks = sorted({h.check for h in hits if h.file == path})
             outcome, note = "Unmigrated", "cheating check: " + ", ".join(checks)
+        elif path in unfinished:
+            outcome, note = "Handed off", unfinished[path]
         elif path in records:
             outcome, note = _repair_outcome(records[path], file_failures)
             if outcome != "Handed off" and left:
@@ -263,14 +292,20 @@ def score(evidence: Evidence) -> Scorecard:
     counts = Counter(f.outcome for f in files)
     without_human = counts["Migrated by rules"] + counts["Migrated by agent"]
     # A clean run: no failures outside handed-off files (and no cheating-check hit).
-    outside = [f for f in failures if f.file not in handed_off or f.file is None]
+    outside = [f for f in failures if f.file not in set(handed_off) or f.file is None]
 
     trap_results: list[TrapResult] | None = None
     trap_counts: TrapCounts | None = None
     if ev.traps is not None:
         trap_results = [
             _score_trap(
-                t, failures, layers, handed_off, rules_ok and status == "completed", rules_changed
+                t,
+                failures,
+                layers,
+                set(handed_off),
+                rules_ok and status == "completed",
+                rules_changed,
+                rules_stage=agent is None,
             )
             for t in ev.traps.traps
         ]
@@ -294,7 +329,7 @@ def score(evidence: Evidence) -> Scorecard:
             share=round(without_human / len(affected), 4) if affected else 0.0,
         ),
         outcomes={o: counts[o] for o in OUTCOMES},
-        hand_offs=len(handed_off),
+        hand_offs=len(set(handed_off)),
         regressions=len(regressions),
         cheating_check_hits=len(hits),
         cheating_check_warnings=len(cheating.warnings) if cheating else 0,
@@ -321,7 +356,7 @@ def score(evidence: Evidence) -> Scorecard:
         reason=reason,
         headline=headline,
         files=files,
-        changed_not_affected=sorted(rules_changed - set(affected)),
+        changed_not_affected=sorted(changed - set(affected)),
         precheck=PrecheckSummary(
             status=pre.status,
             reason=pre.reason,
@@ -364,6 +399,8 @@ def score(evidence: Evidence) -> Scorecard:
         cheating=cheating,
         repair=_repair_summary(repair, files) if repair else None,
         regressions=regressions,
+        regressions_against="Verify after Rules" if agent is None else "Pre-check",
+        handed_off=handed_off,
         coverage=coverage,
         snapshots_to_review=ch.snapshots_to_review,
         repeated_edits=ch.repeated_edits,

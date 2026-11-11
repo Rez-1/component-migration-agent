@@ -455,6 +455,13 @@ def load_overrides(case: CaseConfig) -> list[Override]:
         return [Override.model_validate(o) for o in tomllib.load(fh).get("override", [])]
 
 
+def real_repo_silent_miss(verdict: Verdict, final_failures: int, handed_off: bool) -> bool:
+    """A Silent miss on a real repo: a scoring item judged wrong or untouched whose file
+    has no failure at the final verify and was not handed off, so verify can't show
+    it."""
+    return verdict in ("wrong", "untouched") and final_failures == 0 and not handed_off
+
+
 def score_run(
     case: CaseConfig,
     run: RunInputs,
@@ -473,7 +480,7 @@ def score_run(
     overrides = load_overrides(case)
     outcomes = {f.path: f.outcome for f in card.files}
     failures = Counter(f.file for f in (card.verify.failures if card.verify else []) if f.file)
-    handed = set(card.repair.review_list) if card.repair else set()
+    handed = set(card.handed_off)  # a general agent's unfinished files count too
     calls, spent = 0, 0.0
     items: list[ItemScore] = []
     for path in sel.items:
@@ -517,7 +524,7 @@ def score_run(
                 outcome=outcomes.get(path),
                 final_failures=fails,
                 handed_off=path in handed,
-                silent_miss=verdict in ("wrong", "untouched") and fails == 0 and path not in handed,
+                silent_miss=real_repo_silent_miss(verdict, fails, path in handed),
                 covered=run.covered.get(path) if run.covered is not None else None,
                 judge_key=key,
                 judge_verdict=judge_verdict,
@@ -534,9 +541,7 @@ def score_run(
         counts={v: counts[v] for v in VERDICTS},
         silent_misses=sum(i.silent_miss for i in items),
         judge_silent_misses=sum(
-            (i.judge_verdict or i.verdict) in ("wrong", "untouched")
-            and i.final_failures == 0
-            and not i.handed_off
+            real_repo_silent_miss(i.judge_verdict or i.verdict, i.final_failures, i.handed_off)
             for i in items
         ),
         test_files_changed=sel.test_files,

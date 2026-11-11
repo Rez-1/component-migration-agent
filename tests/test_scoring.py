@@ -29,11 +29,13 @@ from migrator.repair.records import FileRepair, RepairReport
 from migrator.rules import RulesResult, RuleStepResult
 from migrator.scan import ScanInput, UsageReport, scan
 from migrator.scoring import (
+    AgentChanges,
     Evidence,
     MigratorChanges,
     RunMeta,
     Scorecard,
     TrapResult,
+    Unfinished,
     score,
     stable_view,
 )
@@ -140,6 +142,7 @@ def changed(evidence: Evidence, **changes: Any) -> Evidence:
 
 
 def _rules_changed(evidence: Evidence, files: list[str]) -> Evidence:
+    assert isinstance(evidence.changes, MigratorChanges)
     rules = evidence.changes.rules
     assert rules is not None
     return changed(evidence, rules=rules.model_copy(update={"changed_files": files}))
@@ -421,6 +424,107 @@ def test_an_affected_file_nobody_changed_is_still_unmigrated(card_input: Evidenc
 # --------------------------------------------------------------------------- replayed runs
 
 CASES = sorted(p for p in GOLDENS.iterdir() if p.is_dir())
+
+
+# --------------------------------------------------------------------------- a general agent
+
+
+OTHER = Failure(source="lint", file="src/util.ts", line=3, code="no-unused-vars", message="x")
+
+
+def by_agent(evidence: Evidence, failures: list[Failure], **changes: Any) -> Evidence:
+    """``evidence`` as a general agent's workspace: no Rules stage, every affected file
+    changed by the agent unless ``changed_files`` says otherwise."""
+    agent = AgentChanges(changed_files=changes.pop("changed_files", sorted(FILES)), **changes)
+    return evidence.model_copy(
+        update={"changes": agent, "verify": VerifyResult(commands=[], failures=failures)}
+    )
+
+
+def test_a_general_agents_files_are_its_own_and_its_unfinished_ones_are_hand_offs(
+    card_input: Evidence,
+) -> None:
+    left = Unfinished(path="src/Tested.tsx", reason="needs a test change a human must make")
+    card = score(by_agent(card_input, [TYPE_ERROR, TEST_FAIL], unfinished=[left]))
+    outcomes = {f.path: (f.outcome, f.layer, f.note) for f in card.files}
+    assert card.status == "completed"  # no Rules stage is not a Rules failure
+    assert outcomes["src/Clean.tsx"][:2] == ("Migrated by agent", "agent")
+    assert outcomes["src/Broken.tsx"][0] == "Unmigrated"
+    assert outcomes["src/Tested.tsx"] == ("Handed off", "agent", left.reason)
+    assert card.handed_off == ["src/Tested.tsx"] and card.headline.hand_offs == 1
+    assert card.rules is None and card.repair is None
+    assert not card.headline.clean_run  # Broken.tsx fails outside the hand-offs
+
+
+def test_a_general_agents_clean_run(card_input: Evidence) -> None:
+    left = Unfinished(path="src/Broken.tsx", reason="Grid's v5 props")
+    card = score(by_agent(card_input, [TYPE_ERROR], unfinished=[left]))
+    assert card.headline.clean_run  # its only failure is in a handed-off file
+
+
+def test_without_a_rules_stage_regressions_count_against_the_pre_check(
+    card_input: Evidence,
+) -> None:
+    card = score(by_agent(card_input, [TYPE_ERROR, OTHER]))
+    # Broken.tsx fails, but the agent changed it itself: Unmigrated, not a Regression.
+    assert card.regressions == ["src/util.ts"] and card.headline.regressions == 1
+    assert card.regressions_against == "Pre-check"
+    known = card_input.precheck.model_copy(
+        update={"verify": VerifyResult(commands=[], failures=[OTHER])}
+    )
+    again = score(by_agent(card_input, [OTHER]).model_copy(update={"precheck": known}))
+    assert again.regressions == []  # it failed at the Pre-check already
+
+
+def test_a_file_the_agent_left_alone_that_now_fails_is_a_regression(
+    card_input: Evidence,
+) -> None:
+    card = score(by_agent(card_input, [TYPE_ERROR], changed_files=["src/Clean.tsx"]))
+    assert card.regressions == ["src/Broken.tsx"]
+
+
+def test_without_a_rules_stage_a_rules_trap_the_agent_handled_is_other_layer(
+    card_input: Evidence,
+) -> None:
+    card = score(by_agent(card_input, [TEST_FAIL]))
+    assert card.traps is not None
+    results = {t.id: t.result for t in card.traps}
+    assert results["grid-rename"] == "Other layer"  # the agent did what Rules would have
+    assert results["grid-types"] == "Expected"  # its check is quiet, the agent's file
+    assert results["dialog-backdrop"] == "Missed"  # its test still fails
+    untouched = score(by_agent(card_input, [], changed_files=["src/Clean.tsx"]))
+    assert untouched.traps is not None
+    assert {t.id: t.result for t in untouched.traps}["grid-rename"] == "Missed"
+
+
+def test_a_general_agents_evidence_replays_and_says_what_it_is(card_input: Evidence) -> None:
+    left = Unfinished(path="src/Tested.tsx", reason="test change")
+    evidence = by_agent(card_input, [OTHER], unfinished=[left])
+    again = Evidence.model_validate_json(evidence.model_dump_json())
+    assert isinstance(again.changes, AgentChanges)
+    assert stable_view(score(again)) == stable_view(score(evidence))
+    view = stable_view(score(evidence))
+    assert view["regressions_against"] == "Pre-check"
+    assert view["handed_off"] == ["src/Tested.tsx"]
+    migrator_view = stable_view(score(card_input))
+    assert "regressions_against" not in migrator_view and "handed_off" not in migrator_view
+
+
+def test_old_scorecards_get_their_hand_offs_from_the_review_list(card_input: Evidence) -> None:
+    review = RepairReport(enabled=True, review_list=["src/Broken.tsx"])
+    data = score(changed(card_input, repair=review)).model_dump(mode="json")
+    data.pop("handed_off")
+    assert Scorecard.model_validate(data).handed_off == ["src/Broken.tsx"]
+
+
+def test_the_real_repo_silent_miss_rule() -> None:
+    from migrator.evals.reference import real_repo_silent_miss
+
+    assert real_repo_silent_miss("wrong", 0, handed_off=False)
+    assert real_repo_silent_miss("untouched", 0, handed_off=False)
+    assert not real_repo_silent_miss("wrong", 2, handed_off=False)  # verify shows it
+    assert not real_repo_silent_miss("wrong", 0, handed_off=True)  # a human will look
+    assert not real_repo_silent_miss("matches", 0, handed_off=False)
 
 
 def test_there_are_goldens_for_every_kind_of_run() -> None:

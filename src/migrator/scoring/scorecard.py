@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from migrator.checks import CheatingReport, Layer
 from migrator.cost import RunCost
@@ -36,6 +36,9 @@ OUTCOMES: tuple[Outcome, ...] = (
 )
 TrapResultName = Literal["Expected", "Other layer", "Missed", "Not scored"]
 RunStatus = Literal["completed", "rejected", "rules_failure"]
+# The Verify Regressions are counted against: the one after Rules, or the Pre-check for
+# a workspace with no Rules stage. Not "baseline": the Baseline is a Configuration.
+RegressionsAgainst = Literal["Verify after Rules", "Pre-check"]
 
 
 class Share(BaseModel):
@@ -265,6 +268,10 @@ class Scorecard(BaseModel):
     # Schema 3 fields default, so schema-2 scorecards (M2 experiments) still load.
     repair: RepairSummary | None = None  # None when repair is off (the Baseline)
     regressions: list[str] = []
+    regressions_against: RegressionsAgainst = "Verify after Rules"
+    # The run's Hand-offs: the review list for a Migrator run, the files a general agent
+    # left unfinished. Reference scoring reads it.
+    handed_off: list[str] = []
     # M6 sections; None (and left out of the stable view) on runs that don't use them.
     coverage: CoverageSummary | None = None
     snapshots_to_review: list[SnapshotUpdate] | None = None
@@ -278,6 +285,18 @@ class Scorecard(BaseModel):
     cost: RunCost
     meta: RunMeta
 
+    @model_validator(mode="before")
+    @classmethod
+    def _handed_off_from_the_review_list(cls, data: Any) -> Any:
+        """Scorecards written before ``handed_off`` existed: their review list."""
+        if isinstance(data, dict) and "handed_off" not in data:
+            repair = data.get("repair")
+            review = repair.get("review_list") if isinstance(repair, dict) else None
+            if review is None and repair is not None and not isinstance(repair, dict):
+                review = repair.review_list
+            data = {**data, "handed_off": list(review or [])}
+        return data
+
 
 def stable_view(scorecard: Scorecard | dict[str, Any]) -> dict[str, Any]:
     """The deterministic part of a scorecard: everything but ``meta`` and ``visual`` (M7:
@@ -290,6 +309,13 @@ def stable_view(scorecard: Scorecard | dict[str, Any]) -> dict[str, Any]:
     for key in _M6_KEYS:
         if data.get(key) is None:
             data.pop(key, None)
+    # Fields with nothing new to say are left out, so stable views written before them
+    # (the committed expected scorecards) don't change: a Migrator run's Regressions
+    # are against the Verify after Rules, and its Hand-offs are its review list.
+    if data.get("regressions_against", "Verify after Rules") == "Verify after Rules":
+        data.pop("regressions_against", None)
+    if data.get("handed_off", []) == ((data.get("repair") or {}).get("review_list") or []):
+        data.pop("handed_off", None)
     return data
 
 

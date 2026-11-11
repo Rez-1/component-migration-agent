@@ -3,14 +3,15 @@
 The same rules whatever changed the workspace. A pure, in-process package: it runs no
 Verify, scan or Cheating check and reads no files. Callers import only from here:
 
-- ``score(evidence)``: the Scorecard of one run.
+- ``score(evidence)``: the Scorecard of one run, from the Migrator
+  (``MigratorChanges``) or from a general coding agent (``AgentChanges``).
 - ``run_metrics(card)`` and ``METRICS``: the one per-run metric list, which the
   experiment summary, ``grade()`` and the hill-climb keep rule all read.
 - The Scorecard schema and ``stable_view``, its deterministic part.
 """
 
 from migrator.scoring._score import score
-from migrator.scoring.evidence import Evidence, MigratorChanges
+from migrator.scoring.evidence import AgentChanges, Evidence, MigratorChanges, Unfinished
 from migrator.scoring.metrics import METRICS, Metric, Unit, ViewerColumn, run_metrics
 from migrator.scoring.scorecard import (
     OUTCOMES,
@@ -23,6 +24,7 @@ from migrator.scoring.scorecard import (
     Headline,
     Outcome,
     PrecheckSummary,
+    RegressionsAgainst,
     RepairSummary,
     RepeatedEdit,
     RulesSummary,
@@ -45,6 +47,7 @@ __all__ = [
     "METRICS",
     "OUTCOMES",
     "SCHEMA_VERSION",
+    "AgentChanges",
     "AttemptSummary",
     "CommandSummary",
     "CoverageSummary",
@@ -56,6 +59,7 @@ __all__ = [
     "MigratorChanges",
     "Outcome",
     "PrecheckSummary",
+    "RegressionsAgainst",
     "RepairSummary",
     "RepeatedEdit",
     "RulesSummary",
@@ -70,6 +74,7 @@ __all__ = [
     "TrapCounts",
     "TrapResult",
     "TrapResultName",
+    "Unfinished",
     "Unit",
     "VerifySummary",
     "ViewerColumn",
