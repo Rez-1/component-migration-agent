@@ -147,17 +147,6 @@ class ConfigError(ValueError):
     pass
 
 
-def detect_package_manager(repo: Path) -> tuple[PackageManager, str]:
-    """The package manager and lockfile name; a repo without a lockfile is refused."""
-    for name, manager in LOCKFILES.items():
-        if (repo / name).exists():
-            return manager, name
-    raise ConfigError(
-        f"{repo} has no lockfile ({', '.join(LOCKFILES)}); the Migrator needs one to "
-        "install the same packages the repo uses"
-    )
-
-
 def read_package_json(repo: Path) -> dict[str, object]:
     path = repo / "package.json"
     if not path.exists():
@@ -186,28 +175,6 @@ def run_script_command(manager: PackageManager, script: str) -> str:
     if manager == "npm":
         return "npm test" if script == "test" else f"npm run {script}"
     return f"{manager} {script}" if manager == "yarn" else f"pnpm run {script}"
-
-
-def detect_verify_commands(repo: Path, manager: PackageManager) -> VerifyCommands:
-    """Verify commands from package.json scripts, when the config does not name them."""
-    scripts = _scripts(read_package_json(repo))
-    typecheck = next((s for s in ("typecheck", "type-check", "tsc") if s in scripts), None)
-    return VerifyCommands(
-        typecheck=run_script_command(manager, typecheck)
-        if typecheck
-        else ("npx tsc --noEmit" if (repo / "tsconfig.json").exists() else None),
-        lint=run_script_command(manager, "lint") if "lint" in scripts else None,
-        test=run_script_command(manager, "test") if "test" in scripts else None,
-    )
-
-
-def detect_runner(repo: Path) -> Runner | None:
-    deps = all_dependencies(read_package_json(repo))
-    if "vitest" in deps:
-        return "vitest"
-    if "jest" in deps:
-        return "jest"
-    return None
 
 
 class LeftoverCheck(_Model):
@@ -240,42 +207,6 @@ class ResolvedRepoConfig(_Model):
     visual: VisualConfig | None = None
     leftovers: LeftoverCheck | None = None
     precheck_dependencies: dict[str, str] = {}
-
-
-def resolve_repo_config(
-    repo: Path,
-    override: RepoConfig | None,
-    default_globs: list[str],
-    default_exclude: list[str],
-) -> ResolvedRepoConfig:
-    config = load_repo_config(repo)
-    if override is not None:
-        config = override.merged_over(config)
-    manager, lockfile = detect_package_manager(repo)
-    detected = detect_verify_commands(repo, manager)
-    given = config.verify or VerifyCommands()
-    verify = VerifyCommands(
-        typecheck=given.typecheck or detected.typecheck,
-        lint=given.lint or detected.lint,
-        test=given.test or detected.test,
-        typecheck_incremental=given.typecheck_incremental,
-    )
-    return ResolvedRepoConfig(
-        package_manager=manager,
-        lockfile=lockfile,
-        node=config.node,
-        install_flags=config.install_flags or [],
-        source_globs=config.source_globs or default_globs,
-        exclude=config.exclude or default_exclude,
-        runner=config.runner or detect_runner(repo),
-        verify=verify,
-        install_env=config.install_env or {},
-        extra_dependencies=config.extra_dependencies or {},
-        coverage=bool(config.coverage),
-        update_snapshots=bool(config.update_snapshots),
-        visual=config.visual,
-        precheck_dependencies=config.precheck_dependencies or {},
-    )
 
 
 # --------------------------------------------------------------------------- traps

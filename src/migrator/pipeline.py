@@ -45,10 +45,10 @@ from migrator.config import (
     load_case,
     load_traps,
     read_package_json,
-    resolve_repo_config,
 )
 from migrator.configuration import BASELINE, Configuration, ensure_runnable
 from migrator.cost import CostGuard, Ledger, UnknownModelPriceError, price_for
+from migrator.detection import resolve_repo_config
 from migrator.execs import (
     CommandRunner,
     DeadlineRunner,
@@ -265,6 +265,47 @@ class RunRecord(BaseModel):
     workspace: str | None = None
     worktree: Worktree | None = None  # a real run's worktree and branch
     pr_url: str | None = None  # set by `migrator pr --open`
+    # The run's RunOptions as start_run used them, minus the fields recorded above
+    # (spec, case, configuration) and the folder itself. Resume rebuilds the options
+    # from this, so an option added to RunOptions reaches resume without more code.
+    # None in run.json files written before it existed.
+    options: dict[str, Any] | None = None
+
+
+# RunOptions fields that run.json records in its own fields, or that resume knows
+# from where it is (run_dir).
+_REBUILT_OPTIONS = {"spec", "case", "configuration", "run_dir"}
+
+
+def record_options(opts: RunOptions) -> dict[str, Any]:
+    return opts.model_dump(mode="json", exclude=_REBUILT_OPTIONS)
+
+
+def options_from_record(record: RunRecord, run_dir: Path) -> RunOptions:
+    """The RunOptions a run started with, rebuilt from its run.json."""
+    saved = record.options
+    if saved is None:  # a run.json from before ``options``: what it did record
+        saved = {
+            "repo": record.repo,
+            "traps": record.traps,
+            "keep_workspace": record.keep_workspace,
+            "tools_cache": record.tools_cache,
+            "run_id": record.run_id,
+            "max_run_usd": record.max_run_usd,
+            "mode": record.mode,
+            "sandbox": record.sandbox,
+            "real": record.worktree is not None,
+            "branch": record.worktree.branch if record.worktree else None,
+        }
+    return RunOptions.model_validate(
+        {
+            **saved,
+            "spec": find_spec(record.migration_from, record.migration_to),
+            "case": load_case(Path(record.case)) if record.case else None,
+            "configuration": Configuration.model_validate(record.configuration),
+            "run_dir": run_dir,
+        }
+    )
 
 
 def run_record_path(run_dir: Path) -> Path:
@@ -319,6 +360,38 @@ def sandbox_runner(
         image=browser,
     )
     return runner, cache
+
+
+def open_runner(
+    opts: RunOptions, config: ResolvedRepoConfig, runner: CommandRunner | None
+) -> tuple[CommandRunner, CommandRunner | None, RunOptions]:
+    """The runner a run's commands go through, for start and resume alike: the
+    sandbox's (unless a runner is passed, as tests do), under the run's ceiling.
+    Returns the runner, the one made here (the caller closes it when the run ends)
+    and the options with the tools cache the sandbox chose."""
+    owned: CommandRunner | None = None
+    if runner is None:
+        try:
+            runner, tools_cache = sandbox_runner(
+                opts.sandbox,
+                config,
+                opts.tools_cache,
+                per_run=opts.run_container and opts.mode == "eval",
+                node_modules_volume=opts.node_modules_volume,
+            )
+        except SandboxError as exc:
+            raise RunError(str(exc)) from exc
+        owned = runner
+        opts = opts.model_copy(update={"tools_cache": tools_cache})
+    if opts.ceiling_s is not None:
+        runner = DeadlineRunner(runner, opts.ceiling_s)
+    return runner, owned, opts
+
+
+def close_runner(owned: CommandRunner | None) -> None:
+    close = getattr(owned, "close", None)
+    if callable(close):
+        close()  # the run's container (speed-up 3)
 
 
 def default_branch(spec: MigrationSpec) -> str:
@@ -511,23 +584,7 @@ def start_run(
             check_real_run(repo, branch)
         except GitError as exc:
             raise RunError(str(exc)) from exc
-    owned: CommandRunner | None = None  # a runner made here, closed when the run ends
-    if runner is None:
-        try:
-            runner, tools_cache = sandbox_runner(
-                opts.sandbox,
-                config,
-                opts.tools_cache,
-                per_run=opts.run_container and opts.mode == "eval",
-                node_modules_volume=opts.node_modules_volume,
-            )
-        except SandboxError as exc:
-            raise RunError(str(exc)) from exc
-        owned = runner
-        opts = opts.model_copy(update={"tools_cache": tools_cache})
-    base_runner: CommandRunner = runner
-    if opts.ceiling_s is not None:
-        base_runner = DeadlineRunner(base_runner, opts.ceiling_s)
+    base_runner, owned, opts = open_runner(opts, config, runner)
     usage = run_scan(repo, spec, config)
     if not usage.affected_files():
         raise RunError(f"{repo} has no usages of {spec.from_} in {', '.join(config.source_globs)}")
@@ -567,6 +624,7 @@ def start_run(
         sandbox=opts.sandbox,
         worktree=worktree,
         workspace=str(worktree.workspace) if worktree else None,
+        options=record_options(opts),
     )
     write_run_record(run_dir, record)
     reviewer = reviewer or AutoReviewer()
@@ -592,9 +650,7 @@ def start_run(
                 return go(saver)
         return go(InMemorySaver())
     finally:
-        close = getattr(owned, "close", None)
-        if callable(close):
-            close()  # the run's container (speed-up 3)
+        close_runner(owned)
 
 
 def _finish(
@@ -674,43 +730,44 @@ def resume_run(
     changed = sorted(p for p in now.keys() | before.keys() if now.get(p) != before.get(p))
     if changed and not accept_changes:
         raise ChangedWorkspaceError(changed)
-    spec = find_spec(record.migration_from, record.migration_to)
-    case = load_case(Path(record.case)) if record.case else None
-    configuration = Configuration.model_validate(record.configuration)
-    opts = RunOptions(
-        repo=Path(record.repo),
-        spec=spec,
-        run_dir=run_dir,
-        case=case,
-        traps=Path(record.traps) if record.traps else None,
-        keep_workspace=record.keep_workspace,
-        tools_cache=Path(record.tools_cache) if record.tools_cache else None,
-        configuration=configuration,
-        run_id=record.run_id,
-        max_run_usd=record.max_run_usd,
-        mode=record.mode,
-        sandbox=record.sandbox,
-        real=record.worktree is not None,
-        branch=record.worktree.branch if record.worktree else None,
-    )
+    opts = options_from_record(record, run_dir)
     traps = load_traps(Path(record.traps)) if record.traps else None
-    config = resolve_config(opts.repo, configuration.apply_to(spec), case)
-    if runner is None:
-        try:
-            runner, _cache = sandbox_runner(record.sandbox, config, opts.tools_cache)
-        except SandboxError as exc:
-            raise RunError(str(exc)) from exc
-    deps = build_deps(
-        opts,
-        runner=runner,
-        config=config,
-        traps=traps,
-        run_id=record.run_id,
-        ledger=ledger or Ledger(),
-        model_factory=model_factory,
-        on_stage=on_stage,
-        worktree=record.worktree,
-    )
+    spec = opts.configuration.apply_to(opts.spec)
+    config = resolve_config(opts.repo, spec, opts.case, opts.incremental_typecheck)
+    run_runner, owned, opts = open_runner(opts, config, runner)
+    try:
+        return _resume(
+            record,
+            run_dir,
+            opts,
+            build_deps(
+                opts,
+                runner=run_runner,
+                config=config,
+                traps=traps,
+                run_id=record.run_id,
+                ledger=ledger or Ledger(),
+                model_factory=model_factory,
+                on_stage=on_stage,
+                worktree=record.worktree,
+            ),
+            reviewer,
+            now,
+            callbacks,
+        )
+    finally:
+        close_runner(owned)
+
+
+def _resume(
+    record: RunRecord,
+    run_dir: Path,
+    opts: RunOptions,
+    deps: RunDeps,
+    reviewer: Reviewer,
+    now: dict[str, str],
+    callbacks: list[BaseCallbackHandler] | None,
+) -> RunResult | PausedRun:
     builder = RunGraph(deps).build()
     config_ = _graph_config(record.run_id, opts, callbacks)
     with sqlite_checkpointer(run_dir) as saver:

@@ -120,6 +120,7 @@ def run(
     toolchain: FakeToolchain | None = None,
     max_run_usd: float | None = None,
     keep_workspace: bool = False,
+    **options: Any,
 ) -> tuple[RunResult | PausedRun, ScriptedChatModel, FakeToolchain, FakeRunner]:
     repo = tmp_path / "repo"
     if not repo.exists():
@@ -139,6 +140,7 @@ def run(
                 "max_run_usd": max_run_usd,
                 "mode": mode,
                 "keep_workspace": keep_workspace,
+                **options,
             }
         ),
         runner,
@@ -282,6 +284,66 @@ def test_pause_at_a_hand_off_and_resume_without_rerunning_rules(
     assert not any("v5.0.0/" in c for c in after)  # no codemod ran on resume
     assert not any(c.startswith("npm ci") for c in after)  # nor the Pre-check
     assert json.loads((tmp_path / "run" / "run.json").read_text())["status"] == "done"
+
+
+def test_resume_runs_with_the_options_the_run_started_with(
+    tmp_path: Path, spec: MigrationSpec
+) -> None:
+    """Resume rebuilds RunOptions from run.json, so no option is lost on the way."""
+    paused, _, _, runner = run(
+        tmp_path, spec, GOOD, reviewer=Recorder([None]), mode="cli", incremental_typecheck=True
+    )
+    assert isinstance(paused, PausedRun)
+    commands_before = len(runner.commands)
+    resume_run(
+        tmp_path / "run",
+        reviewer=Recorder(["revert"]),
+        runner=runner,
+        ledger=Ledger(tmp_path / "ledger.jsonl"),
+    )
+    typechecks = [c for c in runner.commands[commands_before:] if "typecheck" in c]
+    assert typechecks and all("--incremental" in c for c in typechecks)
+
+
+def test_every_run_option_survives_run_json(spec: MigrationSpec, tmp_path: Path) -> None:
+    from migrator.pipeline import RunRecord, options_from_record, record_options
+
+    opts = RunOptions(
+        repo=tmp_path / "repo",
+        spec=spec,
+        run_dir=tmp_path / "run",
+        traps=tmp_path / "traps.toml",
+        keep_workspace=True,
+        tools_cache=tmp_path / "cache",
+        configuration=configuration(),
+        ceiling_s=900.0,
+        run_id="r1",
+        max_run_usd=3.0,
+        mode="cli",
+        sandbox="docker",
+        branch="migrate/x",
+        precheck_cache=True,
+        run_container=True,
+        node_modules_volume=True,
+        incremental_typecheck=True,
+    )
+    record = RunRecord(
+        run_id="r1",
+        thread_id="r1",
+        repo=str(opts.repo),
+        migration_from=spec.from_,
+        migration_to=spec.to,
+        case=None,
+        traps=str(opts.traps),
+        configuration=opts.configuration.model_dump(mode="json"),
+        keep_workspace=True,
+        tools_cache=str(opts.tools_cache),
+        max_run_usd=3.0,
+        mode="cli",
+        options=record_options(opts),
+    )
+    back = RunRecord.model_validate_json(record.model_dump_json())
+    assert options_from_record(back, opts.run_dir) == opts
 
 
 def test_resume_refuses_a_workspace_changed_while_paused(

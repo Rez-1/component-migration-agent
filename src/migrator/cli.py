@@ -22,6 +22,7 @@ from migrator.cost import Ledger, LedgerPreflight, PlannedExperiment, default_le
 from migrator.evals import (
     DEFAULT_CEILING_S,
     DEFAULT_REPEATS,
+    EVAL_HARNESS,
     EvalError,
     ExperimentPlan,
     RunEvent,
@@ -553,32 +554,32 @@ def eval_run(
             help="Repeat runs of one case at the same time (each in its own workspace and "
             "container; 2 suits a 10-core machine).",
         ),
-    ] = 2,
+    ] = EVAL_HARNESS.parallel,
     precheck_cache: Annotated[
         bool,
         typer.Option(
             help="Reuse each case's install and Pre-check across runs (cached under "
             "~/.cache/migrator/precheck, keyed on the repo's files, config and Node image)."
         ),
-    ] = True,
+    ] = EVAL_HARNESS.precheck_cache,
     run_container: Annotated[
         bool,
         typer.Option(
             help="One long-lived container per run, commands by docker exec, instead of a "
             "new container per command."
         ),
-    ] = True,
+    ] = EVAL_HARNESS.run_container,
     node_modules_volume: Annotated[
         bool,
         typer.Option(
             help="With --run-container: node_modules in a Docker volume instead of on the "
             "file share with the host."
         ),
-    ] = False,
+    ] = EVAL_HARNESS.node_modules_volume,
     incremental_typecheck: Annotated[
         bool,
         typer.Option(help="Run the type-check's tsc with --incremental (build info kept per run)."),
-    ] = True,
+    ] = EVAL_HARNESS.incremental_typecheck,
 ) -> None:
     """Run an experiment: every case in a split under one configuration, N runs each."""
     base = _repo_root(root)
@@ -975,6 +976,7 @@ def eval_climb(
         max_cost_usd=max_cost,
         ceiling_s=timeout_s,
         sandbox=_resolve_sandbox(sandbox, allow_auto=False),
+        **EVAL_HARNESS.model_dump(),  # the same harness settings as `eval run`'s defaults
     )
     _print_tracing()
     try:

@@ -9,12 +9,10 @@ from migrator.config import (
     ConfigError,
     RepoConfig,
     VerifyCommands,
-    detect_package_manager,
-    detect_verify_commands,
     load_case,
     load_traps,
-    resolve_repo_config,
 )
+from migrator.detection import detect_package_manager, resolve_repo_config
 from tests.conftest import FIXTURE_CASE
 
 
@@ -43,9 +41,59 @@ def test_a_repo_without_lockfile_is_refused(tmp_path: Path) -> None:
 
 def test_verify_commands_detected_from_scripts(tmp_path: Path) -> None:
     repo = _repo(tmp_path, {"type-check": "tsc", "lint": "eslint .", "test": "jest"}, "yarn.lock")
-    assert detect_verify_commands(repo, "yarn") == VerifyCommands(
+    assert resolve_repo_config(repo, None, ["src/**"], []).verify == VerifyCommands(
         typecheck="yarn type-check", lint="yarn lint", test="yarn test"
     )
+
+
+def test_a_run_without_migrate_toml_detects_what_init_would_write(tmp_path: Path) -> None:
+    """One detector: a run uses the runner and verify commands `migrator init` writes."""
+    from migrator.init import detect
+
+    (tmp_path / "package.json").write_text(
+        json.dumps(
+            {
+                "name": "x",
+                "scripts": {
+                    "check-types": "tsc --noEmit",
+                    "lint": "eslint . --fix",
+                    "lint-check": "eslint .",
+                    "test": "react-scripts test",
+                },
+                "dependencies": {"react-scripts": "5"},
+            }
+        )
+    )
+    (tmp_path / "package-lock.json").write_text("")
+    resolved = resolve_repo_config(tmp_path, None, ["src/**"], [])
+    init = detect(tmp_path)
+    assert resolved.runner == init.runner.value == "jest"  # react-scripts runs Jest
+    assert resolved.verify.typecheck == init.typecheck.value == "npm run check-types"
+    assert resolved.verify.lint == init.lint.value == "npm run lint-check"  # never --fix
+    assert resolved.verify.test == init.test.value == "npm test -- --watchAll=false"
+
+
+def test_a_run_on_an_angular_workspace_uses_karma_and_ng(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text(
+        json.dumps({"name": "x", "scripts": {"test": "ng test"}, "devDependencies": {"karma": "6"}})
+    )
+    (tmp_path / "package-lock.json").write_text("")
+    (tmp_path / "angular.json").write_text(
+        json.dumps(
+            {
+                "projects": {
+                    "app": {
+                        "projectType": "application",
+                        "architect": {"build": {"configurations": {}}, "test": {}},
+                    }
+                }
+            }
+        )
+    )
+    resolved = resolve_repo_config(tmp_path, None, ["src/**"], [])
+    assert resolved.runner == "karma"
+    assert resolved.verify.typecheck == "node_modules/.bin/ng build"
+    assert resolved.verify.test == "node_modules/.bin/ng test --watch=false"
 
 
 def test_case_overrides_migrate_toml_per_field(tmp_path: Path) -> None:

@@ -233,6 +233,40 @@ def test_climb_refuses_an_unapproved_harness_and_an_unapproved_round(flow: Path)
     assert unapproved.exit_code == 2 and "approve_each_round" in unapproved.output
 
 
+def test_climb_runs_under_the_same_harness_settings_as_eval_run(
+    flow: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import migrator.cli as cli
+    from migrator.evals import EVAL_HARNESS, EvalError, ExperimentPlan, HarnessSettings
+
+    plans: list[ExperimentPlan] = []
+
+    def capture(plan: ExperimentPlan, **_: Any) -> None:
+        plans.append(plan)
+        raise EvalError("captured")
+
+    monkeypatch.setattr(cli, "run_experiment", capture)
+    climb(flow, "--config", "baseline", "--approve-harness", "--approved", "--sandbox", "local")
+    CliRunner().invoke(
+        app,
+        [
+            "eval",
+            "run",
+            "--root",
+            str(REPO_ROOT),
+            "--results-dir",
+            str(tmp_path / "r"),
+            "--sandbox",
+            "local",
+        ],
+        env={"COLUMNS": "300"},
+    )
+    assert len(plans) == 2
+    fields = list(HarnessSettings.model_fields)
+    climbed, ran = (p.model_dump(include=set(fields)) for p in plans)
+    assert climbed == ran == EVAL_HARNESS.model_dump()
+
+
 # --------------------------------------------------------------------------- retrieval
 
 

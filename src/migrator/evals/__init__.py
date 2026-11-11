@@ -432,6 +432,23 @@ def _default_run(opts: RunOptions, runner: CommandRunner | None) -> RunResult:
     return dry_run(opts, runner)
 
 
+class HarnessSettings(BaseModel):
+    """How an experiment's runs are executed (the M6 speed-ups that passed their gate),
+    not what they measure. One copy for every command that starts an experiment, so
+    ``eval run`` and ``eval climb`` can't run under different settings."""
+
+    model_config = ConfigDict(frozen=True)
+
+    parallel: int = 2  # repeat runs of one case at the same time (speed-up 1)
+    precheck_cache: bool = True  # speed-up 2
+    run_container: bool = True  # speed-up 3
+    node_modules_volume: bool = False  # speed-up 4 failed its gate
+    incremental_typecheck: bool = True  # speed-up 5
+
+
+EVAL_HARNESS = HarnessSettings()
+
+
 class ExperimentPlan(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
