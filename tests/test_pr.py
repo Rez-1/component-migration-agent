@@ -144,3 +144,19 @@ def test_dry_runs_and_eval_runs_never_open_a_pr(
     result = cli.invoke(app, ["pr", str(run_dir), "--open"])
     assert result.exit_code == 2 and "is paused" in result.output
     assert gh.read_text() == ""
+
+
+def test_the_body_file_is_passed_as_an_absolute_path(tmp_path: Path, monkeypatch) -> None:
+    """gh runs inside the migrated repo, so a run folder given relative to the Migrator's
+    folder (``runs/...``) must not reach it as a relative path."""
+    from migrator.pr import PrPlan
+
+    monkeypatch.chdir(tmp_path)
+    plan = PrPlan(
+        run_id="r", run_dir=Path("runs/r"), repo_dir=tmp_path / "repo", branch="b",
+        base="main", remote="origin", github=parse_github_url("https://github.com/rez/mini-app"),
+        title="t", body_file=Path("runs/r/pr-body.md"), draft=False,
+    )  # fmt: skip
+    command = plan.create_command()
+    body = command[command.index("--body-file") + 1]
+    assert body == str(tmp_path.resolve() / "runs/r/pr-body.md")

@@ -82,7 +82,7 @@ class PrPlan(BaseModel):
             "--head", self.branch,
             "--base", self.base,
             "--title", self.title,
-            "--body-file", str(self.body_file),
+            "--body-file", str(self.body_file.resolve()),
         ]  # fmt: skip
         return [*command, "--draft"] if self.draft else command
 
