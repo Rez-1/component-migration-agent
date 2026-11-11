@@ -77,6 +77,14 @@ _Avoid_: error, issue, problem (as the general term)
 **Failing file**:
 A file with at least one failure.
 
+**Test runner**:
+The tool that runs a target repo's tests (Jest, Vitest or Karma); Verify reads its report to name each failing test.
+_Avoid_: test framework
+
+**Narrow verify**:
+A Verify that runs only the tests related to some files (the repair agent's `run_verify`); the type-check, lint and leftovers still cover the whole workspace.
+_Avoid_: partial verify, quick check
+
 **Regression**:
 A failure in a file that had none before, caused by a change to another file during the run. "Before" is the Verify after Rules; for a workspace with no Rules stage (a general coding agent's), it is the Pre-check.
 _Avoid_: side effect, collateral failure
