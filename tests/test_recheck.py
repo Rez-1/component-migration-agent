@@ -13,7 +13,7 @@ import migrator.graph as graph
 import migrator.verify.checker as checker
 from migrator.checks import read_files
 from migrator.config import VerifyCommands
-from migrator.cost import Ledger, release_run
+from migrator.cost import Budget, Ledger, Reservation, RunCaps
 from migrator.repair.records import FileRepair, RepairReport
 from migrator.verify import VerifyResult
 from migrator.verify.parsers import Failure
@@ -38,12 +38,8 @@ class Graph(graph.RunGraph):
             repair_on=True,
             say=lambda stage, text: self.said.append(text),
             config=SimpleNamespace(verify=VerifyCommands(), runner="karma", leftovers=None),
-            configuration=SimpleNamespace(
-                cost=SimpleNamespace(reserve_attempt_usd=reserve),
-                repair=SimpleNamespace(max_attempts=3),
-            ),
-            run_cap_usd=run_cap,
-            month_cap_usd=50.0,
+            configuration=SimpleNamespace(repair=SimpleNamespace(shared_causes=False)),
+            caps=RunCaps(run_usd=run_cap, month_usd=50.0, reserve_attempt_usd=reserve),
             ledger=Ledger(tmp / "ledger.jsonl"),
             runner=None,
         )
@@ -84,12 +80,6 @@ def fixed(path: str = "src/app/list.component.ts") -> FileRepair:
     return FileRepair(path=path, outcome="Migrated by agent", touched=[path])
 
 
-@pytest.fixture(autouse=True)
-def _release() -> Any:
-    yield
-    release_run("recheck-test")
-
-
 def test_a_recheck_only_when_no_spec_ran_and_repair_changed_something(tmp_path: Path) -> None:
     g = Graph(tmp_path)
     assert g.needs_recheck(state([BUILD, TYPE], [fixed()]))
@@ -119,7 +109,7 @@ def test_the_recheck_keeps_queued_files_that_still_fail_and_drops_the_rest(
     monkeypatch.setattr(
         checker, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[still, SPEC])
     )
-    g = Graph(tmp_path)
+    g = Graph(tmp_path, reserve=None)  # no Reservation: this test is about the queue
     queued = ["src/app/b.component.scss", "src/app/a.component.scss"]
     out = g.recheck_node(state([BUILD, TYPE], [fixed()], queue=queued))
     assert out["queue"] == ["src/app/a.component.scss", "src/app/search.component.ts"]
@@ -136,6 +126,12 @@ def test_the_files_that_fail_only_now_are_queued_and_reserved(
     assert out["rechecked"] and out["queue"] == ["src/app/search.component.ts"]
     assert RepairReport.model_validate(out["repair"]).reserved_usd == 1.8  # 1.35 + 3 x 0.15
     assert g.route_recheck(out) == "start_file"
+    # The top-up is held in the shared book: another run has $50 - $1.80 of the month.
+    other = Budget("other", RunCaps(run_usd=50, month_usd=50, reserve_attempt_usd=20), g.d.ledger)
+    assert other.reserve(["x"]) == Reservation(
+        held=False, files=1, added_usd=60.0, total_usd=60.0, available_usd=48.2
+    )
+    Budget("recheck-test", g.d.caps, g.d.ledger).release()  # start_run's finally, here
 
 
 def test_a_file_already_tried_is_not_queued_again(

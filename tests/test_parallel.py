@@ -6,13 +6,13 @@ import threading
 from pathlib import Path
 
 from migrator.cost import (
+    Budget,
     Ledger,
     LedgerRow,
     PreflightResult,
+    RunCaps,
     Usage,
     now_utc,
-    release_run,
-    reserve_run,
 )
 from migrator.evals import run_experiment
 from migrator.execs import CommandRunner
@@ -66,20 +66,28 @@ def test_one_at_a_time_keeps_the_old_cap(
     assert [o.max_run_usd for o in runs.calls] == [5.0, 5.0]  # min(run cap, what's left)
 
 
+def _budget(run_id: str, per_attempt: float, ledger: Ledger) -> Budget:
+    """A run cap of $8 and a month cap of $10; one file reserves 3 x ``per_attempt``."""
+    caps = RunCaps(run_usd=8.0, month_usd=10.0, reserve_attempt_usd=per_attempt)
+    return Budget(run_id, caps, ledger)
+
+
 def test_reservations_of_running_runs_count_against_the_month(tmp_path: Path) -> None:
     ledger = Ledger(tmp_path / "ledger.jsonl")
-    ok_a, _ = reserve_run("a", 6.0, 8.0, 10.0, ledger)
-    ok_b, available = reserve_run("b", 6.0, 8.0, 10.0, ledger)
-    assert ok_a and not ok_b and available == 4.0
+    a = _budget("a", 2.0, ledger).reserve(["x"])  # $6
+    b = _budget("b", 2.0, ledger).reserve(["x"])
+    assert a is not None and a.held and b is not None and not b.held and b.available_usd == 4.0
     # What a run has spent counts once: in the ledger, not again in its reservation.
     ledger.append(
         LedgerRow(at=now_utc(), run_id="a", model="m", requested_model="m", usage=Usage(),
                   cost_usd=2.0)
     )  # fmt: skip
-    assert reserve_run("b", 4.5, 8.0, 10.0, ledger)[0] is False  # 10 - 2 spent - 4 left of a
-    release_run("a")
-    assert reserve_run("b", 6.0, 8.0, 10.0, ledger)[0] is True  # 10 - 2 spent
-    release_run("b")
+    b = _budget("b", 1.5, ledger).reserve(["x"])  # $4.50 > 10 - 2 spent - 4 left of a
+    assert b is not None and not b.held
+    _budget("a", 2.0, ledger).release()
+    b = _budget("b", 2.0, ledger).reserve(["x"])  # $6 <= 10 - 2 spent
+    assert b is not None and b.held
+    _budget("b", 2.0, ledger).release()
 
 
 def test_a_cached_precheck_gives_the_same_scorecard_without_rerunning(

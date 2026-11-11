@@ -139,7 +139,7 @@ class RepairSettings(_Model):
 
 
 class CostCaps(_Model):
-    """Hard caps in USD (Anthropic's prices), enforced per call by ``cost.CostGuard``."""
+    """Hard caps in USD (Anthropic's prices), enforced per call by the run's ``cost.Budget``."""
 
     max_run_usd: float = Field(default=DEFAULT_MAX_RUN_USD, gt=0)
     max_month_usd: float = Field(default=DEFAULT_MAX_MONTH_USD, gt=0)

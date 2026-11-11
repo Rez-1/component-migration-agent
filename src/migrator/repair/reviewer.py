@@ -12,7 +12,7 @@ that failed and the matching guide sections. It answers ``v5_required`` (the fil
 stays migrated; the flag and the reason are a review note) or ``fits_old_test`` (the
 file becomes a test-fitting hand-off).
 
-The call is priced and capped by the same cost guard and ledger as every repair call
+The call is priced and capped by the run's Budget and ledger, like every repair call
 (ledger file label ``review <file>``), runs inside the run's trace, and the scorecard
 says which model reviewed what. No patch is ever changed by the reviewer.
 """
@@ -28,9 +28,8 @@ from langchain_core.language_models import BaseChatModel
 from pydantic import BaseModel, Field
 
 from migrator.cost import (
+    Budget,
     CallRecord,
-    CostGuard,
-    Ledger,
     LedgerRow,
     cost_usd,
     estimate_tokens,
@@ -136,16 +135,13 @@ def review_patch(
     prompt: str,
     *,
     model: str,
-    guard: CostGuard,
-    ledger: Ledger,
-    run_id: str,
+    budget: Budget,
     case: str | None,
     path: str,
-    run_spent_usd: float,
     factory: ModelFactory = default_model,
 ) -> Review:
-    """One structured-output call; raises CostCapError when it can't fit the caps."""
-    guard.check(model, estimate_tokens(REVIEW_SYSTEM + prompt), REVIEW_MAX_TOKENS, run_spent_usd)
+    """One structured-output call; raises CostCapError when the run's Budget refuses it."""
+    budget.check(model, estimate_tokens(REVIEW_SYSTEM + prompt), REVIEW_MAX_TOKENS)
     chat = factory(model, card_for(model).effort(REVIEW_EFFORT), REVIEW_MAX_TOKENS)
     out = ask_structured(
         chat,
@@ -158,10 +154,10 @@ def review_patch(
     usage = usage_from_langchain(getattr(out.raw, "usage_metadata", None))
     served = out.served or model
     cost = cost_usd(model, usage)
-    ledger.append(
+    budget.ledger.append(
         LedgerRow(
             at=now_utc(),
-            run_id=run_id,
+            run_id=budget.run_id,
             case=case,
             file=f"review {path}",
             model=served,
