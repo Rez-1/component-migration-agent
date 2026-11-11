@@ -146,7 +146,9 @@ def test_dry_runs_and_eval_runs_never_open_a_pr(
     assert gh.read_text() == ""
 
 
-def test_the_body_file_is_passed_as_an_absolute_path(tmp_path: Path, monkeypatch) -> None:
+def test_the_body_file_is_passed_as_an_absolute_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """gh runs inside the migrated repo, so a run folder given relative to the Migrator's
     folder (``runs/...``) must not reach it as a relative path."""
     from migrator.pr import PrPlan

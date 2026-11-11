@@ -102,6 +102,10 @@ Pre-check: ok, 0 Pre-existing failures.
 | Suites failing | 0 of 10 | 6 of 10 |
 | Snapshots | 1 | 1 |
 
+## Codemod false positives (undone by Rules)
+
+- `src/App.tsx` line 25: `<StyledEngineProvider>` had stray `(` and `)` text around its child; removed them from `<StyledEngineProvider injectFirst> (<ThemeProvider theme={theme}> <CssBaseline /> {children} </ThemeProvider>) </StyledEngineProvider>`
+
 ## Cost
 
 $0: this run made no model calls. Run cap $5.00; month cap $20.00.

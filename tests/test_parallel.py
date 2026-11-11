@@ -51,7 +51,7 @@ def test_repeat_runs_run_at_the_same_time_and_split_the_budget(
     )
     assert (out.scored, out.errors) == (2, 0)
     # Each run of the group gets its share, so together they can't pass the budget.
-    assert sorted(o.max_run_usd for o in runs.calls) == [3.0, 3.0]
+    assert [o.max_run_usd for o in runs.calls] == [3.0, 3.0]
     assert len({o.run_id for o in runs.calls}) == 2
 
 
