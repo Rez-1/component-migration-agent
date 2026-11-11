@@ -25,9 +25,14 @@
 # notes): the four stylesheet rules it marks with TODO(mdc-migration) became agent traps
 # (revision 1 had them as visual-only). One of them is a false alarm the agent must
 # recognise: a rule on <mat-radio-button> itself, which MDC keeps.
+#
+# Revision 3 (11 November, owner's OK): confirm-button-wrapper-class is located on
+# confirm-button.component.ts, the file its failing specs are charged to and the file
+# its note expects handed off (revision 2 had the spec, which nothing hands off). The
+# spec line is kept in `symbol`'s note below.
 
 schema_version: 1
-revision: 2
+revision: 3
 case: fixture-angular15
 counts: { rules: 9, agent: 11, human: 1, visual-only: 0 }
 
@@ -207,7 +212,7 @@ traps:
     title: A spec reads the button label from the legacy .mat-button-wrapper span
     breaking_change: { file: v15-mdc-migration.md, section: "Button › DOM structure", codemod_marked: false }
     expected_layer: human
-    location: { file: src/app/shared/confirm-button/confirm-button.component.spec.ts, line: 23, symbol: ".mat-button-wrapper" }
+    location: { file: src/app/shared/confirm-button/confirm-button.component.ts, symbol: ".mat-button-wrapper" }  # read at confirm-button.component.spec.ts line 23
     caught_by:
       - "src/app/shared/confirm-button/confirm-button.component.spec.ts › asks for confirmation on the first click"
       - "src/app/shared/confirm-button/confirm-button.component.spec.ts › disarms when focus leaves the button"
