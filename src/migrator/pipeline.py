@@ -154,12 +154,17 @@ def _major(version: str) -> int | None:
     return int(m.group()) if m else None
 
 
+_DETECT_SKIP = ["**/node_modules/**", "**/dist/**", "**/build/**", "**/.angular/**"]
+
+
 def has_old_usage(repo: Path, spec: MigrationSpec) -> bool:
     """Whether any source file imports an old module (a quick text search, before Scan)."""
     from migrator.workspace import list_files
 
     quoted = re.compile(r"""['"]([^'"\n]+)['"]""")
-    for rel in list_files(repo, spec.source_globs, spec.exclude):
+    # Every source file, not the spec's globs: a repo's code may live outside src/
+    # (codecharta: app/), and a repo's own globs are resolved only later.
+    for rel in list_files(repo, ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"], _DETECT_SKIP):
         try:
             text = (repo / rel).read_text("utf-8", errors="replace")
         except OSError:
@@ -217,7 +222,7 @@ def resolve_config(
         leftovers = LeftoverCheck(
             old_modules=spec.usage.old_modules,
             old_styles=spec.usage.old_styles,
-            todo_markers=spec.codemod_todo_markers if spec.todos_fail else [],
+            todo_markers=spec.failing_todo_markers,
             source_globs=config.source_globs,
             exclude=config.exclude,
         )

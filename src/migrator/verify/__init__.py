@@ -92,6 +92,9 @@ class VerifyInput(BaseModel):
     coverage_dir: Path | None = None
     # What is left of the old version also fails (M7); never set for the Pre-check.
     leftovers: LeftoverCheck | None = None
+    # Stylesheet rules under the Rules stage's TODO comments, as it left them: still
+    # there unchanged is a failure (leftovers.rules_under_todos).
+    stale_rules: list[tuple[str, str]] = []
 
 
 class VerifyResult(BaseModel):
@@ -341,7 +344,7 @@ def verify(inp: VerifyInput, runner: CommandRunner) -> VerifyResult:
     if inp.leftovers is not None:
         # Always the whole workspace, like the type-check: a narrow verify's result replaces
         # the known failures that aren't tests (repair.tools.update_known).
-        found = find_leftovers(inp.workspace, inp.leftovers)
+        found = find_leftovers(inp.workspace, inp.leftovers, stale_rules=inp.stale_rules)
         outcomes.append(
             CommandOutcome(
                 name="leftovers",
@@ -411,10 +414,35 @@ class PrecheckResult(BaseModel):
         return self.verify.test_totals if self.verify else None
 
 
+def prepare_package(workspace: Path, changes: dict[str, str]) -> list[str]:
+    """Apply a repo config's ``precheck_dependencies`` to package.json (M7)."""
+    path = workspace / "package.json"
+    text = path.read_text("utf-8")
+    package = json.loads(text)
+    notes = []
+    for name, version in sorted(changes.items()):
+        for section in ("dependencies", "devDependencies", "optionalDependencies"):
+            deps = package.get(section)
+            if not isinstance(deps, dict) or name not in deps:
+                continue
+            if version:
+                deps[name] = version
+                notes.append(f"{name}@{version}")
+            else:
+                del deps[name]
+                notes.append(f"-{name}")
+    indent = len(m.group(1)) if (m := re.search(r'^(\s+)"', text, re.MULTILINE)) else 2
+    path.write_text(json.dumps(package, indent=indent, ensure_ascii=False) + "\n", "utf-8")
+    return notes
+
+
 def precheck(inp: PrecheckInput, runner: CommandRunner) -> PrecheckResult:
     """Install and verify the untouched workspace."""
     log = inp.log_dir / "precheck-install.log"
-    result = install(runner, inp.workspace, inp.config, frozen=True, log_file=log)
+    changes = inp.config.precheck_dependencies
+    if changes:
+        prepare_package(inp.workspace, changes)
+    result = install(runner, inp.workspace, inp.config, frozen=not changes, log_file=log)
     installed = CommandOutcome(
         name="install",
         command=result.command,

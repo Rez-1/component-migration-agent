@@ -179,12 +179,14 @@ class MigrationSpec(_Model):
     rule_steps: list[RuleStep]
     # After Rules, every Verify also fails on what is left of the old version: imports of
     # old modules and old stylesheet patterns (M7; for a migration whose old code still
-    # compiles). With todos_fail, the Codemod TODOs left in the source fail too.
+    # compiles). Codemod TODOs with one of failing_todo_markers fail too: the agent
+    # resolves them, and the rule right under a stylesheet TODO must change or go
+    # (deleting the comment alone doesn't count).
     leftovers_fail: bool = False
     # The library's element and attribute prefix in Angular templates (M7: "mat"); None
     # for a library without templates. Template usages are reported, not counted as old.
     template_prefix: str | None = None
-    todos_fail: bool = False
+    failing_todo_markers: list[str] = []
     # Selectors the visual check hides in every screenshot (M7): animated decorations
     # of the library, such as a click ripple, that would differ between two captures.
     visual_hide: list[str] = []

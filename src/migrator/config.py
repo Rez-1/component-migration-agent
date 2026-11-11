@@ -60,6 +60,11 @@ class RepoConfig(_Model):
     update_snapshots: bool | None = None
     # The visual check (M7): how to build the app and which pages to screenshot.
     visual: VisualConfig | None = None
+    # package.json changes a human wrote, applied before the Pre-check's install (M7): a
+    # package name and its version, or "" to remove it, for a dependency the unit tests
+    # don't need that can no longer be installed (a version unpublished from npm). The
+    # Pre-check then installs without the frozen lockfile.
+    precheck_dependencies: dict[str, str] | None = None
 
     def merged_over(self, base: RepoConfig) -> RepoConfig:
         """This config's set fields on top of ``base``; verify commands merge per command."""
@@ -234,6 +239,7 @@ class ResolvedRepoConfig(_Model):
     update_snapshots: bool = False
     visual: VisualConfig | None = None
     leftovers: LeftoverCheck | None = None
+    precheck_dependencies: dict[str, str] = {}
 
 
 def resolve_repo_config(
@@ -268,6 +274,7 @@ def resolve_repo_config(
         coverage=bool(config.coverage),
         update_snapshots=bool(config.update_snapshots),
         visual=config.visual,
+        precheck_dependencies=config.precheck_dependencies or {},
     )
 
 

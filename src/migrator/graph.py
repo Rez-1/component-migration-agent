@@ -148,6 +148,7 @@ from migrator.verify import (
     update_snapshots,
     verify,
 )
+from migrator.verify.leftovers import rules_under_todos
 from migrator.visual import VisualError, capture, ensure_browser_image, ensure_visual_tools
 from migrator.visual.compare import VisualReport, new_page_errors
 from migrator.visual.compare import compare as compare_captures
@@ -376,6 +377,13 @@ class RunGraph:
 
     def after_rules(self, state: RunState) -> FileSet:
         return _load_files(self.snapshots(state) / "after-rules.json")
+
+    def stale_rules(self, state: RunState) -> list[tuple[str, str]]:
+        """Stylesheet rules under the Rules stage's failing TODOs (M7)."""
+        check = self.d.config.leftovers
+        if check is None or not check.todo_markers:
+            return []
+        return rules_under_todos(self.after_rules(state), check.todo_markers)
 
     def timed(self, state: RunState, stage: str, t0: float) -> dict[str, float]:
         timings = dict(state.get("timings") or {})
@@ -733,6 +741,7 @@ class RunGraph:
                 label="verify",
                 pre_existing=pre.pre_existing_failures,
                 leftovers=d.config.leftovers,
+                stale_rules=self.stale_rules(state),
             ),
             d.runner,
         )
@@ -1381,6 +1390,7 @@ class RunGraph:
                     label="final",
                     pre_existing=pre.pre_existing_failures,
                     leftovers=d.config.leftovers,
+                    stale_rules=self.stale_rules(state),
                 ),
                 d.runner,
             )

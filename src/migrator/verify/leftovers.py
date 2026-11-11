@@ -11,7 +11,7 @@ repaired and would count as migrated. Each leftover is a Failure with the source
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 from migrator.config import LeftoverCheck
@@ -23,10 +23,39 @@ _STYLE_EXTENSIONS = (".scss", ".sass", ".css", ".less")
 _CODE_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
 
 
+def rules_under_todos(files: Mapping[str, str], markers: Iterable[str]) -> list[tuple[str, str]]:
+    """(stylesheet, the line right under each TODO comment): the rule the comment is
+    about, as the Rules stage left it. If that exact line is still in the file after
+    repair, the rule wasn't restyled, whatever happened to the comment."""
+    wanted = [m for m in markers if m]
+    found: list[tuple[str, str]] = []
+    for rel, text in sorted(files.items()):
+        if not rel.endswith(_STYLE_EXTENSIONS) or not any(m in text for m in wanted):
+            continue
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            if not any(m in line for m in wanted):
+                continue
+            for after in lines[i + 1 :]:
+                bare = after.strip()
+                if bare and not bare.startswith(("/*", "//", "*")):
+                    found.append((rel, bare))
+                    break
+    return found
+
+
 def find_leftovers(
-    workspace: Path, check: LeftoverCheck, only: Iterable[str] | None = None
+    workspace: Path,
+    check: LeftoverCheck,
+    only: Iterable[str] | None = None,
+    stale_rules: Iterable[tuple[str, str]] = (),
 ) -> list[Failure]:
-    """Leftovers in the workspace's source files (or only in ``only``)."""
+    """Leftovers in the workspace's source files (or only in ``only``). ``stale_rules``:
+    lines under the Rules stage's TODO comments (``rules_under_todos``) that must not
+    survive unchanged."""
+    stale: dict[str, set[str]] = {}
+    for rel, line in stale_rules:
+        stale.setdefault(rel, set()).add(line)
     modules = [re.compile(p) for p in check.old_modules]
     styles = [re.compile(p) for p in check.old_styles]
     todo = (
@@ -72,6 +101,17 @@ def find_leftovers(
                             )
                         )
                         break
+            if line.strip() in stale.get(rel, ()):
+                found.append(
+                    Failure(
+                        source="migration",
+                        file=rel,
+                        line=number,
+                        code="stale-rule",
+                        message="this rule still targets the old version's internal classes "
+                        f"(a Codemod TODO marked it): {line.strip()[:160]}",
+                    )
+                )
             if todo is not None and todo.search(line):
                 found.append(
                     Failure(

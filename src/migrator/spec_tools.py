@@ -148,7 +148,7 @@ def _todos(data: Any, where: str = "") -> Iterator[str]:
     """Every value still holding the template's TODO placeholder."""
     if isinstance(data, dict):
         for key, value in data.items():
-            if key != "codemod_todo_markers":  # legitimately lists "TODO"
+            if key not in ("codemod_todo_markers", "failing_todo_markers"):  # list "TODO"
                 yield from _todos(value, f"{where}.{key}" if where else key)
     elif isinstance(data, list):
         for i, value in enumerate(data):

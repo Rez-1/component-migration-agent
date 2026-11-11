@@ -1,0 +1,43 @@
+# Case: CodeCharta's visualization (a real open-source Angular app, M7 dev), scored
+# against its merged Angular Material legacy -> MDC PR. See docs/m7-plan.md and
+# docs/research/m7-candidate-repos.md. Cloned into the Migrator's cache on the first run.
+
+id = "codecharta"
+migration = "angular-material@15-legacy->angular-material@15-mdc"
+split = "dev"
+runner = "jest"
+reference = "upstream"
+ceiling_s = 5400
+
+[upstream]
+repo = "https://github.com/MaibornWolff/codecharta.git"
+commit = "33d10b0f3d5d44100f1e275fced8b24d80fd2290"          # the squash merge's parent on main
+subdir = "visualization"
+reference_pr = "https://github.com/MaibornWolff/codecharta/pull/3226"
+reference_head = "22b2fd795acd974b54e6abb003338c0ce0a63965"  # the squash merge (2023-03-03)
+
+[repo]
+# Angular 15.1, TypeScript 4.9, Jest 29 with jest-preset-angular 13, npm (lockfile v2);
+# engines and CI: Node 16.
+node = "16"
+install_flags = []
+# puppeteer 17 (the e2e tests) downloads Chromium at install; the unit tests don't need it.
+install_env = { PUPPETEER_SKIP_DOWNLOAD = "1" }
+# The app lives in app/, not src/.
+source_globs = ["app/**/*.ts", "app/**/*.html", "app/**/*.scss"]
+exclude = ["**/node_modules/**", "**/*.spec.ts", "**/*.e2e.ts", "app/**/*.po.ts", "app/**/dataMocks.ts"]
+coverage = true
+
+[repo.verify]
+# ng build type-checks the templates (tsc alone doesn't); development builds faster.
+typecheck = "node_modules/.bin/ng build --configuration development"
+lint = "node_modules/.bin/eslint \"app/**/*.ts\""
+test = "node_modules/.bin/jest --config conf/jestUnit.config.json .*\\.spec\\.ts"
+
+# Written by hand (M7): nw-install@0.3.4, a dev dependency of nw-builder (the NW.js
+# desktop packaging), was unpublished from npm, so `npm ci` can't install the repo as
+# committed. The unit tests, build and lint don't use NW.js; the desktop packaging goes,
+# and the Pre-check installs without the frozen lockfile.
+[repo.precheck_dependencies]
+nw = ""
+nw-builder = ""

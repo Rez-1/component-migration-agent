@@ -37,6 +37,7 @@ from migrator.repair.records import AttemptRecord, FileRepair
 from migrator.repair.retriever import GuideRetriever, render_section
 from migrator.scan.parser import parse_tree
 from migrator.verify import Failure, VerifyInput, verify
+from migrator.verify.leftovers import rules_under_todos
 
 TOOL_ORDER = ("read_file", "search_guide", "apply_edit", "run_verify", "hand_off")
 MAX_READ_LINES = 2000
@@ -277,6 +278,11 @@ class RepairSession:
                 pre_existing=self.pre_existing,
                 related_to=related,
                 leftovers=self.config.leftovers,
+                stale_rules=(
+                    rules_under_todos(self.after_rules, self.config.leftovers.todo_markers)
+                    if self.config.leftovers is not None
+                    else []
+                ),
             ),
             self.runner,
         )

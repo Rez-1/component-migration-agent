@@ -34,9 +34,12 @@ codemod_todo_markers = ["TODO(mdc-migration)", "TODO(v15)", "TODO: The '"]
 leftovers_fail = true
 # Template elements and attributes start with "mat" (mat-form-field, matInput).
 template_prefix = "mat"
-# Whether the schematic's TODO(mdc-migration) notes (rules on internal classes) are
-# failures too, so the agent restyles them: a decision for the owner.
-todos_fail = false
+# The schematic's notes are failures too (the owner's decision, 11 November): its
+# TODO(mdc-migration) marks a stylesheet rule on a legacy internal class that no longer
+# matches anything (where the app's styling compensation lives), and the slider's
+# TODO marks an input that no longer exists. The agent restyles or removes the rule;
+# deleting only the comment doesn't count. ng update's TODO(v15) is out of scope.
+failing_todo_markers = ["TODO(mdc-migration)", "TODO: The '"]
 
 # Templates and styles count: most Angular Material usage lives there.
 source_globs = ["src/**/*.ts", "src/**/*.html", "src/**/*.scss", "src/**/*.css"]

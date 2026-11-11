@@ -109,3 +109,13 @@ valitydev is tuned on nothing and runs once, at the end, with the configuration 
 ## Stop and ask the owner
 
 Paid runs, the ratings, any scoring change once results exist, pushing, opening PRs and forking. No API keys in GitHub, and no client names in the repo. Keys live in `~/.config/migrator/anthropic.env` and `langsmith.env` and are never printed. Never commit `docs/blog-log.md` or `docs/project-story.md`. Leave `docs/blog-drafts/` alone.
+
+## Changes while building (11 November)
+
+Recorded here as they happened; none changes a result.
+
+- **Template scanning uses a tokenizer, not tree-sitter-angular.** The grammar's v0.9.2 Python package builds without its external scanner (`setup.py` leaves out `scanner.c`), so it can't be loaded. The scan only needs a template's `mat-*` elements and attributes and where they are, so a small quote-aware tokenizer does it (`scan/assets.py`). Template usages are reported but don't make a file affected: an element doesn't say whether it is legacy or MDC.
+- **Leftovers are failures.** Legacy code still compiles in 15 and 16, so a file the schematic didn't migrate would pass every check and count as migrated. With `leftovers_fail`, every Verify after Rules also reports imports of `legacy-*` entry points and `mat.legacy-*` mixins as failures for repair. **The owner's decision (11 November): the schematic's notes are failures too**: `TODO(mdc-migration)` (a stylesheet rule on a legacy internal class, which is where styling compensation lives) and the slider's `TODO: The '...'`. The agent restyles or removes the rule. Deleting only the comment doesn't count: if the rule under it is still unchanged, that is a failure (`stale-rule`). `ng update`'s `TODO(v15)` is out of scope.
+- **The repair scope follows Angular's links:** a component, its template and stylesheets, and the module that declares it.
+- **The visual check on MUI** covers the fixtures and kubeflow. OpossumUI (an Electron renderer) and wps (behind Keycloak) don't serve offline without heavy stubbing. Kubeflow is served with its own mock API, which lags its frontend, so list pages render an error banner, the same in every capture.
+- **Parked for the real-repo scoring step:** the judge prompt and the scoring items are MUI-specific (hunk kinds, the JSS policy, only `.ts` files importing `@mui`). Angular needs its own judge prompt and items that include templates and stylesheets.

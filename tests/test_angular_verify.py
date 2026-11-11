@@ -344,3 +344,38 @@ def test_a_leftover_is_described_to_the_agent_as_not_migrated_yet() -> None:
     assert failure_elsewhere(f, {}).startswith(
         "Not migrated yet leftover-import, `src/a.ts` line 3"
     )
+
+
+def test_deleting_only_the_todo_comment_does_not_resolve_its_rule(tmp_path: Path) -> None:
+    from migrator.config import LeftoverCheck
+    from migrator.verify.leftovers import find_leftovers, rules_under_todos
+
+    after_rules = {
+        "src/a.scss": (
+            "/* TODO(mdc-migration): The following rule targets internal classes of "
+            "form-field that may no longer apply for the MDC version. */\n"
+            ".search .mat-form-field-wrapper {\n  padding-bottom: 0;\n}\n"
+        ),
+        "src/a.ts": "// TODO(mdc-migration): not a stylesheet\nexport const a = 1;\n",
+    }
+    rules = rules_under_todos(after_rules, ["TODO(mdc-migration)"])
+    assert rules == [("src/a.scss", ".search .mat-form-field-wrapper {")]
+    check = LeftoverCheck(
+        old_modules=[], todo_markers=["TODO(mdc-migration)"], source_globs=["src/**/*.scss"]
+    )
+    (tmp_path / "src").mkdir()
+    gamed = ".search .mat-form-field-wrapper {\n  padding-bottom: 0;\n}\n"
+    (tmp_path / "src/a.scss").write_text(gamed)
+    [f] = find_leftovers(tmp_path, check, stale_rules=rules)
+    assert (f.code, f.line) == ("stale-rule", 1)
+    restyled = ".search .mat-mdc-form-field-subscript-wrapper {\n  display: none;\n}\n"
+    (tmp_path / "src/a.scss").write_text(restyled)
+    assert find_leftovers(tmp_path, check, stale_rules=rules) == []
+
+
+def test_the_angular_spec_makes_the_schematics_todos_failures_but_not_ng_updates() -> None:
+    from migrator.migrations import MIGRATIONS_DIR, load_spec
+
+    spec = load_spec(MIGRATIONS_DIR / "angular-material-legacy-to-mdc")
+    assert spec.failing_todo_markers == ["TODO(mdc-migration)", "TODO: The '"]
+    assert "TODO(v15)" in spec.codemod_todo_markers  # reported, not a failure

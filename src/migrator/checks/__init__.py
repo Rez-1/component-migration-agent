@@ -68,6 +68,7 @@ _TEXT_PATTERNS = {
     "any-cast": re.compile(r"\$any\s*\("),
 }
 TEMPLATE_EXTENSIONS = (".html", ".htm")
+ASSET_EXTENSIONS = (".html", ".scss", ".sass", ".css", ".less")
 TEST_SNIFFING = {
     "node-env-test": "`process.env.NODE_ENV === 'test'`",
     "typeof-jest": "`typeof jest`",
@@ -161,12 +162,13 @@ def _count_test_call(node: Node, counts: Counter[str]) -> None:
 
 
 def read_files(root: Path) -> FileSet:
-    """Every code and snapshot file under ``root`` (node_modules and git data pruned)."""
+    """Every code, snapshot, template and stylesheet file under ``root`` (node_modules and
+    git data pruned). Templates and stylesheets since M7: Angular's migration is in them."""
     found: FileSet = {}
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
         for name in filenames:
-            if name.endswith(CODE_EXTENSIONS + SNAPSHOT_EXTENSIONS):
+            if name.endswith(CODE_EXTENSIONS + SNAPSHOT_EXTENSIONS + ASSET_EXTENSIONS):
                 path = Path(dirpath) / name
                 rel = path.relative_to(root).as_posix()
                 found[rel] = path.read_text("utf-8", errors="replace")
