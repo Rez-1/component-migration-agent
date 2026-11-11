@@ -56,7 +56,18 @@ ESCAPE_HATCHES = {
     "eslint-disable": "an `eslint-disable` comment",
     "any": "the `any` type",
     "as-unknown-as": "`as unknown as X`",
+    # Angular (M7): schemas that silence unknown elements and properties, and the
+    # template cast that switches off type-checking of an expression.
+    "no-errors-schema": "`NO_ERRORS_SCHEMA`",
+    "custom-elements-schema": "`CUSTOM_ELEMENTS_SCHEMA`",
+    "any-cast": "a template `$any(...)` cast",
 }
+_TEXT_PATTERNS = {
+    "no-errors-schema": re.compile(r"\bNO_ERRORS_SCHEMA\b"),
+    "custom-elements-schema": re.compile(r"\bCUSTOM_ELEMENTS_SCHEMA\b"),
+    "any-cast": re.compile(r"\$any\s*\("),
+}
+TEMPLATE_EXTENSIONS = (".html", ".htm")
 TEST_SNIFFING = {
     "node-env-test": "`process.env.NODE_ENV === 'test'`",
     "typeof-jest": "`typeof jest`",
@@ -79,6 +90,11 @@ _SKIP_OR_FOCUS_MODIFIERS = {"skip", "only", "todo"}
 def profile(text: str, path: str) -> Counter[str]:
     """Counts of every pattern in one file (escape hatches, test sniffing, tests)."""
     counts: Counter[str] = Counter()
+    for key, pattern in _TEXT_PATTERNS.items():
+        if found := len(pattern.findall(text)):
+            counts[key] += found
+    if not path.endswith(CODE_EXTENSIONS):
+        return counts  # a template or stylesheet: only the text patterns apply
     tree = parse_tree(text.encode("utf-8"), path)
     for node in walk(tree.root_node):
         kind = node.type

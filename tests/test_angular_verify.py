@@ -303,3 +303,25 @@ def test_codemod_todos_are_found_in_templates_and_stylesheets_with_any_marker(
         ("src/a.scss", 2),
         ("src/a.ts", 1),
     ]
+
+
+def test_angular_guardrails_allow_templates_and_styles_and_block_its_configs_and_hatches() -> None:
+    from migrator.repair.guardrails import added_escape_hatches, check_target
+
+    allowed = ["src/app/a.component.html", "src/app/a.component.scss"]
+    for rel in allowed:
+        assert check_target(rel, "src/app/a.component.ts", allowed, {}) is None
+    for rel in ("angular.json", "karma.conf.js", "proxy.conf.json"):
+        blocked = check_target(rel, "src/app/a.component.ts", [rel], {})
+        assert blocked is not None and blocked.guardrail == "config"
+    module_before = "@NgModule({ declarations: [A] })\nexport class M {}\n"
+    module_after = "import { NO_ERRORS_SCHEMA } from '@angular/core';\n" + module_before.replace(
+        "declarations: [A]", "declarations: [A], schemas: [NO_ERRORS_SCHEMA]"
+    )
+    assert added_escape_hatches("src/app/m.module.ts", module_before, module_after) == [
+        "`NO_ERRORS_SCHEMA`"
+    ]
+    assert added_escape_hatches(
+        "src/app/a.component.html", "<p>{{ x.y }}</p>", "<p>{{ $any(x).y }}</p>"
+    ) == ["a template `$any(...)` cast"]
+    assert added_escape_hatches("src/a.scss", ".a{}", "::ng-deep .mat-mdc-button{}") == []

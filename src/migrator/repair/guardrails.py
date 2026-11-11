@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from migrator.checks import CODE_EXTENSIONS, ESCAPE_HATCHES, TEST_SNIFFING, profile
 from migrator.config import LOCKFILES
-from migrator.repair.context import PatchSize
+from migrator.repair.context import ANGULAR_ASSETS, PatchSize
 
 MAX_PATCH_LINES = 60
 MAX_PATCH_SHARE = 0.40
@@ -30,6 +30,7 @@ _CONFIG_NAME = re.compile(
       | \.babelrc(\..+)? | babel\.config\..+
       | (jest|vitest|vite|webpack|rollup|next|craco|postcss|tailwind)\.config\..+
       | \.env(\..+)? | \.npmrc | \.nvmrc | \.yarnrc(\.yml)? | migrate\.toml
+      | angular\.json | \.angular-cli\.json | karma\.conf\..+ | proxy\.conf\..+
     )$""",
     re.VERBOSE,
 )
@@ -78,7 +79,7 @@ def check_target(
             "behaviour, so they can't be changed to pass",
             guardrail="test-file",
         )
-    if _CONFIG_NAME.match(name) or not name.endswith(CODE_EXTENSIONS):
+    if _CONFIG_NAME.match(name) or not name.endswith((*CODE_EXTENSIONS, *ANGULAR_ASSETS)):
         return Blocked(
             reason=f"{rel} is a config or other non-source file, which is off-limits",
             guardrail="config",
