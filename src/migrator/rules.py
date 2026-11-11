@@ -379,15 +379,30 @@ class _Run:
                 return self.schematic(step)
 
 
+_PARSED_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs")
+
+
+def _bounded(marker: str) -> str:
+    """A marker as a regex, with a word boundary only at an edge that is a word
+    character (``TODO`` but not after the ``)`` of ``TODO(mdc-migration)``)."""
+    left = r"\b" if marker[:1].isalnum() or marker[:1] == "_" else ""
+    right = r"\b" if marker[-1:].isalnum() or marker[-1:] == "_" else ""
+    return left + re.escape(marker) + right
+
+
 def find_codemod_todos(
     before: dict[str, bytes], after_root: Path, files: list[str], markers: list[str]
 ) -> list[CodemodTodo]:
     """Marker comments in ``files`` that were not there before the Rules stage."""
     if not markers:
         return []
-    marker = re.compile(r"\b(" + "|".join(re.escape(m) for m in markers) + r")\b")
+    marker = re.compile("|".join(_bounded(m) for m in markers))
 
     def marked(source: bytes, path: str) -> list[tuple[int, str]]:
+        if not path.endswith(_PARSED_EXTENSIONS):
+            # Templates and stylesheets (M7): marker lines, not parsed comments.
+            lines = source.decode("utf-8", "replace").splitlines()
+            return [(n, ln.strip()) for n, ln in enumerate(lines, start=1) if marker.search(ln)]
         parsed = parse_file(source, path, lambda _m: False)
         return [(c.line, c.text.strip()) for c in parsed.comments if marker.search(c.text)]
 

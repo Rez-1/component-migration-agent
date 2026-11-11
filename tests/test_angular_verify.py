@@ -276,3 +276,30 @@ def test_a_template_can_be_repaired_with_its_component_and_the_module_that_decla
         "src/app/tags/tag-list.component.scss",
         "src/app/tags/tag-list.component.ts",
     ]
+
+
+def test_codemod_todos_are_found_in_templates_and_stylesheets_with_any_marker(
+    tmp_path: Path,
+) -> None:
+    from migrator.rules import find_codemod_todos
+
+    after = {
+        "src/a.scss": ".x {}\n/* TODO(mdc-migration): The following rule targets internal "
+        "classes of button that may no longer apply for the MDC version. */\n",
+        "src/a.html": "<mat-slider>\n<!-- TODO: The 'tickInterval' property no longer exists -->\n",
+        "src/a.ts": "// TODO(mdc-migration): check\nexport const a = 1; // TODOS are not markers\n",
+    }
+    for rel, text in after.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(text)
+    todos = find_codemod_todos(
+        {"src/a.ts": b"export const a = 1;\n"},
+        tmp_path,
+        sorted(after),
+        ["TODO(mdc-migration)", "TODO: The '"],
+    )
+    assert [(t.file, t.line) for t in todos] == [
+        ("src/a.html", 2),
+        ("src/a.scss", 2),
+        ("src/a.ts", 1),
+    ]
