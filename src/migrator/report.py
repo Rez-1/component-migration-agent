@@ -301,6 +301,28 @@ class ReportInput(BaseModel):
     meta: RunMeta
 
 
+# The scoring evidence of a run, in its run folder: written before the Scorecard is
+# built, so a run can be scored again later (issue #17's replay gate).
+REPORT_INPUT = "report-input.json"
+# Whole file texts a repair record keeps for Review; Scoring never reads them, and
+# the evidence file must not copy the target repo's source.
+_FILE_TEXTS = {"set_aside", "originals", "failures_at_hand_off"}
+
+
+def write_report_input(inp: ReportInput, path: Path) -> None:
+    """``inp`` as JSON, without the repair records' file texts."""
+    data = inp.model_dump(mode="json")
+    for record in (data.get("repair") or {}).get("files") or []:
+        for key in _FILE_TEXTS:
+            record.pop(key, None)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", "utf-8")
+
+
+def read_report_input(path: Path) -> ReportInput:
+    return ReportInput.model_validate_json(path.read_text("utf-8"))
+
+
 # --------------------------------------------------------------------------- traps
 
 

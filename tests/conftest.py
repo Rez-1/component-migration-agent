@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+import os
+import re
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -53,3 +55,20 @@ def spec() -> MigrationSpec:
     from migrator.migrations import find_spec
 
     return find_spec("mui@4", "mui@5")
+
+
+@pytest.fixture(autouse=True)
+def _capture_scoring_goldens(request: pytest.FixtureRequest) -> Iterator[None]:
+    """With MIGRATOR_CAPTURE_SCORING set, save every run this test made as a Scoring
+    golden candidate (tests/scoring_goldens.py). Off by default."""
+    yield
+    out = os.environ.get("MIGRATOR_CAPTURE_SCORING")
+    tmp = getattr(request.node, "funcargs", {}).get("tmp_path")
+    if not out or tmp is None:
+        return
+    from tests.scoring_goldens import save_golden
+
+    name = re.sub(r"[^A-Za-z0-9_-]+", "-", request.node.name).strip("-")
+    for n, evidence in enumerate(sorted(tmp.rglob("report-input.json"))):
+        if (evidence.parent / "scorecard.json").is_file():
+            save_golden(evidence.parent, Path(out) / f"{name}-{n}", {"<tmp>": tmp})

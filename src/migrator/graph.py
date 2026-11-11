@@ -116,6 +116,7 @@ from migrator.repair.tools import (
     failure_key,
 )
 from migrator.report import (
+    REPORT_INPUT,
     ReportInput,
     RunMeta,
     SnapshotUpdate,
@@ -126,6 +127,7 @@ from migrator.report import (
     test_fitting_flags,
     usd,
     write_json,
+    write_report_input,
 )
 from migrator.review import ReviewPayload
 from migrator.rules import (
@@ -1600,46 +1602,46 @@ class RunGraph:
             month_spent_usd=d.ledger.month_spent() if calls else None,
             stopped_by_cap=report.stopped_by_cost_cap,
         )
-        card = build_scorecard(
-            ReportInput(
-                usage=usage,
-                precheck=pre,
-                rules=rules,
-                rules_verify=post_rules,
-                verify=final,
-                final_usage=final_usage,
-                traps=d.traps,
-                configuration=d.configuration.name,
-                configuration_digest=d.configuration.digest(),
-                cheating=CheatingReport.model_validate(state["cheating"])
-                if state.get("cheating")
-                else None,
-                cost=cost,
-                repair=report if d.configuration.repair.enabled else None,
-                later_layers=layers,
-                repeated_edits=repeated_edits(
-                    self.after_rules(state), read_files(self.workspace(state)), layers
-                )
-                if layers is not None and d.configuration.repair.shared_causes
-                else None,
-                test_fitting=test_fitting_flags(
-                    self.after_rules(state),
-                    read_files(self.workspace(state)),
-                    [(f.path, f.touched) for f in report.files if f.touched],
-                    {f.file for f in post_rules.failures if f.source == "test" and f.file},
-                )
-                if layers is not None and post_rules is not None and d.configuration.repair.enabled
-                else None,
-                snapshots_to_review=[
-                    SnapshotUpdate.model_validate(r) for r in state.get("snapshot_updates") or []
-                ]
-                if d.config.update_snapshots
-                else None,
-                case=d.case.id if d.case else (d.traps.case if d.traps else None),
-                visual=visual,
-                meta=meta,
+        evidence = ReportInput(
+            usage=usage,
+            precheck=pre,
+            rules=rules,
+            rules_verify=post_rules,
+            verify=final,
+            final_usage=final_usage,
+            traps=d.traps,
+            configuration=d.configuration.name,
+            configuration_digest=d.configuration.digest(),
+            cheating=CheatingReport.model_validate(state["cheating"])
+            if state.get("cheating")
+            else None,
+            cost=cost,
+            repair=report if d.configuration.repair.enabled else None,
+            later_layers=layers,
+            repeated_edits=repeated_edits(
+                self.after_rules(state), read_files(self.workspace(state)), layers
             )
+            if layers is not None and d.configuration.repair.shared_causes
+            else None,
+            test_fitting=test_fitting_flags(
+                self.after_rules(state),
+                read_files(self.workspace(state)),
+                [(f.path, f.touched) for f in report.files if f.touched],
+                {f.file for f in post_rules.failures if f.source == "test" and f.file},
+            )
+            if layers is not None and post_rules is not None and d.configuration.repair.enabled
+            else None,
+            snapshots_to_review=[
+                SnapshotUpdate.model_validate(r) for r in state.get("snapshot_updates") or []
+            ]
+            if d.config.update_snapshots
+            else None,
+            case=d.case.id if d.case else (d.traps.case if d.traps else None),
+            visual=visual,
+            meta=meta,
         )
+        write_report_input(evidence, run_dir / REPORT_INPUT)  # before scoring: see #17
+        card = build_scorecard(evidence)
         release_run(state["run_id"])  # this run's worst-case reservation ends here
         write_json(card, run_dir / "scorecard.json")
         (run_dir / "scorecard.md").write_text(render_scorecard(card), "utf-8")

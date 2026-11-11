@@ -20,7 +20,13 @@ from migrator.graph import repair_order
 from migrator.migrations import MigrationSpec
 from migrator.pipeline import PausedRun, RunOptions, RunResult, resume_run, start_run
 from migrator.repair.records import ReviewAnswer
-from migrator.report import FileRepairSummary
+from migrator.report import (
+    REPORT_INPUT,
+    FileRepairSummary,
+    build_scorecard,
+    read_report_input,
+    stable_view,
+)
 from migrator.review import ReviewPayload
 from tests.conftest import FakeRunner
 from tests.fakes import (
@@ -205,6 +211,21 @@ def test_the_whole_run_repairs_hands_off_and_scores(tmp_path: Path, spec: Migrat
     # The eval auto-answer is Revert, and the scorecard carries cost and the model.
     assert card.repair.files[2].review == "revert"
     assert card.cost.model_calls == 3 and card.cost.models == ["claude-opus-5-5"]
+
+
+def test_the_runs_evidence_scores_again_to_the_same_scorecard(
+    tmp_path: Path, spec: MigrationSpec
+) -> None:
+    """report-input.json is written before Scoring and holds everything Scoring reads,
+    so the run can be scored again later (issue #17's gate), without file texts."""
+    result, _, _, _ = run(tmp_path, spec, GOOD, reviewer=Recorder(["keep"]), mode="cli")
+    assert isinstance(result, RunResult)
+    evidence = result.run_dir / REPORT_INPUT
+    again = build_scorecard(read_report_input(evidence))
+    written = json.loads((result.run_dir / "scorecard.json").read_text())
+    assert stable_view(again) == stable_view(written)
+    for record in json.loads(evidence.read_text())["repair"]["files"]:
+        assert not {"set_aside", "originals", "failures_at_hand_off"} & set(record)
 
 
 def test_narrow_verify_runs_only_the_related_tests(tmp_path: Path, spec: MigrationSpec) -> None:
