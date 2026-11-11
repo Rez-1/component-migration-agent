@@ -1,0 +1,56 @@
+# Case: the Angular fixture (M7), see README.md next to this file (evals/m7-cases holds
+# every M7 case, apart from the MUI cases in evals/cases). A small issue-tracker
+# app on Angular 15 with every Angular Material import on the legacy-* entry points, as
+# `ng update` to 15 leaves it. Runs copy it into a workspace and never edit it in place.
+
+id = "fixture-angular15"
+migration = "angular-material@15-legacy->angular-material@15-mdc"
+source = "fixtures/angular15-app"
+split = "dev"
+runner = "karma"
+reference = "none"
+traps = "traps.yaml"
+
+[repo]
+# Angular 15 supports Node 14.20, 16.13 and 18.10+.
+node = "18"
+install_flags = []
+source_globs = ["src/**/*.ts", "src/**/*.html", "src/**/*.scss"]
+exclude = ["**/node_modules/**", "**/*.spec.ts", "src/test.ts"]
+
+[repo.verify]
+# ng build type-checks the templates (tsc alone doesn't); development builds faster.
+typecheck = "node_modules/.bin/ng build --configuration development"
+lint = "node_modules/.bin/ng lint"
+# Karma; the Migrator adds headless Chrome and its JSON reporter (verify/karma.py).
+test = "node_modules/.bin/ng test --watch=false"
+
+# The visual check: the app's own build, one page per route.
+[repo.visual]
+build = "node_modules/.bin/ng build --configuration development"
+out = "dist/triage-board"
+
+[[repo.visual.pages]]
+name = "issues"
+path = "/issues"
+files = ["src/app/issues/issue-list/issue-list.component.html", "src/app/issues/issue-list/issue-list.component.scss", "src/app/issues/issue-filters/issue-filters.component.html", "src/app/issues/issue-filters/issue-filters.component.scss", "src/app/shared/search-box/search-box.component.html", "src/app/shared/search-box/search-box.component.scss"]
+
+[[repo.visual.pages]]
+name = "issue-detail"
+path = "/issues/101"
+files = ["src/app/issues/issue-detail/issue-detail.component.html", "src/app/issues/issue-detail/issue-detail.component.scss", "src/app/issues/label-editor/label-editor.component.ts", "src/app/shared/confirm-button/confirm-button.component.scss"]
+
+[[repo.visual.pages]]
+name = "board"
+path = "/board"
+files = ["src/app/board/board.component.html", "src/app/board/board.component.scss"]
+
+[[repo.visual.pages]]
+name = "team"
+path = "/team"
+files = ["src/app/team/team.component.html", "src/app/team/team.component.scss"]
+
+[[repo.visual.pages]]
+name = "settings"
+path = "/settings"
+files = ["src/app/settings/settings.component.html", "src/app/settings/settings.component.scss"]

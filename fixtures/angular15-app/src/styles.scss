@@ -1,0 +1,41 @@
+@use '@angular/material' as mat;
+@use 'app/theme/triage-theme' as triage;
+
+// TODO(v15): As of v15 mat.legacy-core no longer includes default typography styles.
+//  The following line adds:
+//    1. Default typography styles for all components
+//    2. Styles for typography hierarchy classes (e.g. .mat-headline-1)
+//  If you specify typography styles for the components you use elsewhere, you should delete this line.
+//  If you don't need the default component typographies but still want the hierarchy styles,
+//  you can delete this line and instead use:
+//    `@include mat.legacy-typography-hierarchy(triage.$typography);`
+@include mat.all-legacy-component-typographies(triage.$typography);
+@include mat.legacy-core();
+
+@include mat.all-legacy-component-themes(triage.$theme);
+
+// Buttons in toolbars and table rows use the accent colour for their outline.
+.mat-stroked-button.mat-accent {
+  border-color: mat.get-color-from-palette(triage.$accent);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: #f4f5f7;
+}
+
+.page {
+  padding: 16px 24px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.page-title {
+  margin: 8px 0 16px;
+}

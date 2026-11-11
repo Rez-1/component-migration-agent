@@ -1,0 +1,20 @@
+<section class="page">
+  <h1 class="page-title mat-headline">Team</h1>
+
+  <mat-list class="members" role="list">
+    <mat-list-item *ngFor="let member of issues.members" class="member" role="listitem">
+      <span class="avatar" [matTooltip]="member.role">{{ initials(member) }}</span>
+      <span class="name">{{ member.name }}</span>
+      <span class="open-count">{{ issues.openCount(member.name) }} open</span>
+      <button mat-icon-button type="button" [matMenuTriggerFor]="menu" [attr.aria-label]="'Actions for ' + member.name">
+        <mat-icon>more_vert</mat-icon>
+      </button>
+      <mat-menu #menu="matMenu">
+        <button mat-menu-item type="button" (click)="copyEmail(member)">
+          <mat-icon>content_copy</mat-icon>
+          <span>Copy email</span>
+        </button>
+      </mat-menu>
+    </mat-list-item>
+  </mat-list>
+</section>

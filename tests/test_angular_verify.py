@@ -379,3 +379,36 @@ def test_the_angular_spec_makes_the_schematics_todos_failures_but_not_ng_updates
     spec = load_spec(MIGRATIONS_DIR / "angular-material-legacy-to-mdc")
     assert spec.failing_todo_markers == ["TODO(mdc-migration)", "TODO: The '"]
     assert "TODO(v15)" in spec.codemod_todo_markers  # reported, not a failure
+
+
+def test_a_mixin_named_in_a_comment_is_not_a_leftover(tmp_path: Path) -> None:
+    from migrator.config import LeftoverCheck
+    from migrator.verify.leftovers import find_leftovers
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src/styles.scss").write_text(
+        "// TODO(v15): As of v15 mat.legacy-core no longer includes typography.\n"
+        "//    `@include mat.legacy-typography-hierarchy($t);`\n"
+        "/* mat.legacy-button-theme\n   mat.legacy-card-theme */\n"
+        "@include mat.core(); // was mat.legacy-core\n"
+        "@include mat.legacy-chips-theme($t); /* still here */\n"
+        ".x { background: url(http://example.com/a.png); }\n"
+    )
+    check = LeftoverCheck(
+        old_modules=[], old_styles=[r"\bmat\.(all-)?legacy-"], source_globs=["src/**/*.scss"]
+    )
+    assert [(f.line, f.message) for f in find_leftovers(tmp_path, check)] == [
+        (6, "still uses mat.legacy-chips-theme")
+    ]
+
+
+def test_a_rule_on_the_components_element_is_not_stale() -> None:
+    from migrator.verify.leftovers import rules_under_todos
+
+    files = {
+        "src/s.scss": "/* TODO(mdc-migration): radio */\nmat-radio-button {\n  margin: 0;\n}\n"
+        "/* TODO(mdc-migration): button */\n:host ::ng-deep .mat-button-wrapper {\n}\n"
+    }
+    assert rules_under_todos(files, ["TODO(mdc-migration)"]) == [
+        ("src/s.scss", ":host ::ng-deep .mat-button-wrapper {")
+    ]

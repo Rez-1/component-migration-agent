@@ -1,0 +1,45 @@
+<h2 mat-dialog-title>New issue</h2>
+
+<form [formGroup]="form" (ngSubmit)="create()">
+  <mat-dialog-content class="fields">
+    <mat-form-field appearance="fill">
+      <mat-label>Title</mat-label>
+      <input matInput formControlName="title" autocomplete="off" cdkFocusInitial />
+      <mat-error *ngIf="form.controls.title.hasError('required')">A title is required</mat-error>
+    </mat-form-field>
+
+    <div class="row">
+      <mat-form-field appearance="fill">
+        <mat-label>Type</mat-label>
+        <mat-select formControlName="type">
+          <mat-option *ngFor="let type of types" [value]="type">{{ type | titlecase }}</mat-option>
+        </mat-select>
+      </mat-form-field>
+
+      <mat-form-field appearance="fill">
+        <mat-label>Assignee</mat-label>
+        <mat-select formControlName="assignee">
+          <mat-option [value]="null">Unassigned</mat-option>
+          <mat-option *ngFor="let member of data.members" [value]="member.name">{{ member.name }}</mat-option>
+        </mat-select>
+      </mat-form-field>
+    </div>
+
+    <label class="priority-label" id="priority-label">
+      Priority: {{ priorityLabel(form.controls.priority.value) }}
+    </label>
+    <mat-slider
+      formControlName="priority"
+      aria-labelledby="priority-label"
+      min="1"
+      max="5"
+      step="1"
+      tickInterval="1"
+    ></mat-slider>
+  </mat-dialog-content>
+
+  <mat-dialog-actions align="end">
+    <button mat-button type="button" mat-dialog-close>Cancel</button>
+    <button mat-flat-button color="primary" type="submit">Create</button>
+  </mat-dialog-actions>
+</form>

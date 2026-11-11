@@ -315,9 +315,15 @@ def failures_for_check(check: str, trap: Trap, failures: list[Failure]) -> list[
         return [f for f in failures if f.source == "typecheck" and f.file == trap.location.file]
     if check == "lint":
         return [f for f in failures if f.source == "lint" and f.file == trap.location.file]
+    if check == "leftovers":  # M7: what is left of the old version, in the trap's file
+        return [f for f in failures if f.source == "migration" and f.file == trap.location.file]
     test_file, name = _split_test_check(check)
     # A suite that failed to run (a crash on import) never ran the trap's test either,
-    # so it counts as the check firing.
+    # so it counts as the check firing. So does a test bundle that didn't compile
+    # (Karma, M7): no spec ran at all.
+    unbuilt = [f for f in failures if f.source == "test" and f.test_name == "(build)"]
+    if unbuilt:
+        return unbuilt
     return [
         f
         for f in failures

@@ -1,0 +1,21 @@
+<div class="filters">
+  <mat-form-field appearance="legacy" class="filter">
+    <mat-label>Status</mat-label>
+    <mat-select [value]="filters.status" (selectionChange)="setStatus($event.value)">
+      <mat-option value="all">All statuses</mat-option>
+      <mat-option *ngFor="let status of statuses" [value]="status[0]">{{ status[1] }}</mat-option>
+    </mat-select>
+  </mat-form-field>
+
+  <mat-form-field floatLabel="never" class="filter">
+    <mat-select
+      placeholder="Assignee"
+      aria-label="Assignee"
+      [value]="filters.assignee"
+      (selectionChange)="setAssignee($event.value)"
+    >
+      <mat-option [value]="null">Anyone</mat-option>
+      <mat-option *ngFor="let member of members" [value]="member.name">{{ member.name }}</mat-option>
+    </mat-select>
+  </mat-form-field>
+</div>

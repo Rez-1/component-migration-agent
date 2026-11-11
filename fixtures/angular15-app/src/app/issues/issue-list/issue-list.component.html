@@ -1,0 +1,64 @@
+<section class="page">
+  <div class="toolbar-row">
+    <h1 class="page-title mat-headline">Issues</h1>
+    <span class="spacer"></span>
+    <button mat-raised-button color="primary" type="button" (click)="newIssue()">
+      <mat-icon>add</mat-icon>
+      New issue
+    </button>
+  </div>
+
+  <div class="controls">
+    <app-search-box class="search" placeholder="Search issues" (search)="onSearch($event)"></app-search-box>
+    <app-issue-filters
+      [members]="issues.members"
+      [filters]="filters"
+      (filtersChange)="onFilters($event)"
+    ></app-issue-filters>
+  </div>
+
+  <table mat-table [dataSource]="dataSource" matSort class="issue-table mat-elevation-z1">
+    <ng-container matColumnDef="id">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header>#</th>
+      <td mat-cell *matCellDef="let issue">{{ issue.id }}</td>
+    </ng-container>
+
+    <ng-container matColumnDef="title">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header>Title</th>
+      <td mat-cell *matCellDef="let issue" class="title-cell">{{ issue.title }}</td>
+    </ng-container>
+
+    <ng-container matColumnDef="status">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header>Status</th>
+      <td mat-cell *matCellDef="let issue">
+        <span class="status status-{{ issue.status }}">{{ statusLabel(issue) }}</span>
+      </td>
+    </ng-container>
+
+    <ng-container matColumnDef="priority">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header>Priority</th>
+      <td mat-cell *matCellDef="let issue">P{{ issue.priority }}</td>
+    </ng-container>
+
+    <ng-container matColumnDef="assignee">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header>Assignee</th>
+      <td mat-cell *matCellDef="let issue">{{ issue.assignee ?? 'Unassigned' }}</td>
+    </ng-container>
+
+    <ng-container matColumnDef="updated">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header>Updated</th>
+      <td mat-cell *matCellDef="let issue">{{ issue.updated }}</td>
+    </ng-container>
+
+    <tr mat-header-row *matHeaderRowDef="columns"></tr>
+    <tr mat-row *matRowDef="let issue; columns: columns" class="issue-row" (click)="open(issue)"></tr>
+    <tr class="mat-row empty-row" *matNoDataRow>
+      <td class="mat-cell" [attr.colspan]="columns.length">No issues match the filters.</td>
+    </tr>
+  </table>
+
+  <div class="table-footer">
+    <span class="page-summary">{{ pageSummary }}</span>
+    <mat-paginator aria-label="Issue pages"></mat-paginator>
+  </div>
+</section>

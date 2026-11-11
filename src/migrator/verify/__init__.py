@@ -276,6 +276,25 @@ def _run_one(
             suites = jest_suite_files(text, root)
         parsed_with = f"{inp.runner} json"
 
+    if (
+        not result.ok
+        and not failures
+        and name == "test"
+        and inp.runner == "karma"
+        and ("load error" in result.output)
+    ):
+        # The test bundle didn't compile (M7): Karma ran no spec. The cause is in the
+        # type-check's failures; this says why the tests can't tell anything yet.
+        failures = [
+            Failure(
+                source="test",
+                file=None,
+                message="the test bundle didn't compile, so no spec ran (fix the build "
+                "errors first)",
+                test_name="(build)",
+            )
+        ]
+        parsed_with = "karma load error"
     if not result.ok and not failures:
         why = "timed out" if result.timed_out else f"exited {result.exit_code}"
         failures = [

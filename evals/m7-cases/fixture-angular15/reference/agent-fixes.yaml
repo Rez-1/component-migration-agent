@@ -1,0 +1,158 @@
+# Known-good fixes for the 7 agent traps, as the repair agent would make them.
+#
+# Each entry is one failing file (in the order the Migrator would repair them) and the
+# find-and-replace edits that fix it, applied to the workspace as the Rules stage left it
+# (the mdc-migration schematic, run once; this migration has no dependency bump). Every
+# edit stays inside the failing file, adds no escape hatch (no CUSTOM_ELEMENTS_SCHEMA,
+# NO_ERRORS_SCHEMA, $any or ts-ignore) and is small. `old` strings are the text after the
+# schematic, which reformats some lines (see traps.yaml).
+#
+# The human trap (confirm-button-wrapper-class) is not here: its fix is in a Test file,
+# src/app/shared/confirm-button/confirm-button.component.spec.ts, and is in human-fix.yaml.
+#
+# Checked by hand on 2026-11-11 (traps.yaml header): Baseline + these edits + the human
+# fix -> ng build, ng test (30 specs) and ng lint all pass.
+schema_version: 2
+case: fixture-angular15
+
+files:
+  - path: src/app/app.module.ts
+    traps: [form-field-default-appearance]
+    note: >-
+      The legacy and standard appearances are gone. "fill" is the MDC appearance with an
+      underline; it adds a light background the legacy look didn't have.
+    edits:
+      - path: src/app/app.module.ts
+        old: "  appearance: 'legacy',"
+        new: "  appearance: 'fill',"
+
+  - path: src/app/issues/issue-filters/issue-filters.component.html
+    traps: [float-label-never]
+    note: >-
+      floatLabel="never" is gone; the select's placeholder ("Assignee") already shows
+      while nothing is chosen, which is what the guide suggests.
+    edits:
+      - path: src/app/issues/issue-filters/issue-filters.component.html
+        old: '<mat-form-field floatLabel="never" class="filter">'
+        new: '<mat-form-field class="filter">'
+
+  - path: src/app/issues/issue-list/issue-list.component.ts
+    traps: [paginator-form-field-appearance, table-data-source-paginator-type]
+    note: >-
+      Two build errors in one file. The paginator's page-size field takes the MDC
+      appearances only; the table data source types its paginator as the narrow
+      MatTableDataSourcePaginator unless given the paginator class, as the guide shows.
+    edits:
+      - path: src/app/issues/issue-list/issue-list.component.ts
+        old: "  formFieldAppearance: 'standard',"
+        new: "  formFieldAppearance: 'fill',"
+      - path: src/app/issues/issue-list/issue-list.component.ts
+        old: "  readonly dataSource = new MatTableDataSource<Issue>([]);"
+        new: "  readonly dataSource = new MatTableDataSource<Issue, MatPaginator>([]);"
+
+  - path: src/app/issues/label-editor/label-editor.component.ts
+    traps: [chip-row-selectable]
+    note: >-
+      The schematic turned the chip list with an input into mat-chip-grid / mat-chip-row.
+      Only mat-chip-option is selectable, so the binding goes; rows were never meant to
+      be selected here anyway.
+    edits:
+      - path: src/app/issues/label-editor/label-editor.component.ts
+        old: |2-
+                    *ngFor="let label of labels"
+                    [selectable]="false"
+        new: |2-
+                    *ngFor="let label of labels"
+
+  - path: src/app/issues/new-issue-dialog/new-issue-dialog.component.html
+    traps: [slider-form-control]
+    note: >-
+      The MDC slider's value lives on its <input matSliderThumb>, so the form control
+      and the label move there. showTickMarks replaces the tickInterval the schematic
+      removed (its TODO comment goes too).
+    edits:
+      - path: src/app/issues/new-issue-dialog/new-issue-dialog.component.html
+        old: |2-
+              <!-- TODO: The 'tickInterval' property no longer exists -->
+              <mat-slider
+                formControlName="priority"
+                aria-labelledby="priority-label"
+                min="1"
+                max="5"
+                step="1"
+              ><input matSliderThumb /></mat-slider>
+        new: |2-
+              <mat-slider min="1" max="5" step="1" showTickMarks>
+                <input matSliderThumb formControlName="priority" aria-labelledby="priority-label" />
+              </mat-slider>
+
+  - path: src/app/shared/search-box/search-box.component.html
+    traps: [placeholder-as-label]
+    note: >-
+      Only the legacy appearance promoted the placeholder to the floating label; MDC
+      needs an explicit <mat-label>.
+    edits:
+      - path: src/app/shared/search-box/search-box.component.html
+        old: |-
+          <mat-form-field class="search-box">
+        new: |-
+          <mat-form-field class="search-box">
+            <mat-label>{{ placeholder }}</mat-label>
+
+  # The four stylesheet rules the schematic marked with TODO(mdc-migration): agent traps
+  # since the owner's decision (11 November) that the agent resolves these notes. Three
+  # target legacy internal classes and must be restyled for MDC; one is a false alarm
+  # (a rule on the component's own element, which MDC keeps), where only the note goes.
+  - path: src/app/issues/issue-detail/issue-detail.component.scss
+    traps: [chip-list-wrapper-margin]
+    note: >-
+      The legacy chip list's wrapper is gone; the MDC chip set's chips sit in
+      .mdc-evolution-chip-set__chips, which carries the same negative margin.
+    edits:
+      - path: src/app/issues/issue-detail/issue-detail.component.scss
+        old: |-
+          /* TODO(mdc-migration): The following rule targets internal classes of chips that may no longer apply for the MDC version.*/
+          .current-labels ::ng-deep .mat-chip-list-wrapper {
+        new: |-
+          .current-labels ::ng-deep .mdc-evolution-chip-set__chips {
+
+  - path: src/app/issues/issue-filters/issue-filters.component.scss
+    traps: [form-field-wrapper-padding]
+    note: >-
+      The legacy form field reserved its hint space as bottom padding on its wrapper;
+      the MDC form field reserves it in the subscript wrapper, so that is what goes.
+    edits:
+      - path: src/app/issues/issue-filters/issue-filters.component.scss
+        old: |-
+          /* TODO(mdc-migration): The following rule targets internal classes of form-field that may no longer apply for the MDC version.*/
+          :host ::ng-deep .mat-form-field-wrapper {
+            padding-bottom: 0;
+          }
+        new: |-
+          :host ::ng-deep .mat-mdc-form-field-subscript-wrapper {
+            display: none;
+          }
+
+  - path: src/app/settings/settings.component.scss
+    traps: [radio-button-margin-false-alarm]
+    note: >-
+      The rule is on <mat-radio-button> itself, which MDC keeps, so it still applies;
+      only the schematic's note goes.
+    edits:
+      - path: src/app/settings/settings.component.scss
+        old: |
+          /* TODO(mdc-migration): The following rule targets internal classes of radio that may no longer apply for the MDC version. */
+        new: ""
+
+  - path: src/app/shared/confirm-button/confirm-button.component.scss
+    traps: [button-wrapper-inline-flex]
+    note: >-
+      The legacy button wrapped its content in .mat-button-wrapper; the MDC button's
+      label span is .mdc-button__label.
+    edits:
+      - path: src/app/shared/confirm-button/confirm-button.component.scss
+        old: |-
+          /* TODO(mdc-migration): The following rule targets internal classes of button that may no longer apply for the MDC version.*/
+          :host ::ng-deep .mat-button-wrapper {
+        new: |-
+          :host ::ng-deep .mdc-button__label {

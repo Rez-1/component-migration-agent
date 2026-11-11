@@ -535,12 +535,16 @@ def test_nothing_in_the_fixture_describes_the_traps() -> None:
     """Everything in the fixture is copied into the workspace, where read_file can
     reach it (M2 audit, finding #3): no file may describe the traps."""
     leaks = []
-    for path in sorted(FIXTURE.rglob("*")):
-        if "node_modules" in path.parts or not path.is_file() or path.name == "package-lock.json":
-            continue
-        for i, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
-            if TRAP_WORDS.search(line) or GLOSSARY_WORDS.search(line):
-                leaks.append(f"{path.relative_to(FIXTURE)}:{i}: {line.strip()}")
+    built = {"node_modules", "dist", ".angular"}  # installed or built, not the fixture
+    for fixture in sorted(p for p in FIXTURE.parent.iterdir() if p.is_dir()):
+        for path in sorted(fixture.rglob("*")):
+            if built & set(path.parts) or not path.is_file() or path.name == "package-lock.json":
+                continue
+            if path.suffix in (".ico", ".png"):
+                continue
+            for i, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
+                if TRAP_WORDS.search(line) or GLOSSARY_WORDS.search(line):
+                    leaks.append(f"{path.relative_to(FIXTURE.parent)}:{i}: {line.strip()}")
+        # traps.yaml and the case README live outside the fixture, so outside the workspace.
+        assert not (fixture / "traps.yaml").exists()
     assert leaks == []
-    # traps.yaml and the case README live outside the fixture, so outside the workspace.
-    assert not (FIXTURE / "traps.yaml").exists()

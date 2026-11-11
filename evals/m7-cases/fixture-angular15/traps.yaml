@@ -1,0 +1,218 @@
+# Planted traps in fixtures/angular15-app: one instance of one breaking change each.
+# Same schema as evals/cases/fixture-mui4/traps.yaml; `caught_by` adds "leftovers" (M7: a
+# failure with source migration in the trap's file). The guide is
+# guides/v15-mdc-migration.md at angular/components 15.2.9 (vendored in
+# src/migrator/migrations/angular-material-legacy-to-mdc/guide/); its changes are
+# bullets under "### <Component>", so `section` is "<Component> › <the bullet's gist>".
+# The guide has no "handled by the schematic" marker, so `codemod_marked` is always false.
+#
+# Baseline (11 November 2026, the Migrator itself, Docker, Node 18.20.8, Angular CLI
+# 15.2.11, Material 15.2.9): Pre-check ok (ng build, ng lint, 30 Karma specs pass). The
+# mdc-migration schematic, run once, updated 25 files and left 5 notes; eslint --fix
+# formatted 22. Then: ng build 5 errors (the 5 build traps below), so Karma ran no spec
+# (the test bundle didn't compile), lint clean, and 8 leftovers: the schematic's 5 notes
+# (4 TODO(mdc-migration) in stylesheets, 1 slider TODO in a template) and the 3 rules
+# under the notes that still name a legacy internal class. (The first preview also
+# counted 2 mixin names inside an ng update comment; comments no longer count.)
+#
+# With the build fixed (agent-fixes.yaml without the two template traps), Karma runs:
+# slider-form-control fails 3 specs (NG01203 no value accessor), placeholder-as-label 1
+# spec, confirm-button-wrapper-class (human) 2 specs. With every fix in agent-fixes.yaml
+# plus human-fix.yaml: 0 failures, 30 of 30 specs, lint clean, no leftovers, no stale
+# rules (the oracle).
+#
+# Revision 2 (11 November, the owner's decision that the agent resolves the schematic's
+# notes): the four stylesheet rules it marks with TODO(mdc-migration) became agent traps
+# (revision 1 had them as visual-only). One of them is a false alarm the agent must
+# recognise: a rule on <mat-radio-button> itself, which MDC keeps.
+
+schema_version: 1
+revision: 2
+case: fixture-angular15
+counts: { rules: 9, agent: 11, human: 1, visual-only: 0 }
+
+traps:
+  # ---------------------------------------------------------------- rules (9)
+  - id: legacy-entry-points
+    title: Every NgModule import moves from @angular/material/legacy-* to the MDC entry point
+    breaking_change: { file: v15-mdc-migration.md, section: "How to Migrate › 2. Run the migration tool", codemod_marked: false }
+    expected_layer: rules
+    location: { file: src/app/shared/material.module.ts, line: 2, symbol: MatLegacyButtonModule }
+    caught_by: none
+    baseline_check: rewritten (all 16 entry points in material.module.ts)
+
+  - id: legacy-symbols-in-components
+    title: Legacy classes used in components (MatLegacyDialog, MatLegacySelect, MatLegacyPaginator, MatLegacyTableDataSource) are renamed
+    breaking_change: { file: v15-mdc-migration.md, section: "How to Migrate › 2. Run the migration tool", codemod_marked: false }
+    expected_layer: rules
+    location: { file: src/app/app.component.ts, line: 2, symbol: MatLegacyDialog }
+    caught_by: none
+    baseline_check: rewritten in 5 component files
+
+  - id: legacy-theme-mixins
+    title: mat.all-legacy-component-themes / -typographies and mat.legacy-core become the MDC mixins
+    breaking_change: { file: v15-mdc-migration.md, section: "Theming › mixins", codemod_marked: false }
+    expected_layer: rules
+    location: { file: src/styles.scss, line: 12, symbol: "mat.all-legacy-component-typographies" }
+    caught_by: none
+    baseline_check: rewritten (the TODO(v15) comment from ng update stays; it is not a usage)
+
+  - id: legacy-typography-config
+    title: define-legacy-typography-config becomes define-typography-config
+    breaking_change: { file: v15-mdc-migration.md, section: "Library-wide Changes › typography", codemod_marked: false }
+    expected_layer: rules
+    location: { file: src/app/theme/_triage-theme.scss, line: 6, symbol: "mat.define-legacy-typography-config" }
+    caught_by: none
+    baseline_check: rewritten
+
+  - id: typography-class-renames
+    title: Typography classes take the 2018 names (mat-headline -> mat-headline-5, mat-title -> mat-headline-6, ...)
+    breaking_change: { file: v15-mdc-migration.md, section: "Library-wide Changes › typography levels", codemod_marked: false }
+    expected_layer: rules
+    location: { file: src/app/board/board.component.html, line: 3, symbol: "mat-headline" }
+    caught_by: none
+    baseline_check: rewritten in 6 templates
+
+  - id: card-outlined-appearance
+    title: mat-card gets appearance="outlined" to keep the legacy outlined look
+    breaking_change: { file: v15-mdc-migration.md, section: "Card › appearance", codemod_marked: false }
+    expected_layer: rules
+    location: { file: src/app/board/board.component.html, line: 14, symbol: "mat-card" }
+    caught_by: none
+    baseline_check: rewritten (2 cards)
+
+  - id: chip-list-to-listbox
+    title: A read-only mat-chip-list becomes mat-chip-listbox with mat-chip-option
+    breaking_change: { file: v15-mdc-migration.md, section: "Chips › chip list split into listbox, grid and set", codemod_marked: false }
+    expected_layer: rules
+    location: { file: src/app/issues/issue-detail/issue-detail.component.html, line: 17, symbol: "mat-chip-list" }
+    caught_by: none
+    baseline_check: rewritten
+
+  - id: form-field-legacy-appearance-attribute
+    title: appearance="legacy" on a form field is removed
+    breaking_change: { file: v15-mdc-migration.md, section: "Form Field › legacy and standard appearances no longer exist", codemod_marked: false }
+    expected_layer: rules
+    location: { file: src/app/issues/issue-filters/issue-filters.component.html, line: 2, symbol: "appearance=\"legacy\"" }
+    caught_by: none
+    baseline_check: removed (only the template attribute; the TypeScript default is the agent trap form-field-default-appearance)
+
+  - id: table-row-classes
+    title: Stylesheet rules on .mat-row / .mat-header-row move to .mat-mdc-row / .mat-mdc-header-row
+    breaking_change: { file: v15-mdc-migration.md, section: "Table › class names", codemod_marked: false }
+    expected_layer: rules
+    location: { file: src/app/issues/issue-list/issue-list.component.scss, line: 27, symbol: ".mat-row" }
+    caught_by: none
+    baseline_check: rewritten
+
+  # ---------------------------------------------------------------- agent (11)
+  - id: form-field-default-appearance
+    title: MAT_FORM_FIELD_DEFAULT_OPTIONS still asks for the removed 'legacy' appearance
+    breaking_change: { file: v15-mdc-migration.md, section: "Form Field › legacy and standard appearances no longer exist", codemod_marked: false }
+    expected_layer: agent
+    location: { file: src/app/app.module.ts, line: 23, symbol: "appearance: 'legacy'" }
+    caught_by: [typecheck]  # ng build TS2322
+    note: The schematic renames the token but not the string value.
+    baseline_check: fails (TS2322)
+
+  - id: float-label-never
+    title: floatLabel="never" no longer exists
+    breaking_change: { file: v15-mdc-migration.md, section: "Form Field › floatLabel never is gone", codemod_marked: false }
+    expected_layer: agent
+    location: { file: src/app/issues/issue-filters/issue-filters.component.html, line: 10, symbol: "floatLabel=\"never\"" }
+    caught_by: [typecheck]  # ng build TS2322, in the template
+    baseline_check: fails
+
+  - id: paginator-form-field-appearance
+    title: The paginator's default options ask for the removed 'standard' appearance
+    breaking_change: { file: v15-mdc-migration.md, section: "Paginator › form field appearance", codemod_marked: false }
+    expected_layer: agent
+    location: { file: src/app/issues/issue-list/issue-list.component.ts, line: 22, symbol: "formFieldAppearance: 'standard'" }
+    caught_by: [typecheck]  # ng build TS2322
+    baseline_check: fails
+
+  - id: table-data-source-paginator-type
+    title: MatTableDataSource types its paginator narrowly unless given the paginator class
+    breaking_change: { file: v15-mdc-migration.md, section: "Table › data source paginator type", codemod_marked: false }
+    expected_layer: agent
+    location: { file: src/app/issues/issue-list/issue-list.component.ts, line: 69, symbol: "getNumberOfPages" }
+    caught_by: [typecheck]  # ng build TS2339
+    baseline_check: fails
+
+  - id: chip-row-selectable
+    title: A chip list with an input becomes mat-chip-grid / mat-chip-row, which has no [selectable]
+    breaking_change: { file: v15-mdc-migration.md, section: "Chips › only mat-chip-option is selectable", codemod_marked: false }
+    expected_layer: agent
+    location: { file: src/app/issues/label-editor/label-editor.component.ts, line: 14, symbol: "[selectable]" }
+    caught_by: [typecheck]  # ng build NG8002, in the inline template
+    baseline_check: fails
+
+  - id: slider-form-control
+    title: The MDC slider's value lives on <input matSliderThumb>; tickInterval is gone
+    breaking_change: { file: v15-mdc-migration.md, section: "Slider › value and form control move to the thumb input", codemod_marked: false }
+    expected_layer: agent
+    location: { file: src/app/issues/new-issue-dialog/new-issue-dialog.component.html, line: 31, symbol: "mat-slider" }
+    caught_by:  # the schematic's slider TODO; three specs fail with NG01203 (no value accessor)
+      - leftovers
+      - "src/app/issues/new-issue-dialog/new-issue-dialog.component.spec.ts › creates a medium-priority bug by default"
+      - "src/app/issues/new-issue-dialog/new-issue-dialog.component.spec.ts › shows the priority it will use"
+      - "src/app/issues/new-issue-dialog/new-issue-dialog.component.spec.ts › requires a title"
+    baseline_check: fails
+
+  - id: placeholder-as-label
+    title: Only the legacy appearance promoted the placeholder to a floating label
+    breaking_change: { file: v15-mdc-migration.md, section: "Form Field › placeholder is no longer promoted to the label", codemod_marked: false }
+    expected_layer: agent
+    location: { file: src/app/shared/search-box/search-box.component.html, line: 1, symbol: "mat-form-field" }
+    caught_by: ["src/app/shared/search-box/search-box.component.spec.ts › labels the field with its placeholder"]
+    baseline_check: fails once the build passes
+
+  - id: chip-list-wrapper-margin
+    title: A rule on the legacy chip list's .mat-chip-list-wrapper no longer matches
+    breaking_change: { file: v15-mdc-migration.md, section: "Chips › DOM structure", codemod_marked: false }
+    expected_layer: agent
+    location: { file: src/app/issues/issue-detail/issue-detail.component.scss, line: 10, symbol: ".mat-chip-list-wrapper" }
+    caught_by: [leftovers]  # TODO(mdc-migration) and stale-rule
+    note: Styling compensation; no test checks it.
+    baseline_check: fails
+
+  - id: form-field-wrapper-padding
+    title: A rule removing .mat-form-field-wrapper's bottom padding (the hint space) no longer matches
+    breaking_change: { file: v15-mdc-migration.md, section: "Form Field › subscript space", codemod_marked: false }
+    expected_layer: agent
+    location: { file: src/app/issues/issue-filters/issue-filters.component.scss, line: 13, symbol: ".mat-form-field-wrapper" }
+    caught_by: [leftovers]  # TODO(mdc-migration) and stale-rule
+    note: Styling compensation; the visual check is the other place this shows.
+    baseline_check: fails
+
+  - id: radio-button-margin-false-alarm
+    title: The schematic marks a rule on <mat-radio-button> itself, which MDC keeps
+    breaking_change: { file: v15-mdc-migration.md, section: "Radio › DOM structure", codemod_marked: false }
+    expected_layer: agent
+    location: { file: src/app/settings/settings.component.scss, line: 21, symbol: "mat-radio-button" }
+    caught_by: [leftovers]  # TODO(mdc-migration) only
+    note: The right fix keeps the rule and removes only the note; restyling it is a wrong fix.
+    baseline_check: fails
+
+  - id: button-wrapper-inline-flex
+    title: A rule on the legacy button's .mat-button-wrapper no longer matches
+    breaking_change: { file: v15-mdc-migration.md, section: "Button › DOM structure", codemod_marked: false }
+    expected_layer: agent
+    location: { file: src/app/shared/confirm-button/confirm-button.component.scss, line: 2, symbol: ".mat-button-wrapper" }
+    caught_by: [leftovers]  # TODO(mdc-migration) and stale-rule
+    baseline_check: fails
+
+  # ---------------------------------------------------------------- human (1)
+  - id: confirm-button-wrapper-class
+    title: A spec reads the button label from the legacy .mat-button-wrapper span
+    breaking_change: { file: v15-mdc-migration.md, section: "Button › DOM structure", codemod_marked: false }
+    expected_layer: human
+    location: { file: src/app/shared/confirm-button/confirm-button.component.spec.ts, line: 23, symbol: ".mat-button-wrapper" }
+    caught_by:
+      - "src/app/shared/confirm-button/confirm-button.component.spec.ts › asks for confirmation on the first click"
+      - "src/app/shared/confirm-button/confirm-button.component.spec.ts › disarms when focus leaves the button"
+    note: >-
+      The fix belongs in the spec (a Test file); adding a span with the legacy class to
+      the component would be teaching to the test. Expected: a hand-off of
+      confirm-button.component.ts with a suggested test change.
+    baseline_check: fails once the build passes

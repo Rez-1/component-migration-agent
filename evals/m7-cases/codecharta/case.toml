@@ -26,13 +26,18 @@ install_env = { PUPPETEER_SKIP_DOWNLOAD = "1" }
 # The app lives in app/, not src/.
 source_globs = ["app/**/*.ts", "app/**/*.html", "app/**/*.scss"]
 exclude = ["**/node_modules/**", "**/*.spec.ts", "**/*.e2e.ts", "app/**/*.po.ts", "app/**/dataMocks.ts"]
-coverage = true
+# Off: the repo's Jest config already collects coverage, and with it 269 suites stalled
+# the sandbox's 4 GB (M7, 11 November).
+coverage = false
 
 [repo.verify]
-# ng build type-checks the templates (tsc alone doesn't); development builds faster.
-typecheck = "node_modules/.bin/ng build --configuration development"
+# ngc type-checks TypeScript and templates (strictTemplates) without bundling. ng build
+# can't run here: the app imports ../CHANGELOG.md from outside visualization/, which
+# the case extracts on its own (the tests mock it).
+typecheck = "node_modules/.bin/ngc -p tsconfig.app.json --noEmit"
 lint = "node_modules/.bin/eslint \"app/**/*.ts\""
-test = "node_modules/.bin/jest --config conf/jestUnit.config.json .*\\.spec\\.ts"
+# Two workers and no coverage keep Jest inside the sandbox's memory.
+test = "node_modules/.bin/jest --config conf/jestUnit.config.json --maxWorkers=2 --coverage=false .*\\.spec\\.ts"
 
 # Written by hand (M7): nw-install@0.3.4, a dev dependency of nw-builder (the NW.js
 # desktop packaging), was unpublished from npm, so `npm ci` can't install the repo as

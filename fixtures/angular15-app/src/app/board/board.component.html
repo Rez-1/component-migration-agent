@@ -1,0 +1,24 @@
+<section class="page">
+  <div class="summary">
+    <h1 class="page-title mat-headline">Board</h1>
+    <div class="done">
+      <span class="mat-display-1 done-figure">{{ done$ | async }}%</span>
+      <span class="mat-caption">of issues closed</span>
+    </div>
+  </div>
+  <mat-progress-bar mode="determinate" [value]="done$ | async" aria-label="Share of issues closed"></mat-progress-bar>
+
+  <div class="columns">
+    <section class="column" *ngFor="let column of columns$ | async" [attr.data-status]="column.status">
+      <h2 class="column-title mat-title">{{ column.title }} ({{ column.issues.length }})</h2>
+      <mat-card class="issue-card" *ngFor="let issue of column.issues; trackBy: trackById">
+        <a class="issue-link" [routerLink]="['/issues', issue.id]">#{{ issue.id }} {{ issue.title }}</a>
+        <div class="meta">
+          <span>{{ issue.type | titlecase }}</span>
+          <span>P{{ issue.priority }}</span>
+          <span>{{ issue.assignee ?? 'Unassigned' }}</span>
+        </div>
+      </mat-card>
+    </section>
+  </div>
+</section>
