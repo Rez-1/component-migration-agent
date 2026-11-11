@@ -263,8 +263,6 @@ class RepairSession:
         related = sorted({self.state.path, *self.record.touched, *(f for f, _ in targets)})
         result = self.checker.narrow(label, related)
         ran = result.test_files_run
-        if ran is None and self.checker.config.runner == "jest":
-            ran = []  # the report did not say which tests ran: assume none were refreshed
         self.known_failures[:] = update_known(self.known_failures, result.failures, ran)
         baseline = set(self.state.baseline_keys)
         left = [

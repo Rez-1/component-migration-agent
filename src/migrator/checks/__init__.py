@@ -31,6 +31,7 @@ from tree_sitter import Node
 
 from migrator.scan.parser import module_source, node_text, parse_tree, walk
 from migrator.verify import TestTotals
+from migrator.verify.runners import ADAPTERS
 
 Layer = Literal["rules", "agent", "human"]
 Severity = Literal["fail", "warning"]
@@ -185,18 +186,6 @@ class TestFileRules(_Model):
 
 _JEST_DEFAULT_DIR = "__tests__"
 _JEST_DEFAULT_NAME = re.compile(r"(^|\.)(spec|test)\.[cm]?[jt]sx?$")
-_CONFIG_NAMES = (
-    "jest.config.js",
-    "jest.config.cjs",
-    "jest.config.mjs",
-    "jest.config.ts",
-    "vitest.config.ts",
-    "vitest.config.js",
-    "vitest.config.mts",
-    "vite.config.ts",
-    "vite.config.js",
-)
-_KARMA_CONFIGS = ("karma.conf.js", "karma.conf.cjs", "karma.conf.mjs", "src/karma.conf.js")
 _ARRAY_KEYS = {
     "testMatch": "test",
     "include": "test",  # vitest test.include
@@ -241,21 +230,28 @@ def _config_arrays(text: str) -> dict[str, list[str]]:
 
 
 def read_test_rules(root: Path) -> TestFileRules:
-    """Read the test globs and setup files from the repo's Jest or Vitest config.
+    """Read the test globs and setup files from the repo's Test runner configs.
 
-    The config is read as text (it is code, and the checks never execute the repo's
-    code); anything not found falls back to Jest's default test globs, which always
-    apply as well, so a test file is never missed because a config was unreadable.
+    Every runner's adapter is asked, not only the selected one's, so a Test file is
+    never missed because the runner was guessed wrong: each config file there belongs
+    to the tests, and so do a runner's entry points when one of its configs is there.
+    A Jest or Vitest config is read as text for its globs and setup files (it is code,
+    and the checks never execute the repo's code); anything not found falls back to
+    Jest's default test globs, which always apply as well, so a test file is never
+    missed because a config was unreadable.
     """
     globs: list[str] = []
     setup: list[str] = []
-    for name in _CONFIG_NAMES:
-        path = root / name
-        if path.is_file():
-            arrays = _config_arrays(path.read_text("utf-8", errors="replace"))
-            globs += arrays["test"]
-            setup += arrays["setup"]
-            setup.append(name)  # the config itself belongs to the tests
+    for adapter in ADAPTERS:
+        configs = [name for name in adapter.config_files if (root / name).is_file()]
+        if adapter.config_lists_tests:
+            for name in configs:
+                arrays = _config_arrays((root / name).read_text("utf-8", errors="replace"))
+                globs += arrays["test"]
+                setup += arrays["setup"]
+        setup += configs  # the config itself belongs to the tests
+        if configs:
+            setup += [n for n in adapter.entry_points if (root / n).is_file()]
     package = root / "package.json"
     if package.is_file():
         try:
@@ -267,12 +263,6 @@ def read_test_rules(root: Path) -> TestFileRules:
                 globs += [_strip_root(str(v)) for v in jest.get(key, [])]
             for key in ("setupFiles", "setupFilesAfterEnv"):
                 setup += [_strip_root(str(v)) for v in jest.get(key, [])]
-    # Karma (Angular, M7): its config and the test entry point Angular's CLI generates
-    # belong to the tests (*.spec.ts already match the default test names).
-    karma = [n for n in _KARMA_CONFIGS if (root / n).is_file()]
-    if karma:
-        setup += karma
-        setup += [n for n in ("src/test.ts", "src/test-setup.ts") if (root / n).is_file()]
     return TestFileRules(test_globs=sorted(set(globs)), setup_files=sorted(set(setup)))
 
 

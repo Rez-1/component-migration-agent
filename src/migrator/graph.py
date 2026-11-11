@@ -888,7 +888,7 @@ class RunGraph:
         if state.get("rechecked") or not self.d.repair_on or not state.get("verify"):
             return False
         first = VerifyResult.model_validate(state["verify"])
-        if not any(f.source == "test" and f.test_name == "(build)" for f in first.failures):
+        if not any(f.ran_no_spec for f in first.failures):
             return False
         report = self.report_of(state)
         if report.stopped_by_cost_cap or not any(f.touched for f in report.files):

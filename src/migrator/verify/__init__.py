@@ -10,7 +10,6 @@ verifies exclude.
 from __future__ import annotations
 
 import json
-import os
 import re
 import threading
 from collections.abc import Callable
@@ -29,24 +28,18 @@ from migrator.config import (
     read_package_json,
 )
 from migrator.execs import CommandResult, CommandRunner
-from migrator.verify.karma import (
-    find_karma_config,
-    parse_karma_json,
-    spec_files_for,
-    write_wrapper,
-)
+from migrator.verify.commands import real_path, with_args
 from migrator.verify.leftovers import find_leftovers
 from migrator.verify.parsers import (
     Failure,
     TestTotals,
-    jest_suite_files,
     parse_eslint_json,
     parse_eslint_stylish,
-    parse_jest_json,
     parse_ng_build,
     parse_tsc,
 )
-from migrator.workspace import install_command, list_files, record_install
+from migrator.verify.runners import Skipped, TestRun, adapter_for
+from migrator.workspace import install_command, record_install
 
 _INSTALL_LOCK = threading.Lock()
 
@@ -60,7 +53,9 @@ __all__ = [
     "VerifyResult",
     "install",
     "precheck",
+    "real_path",
     "verify",
+    "with_args",
 ]
 
 
@@ -86,7 +81,7 @@ class VerifyInput(BaseModel):
     label: str = "verify"
     pre_existing: list[Failure] = []
     # Narrow verify (the repair agent's run_verify): run only the tests related to
-    # these files (``jest --findRelatedTests``). None runs every test.
+    # these files, in the Test runner's own way (verify.runners). None runs every test.
     related_to: list[str] | None = None
     # Also measure test coverage into this folder (the Pre-check, M6).
     coverage_dir: Path | None = None
@@ -157,33 +152,6 @@ def incremental_typecheck(command: str, body: str) -> str:
     return command
 
 
-def real_path(root: Path, rel: str) -> str | None:
-    """``rel`` as it is spelled on disk under ``root``, or None if there is no such file.
-    macOS's file system ignores case, so asking whether ``month.tsx`` exists says yes when
-    only ``Month.tsx`` does; the failure must be charged to ``Month.tsx``, the path every
-    file list has (M6, wps: failures charged to ``month.tsx`` were never repaired)."""
-    folder, parts = root, []
-    for part in Path(rel).parts:
-        try:
-            names = [e.name for e in os.scandir(folder)]
-        except OSError:
-            return None
-        match = (
-            part if part in names else next((n for n in names if n.lower() == part.lower()), None)
-        )
-        if match is None:
-            return None
-        parts.append(match)
-        folder = folder / match
-    return "/".join(parts) if folder.is_file() else None
-
-
-def with_args(command: str, args: list[str]) -> str:
-    """Append arguments to a command; ``npm run``/``npm test`` need ``--`` first."""
-    sep = " -- " if command.startswith("npm ") and " -- " not in command else " "
-    return command + sep + " ".join(args)
-
-
 def _run_one(
     name: VerifyName, command: str, inp: VerifyInput, runner: CommandRunner
 ) -> tuple[CommandOutcome, list[Failure], TestTotals | None, list[str] | None]:
@@ -199,42 +167,19 @@ def _run_one(
     if name == "lint" and "eslint" in body:
         json_out = (inp.log_dir / f"{inp.label}-eslint.json").resolve()
         run_command = with_args(command, ["-f", "json", "-o", str(json_out)])
-    elif name == "test" and inp.runner == "jest":
-        json_out = (inp.log_dir / f"{inp.label}-jest.json").resolve()
-        args = ["--json", f"--outputFile={json_out}", "--testLocationInResults"]
-        if inp.related_to is not None:
-            args += ["--passWithNoTests", "--findRelatedTests", *inp.related_to]
-        if inp.coverage_dir is not None:
-            args += [
-                "--coverage",
-                "--coverageReporters=json-summary",
-                f"--coverageDirectory={inp.coverage_dir.resolve()}",
-            ]
-        run_command = with_args(command, args)
-    elif name == "test" and inp.runner == "karma":
-        karma_config = find_karma_config(ws)
-        if karma_config is None:
-            failure = Failure(source="test", file=None, message="no karma.conf.js in the repo")
-            return _skipped(name, command, "no karma config"), [failure], None, None
-        wrapper, json_out = write_wrapper(ws, karma_config, inp.log_dir, inp.label)
-        args = [f"--karma-config={wrapper}", "--watch=false", "--browsers=MigratorChromeHeadless"]
-        if inp.related_to is not None:
-            specs = spec_files_for(inp.related_to, lambda p: (ws / p).is_file())
-            if not specs:  # nothing tests these files: nothing to run
-                return _skipped(name, command, "no spec for these files"), [], None, []
-            args += [f"--include={s}" for s in specs]
-        run_command = with_args(command, args)
-    elif name == "test" and inp.runner == "vitest":
-        # Vitest's JSON reporter writes the same shape as Jest's (not yet exercised by a case).
-        json_out = (inp.log_dir / f"{inp.label}-vitest.json").resolve()
-        args = ["--reporter=json", f"--outputFile={json_out}"]
-        if inp.coverage_dir is not None:
-            args += [
-                "--coverage.enabled=true",
-                "--coverage.reporter=json-summary",
-                f"--coverage.reportsDirectory={inp.coverage_dir.resolve()}",
-            ]
-        run_command = with_args(command, args)
+    elif name == "test":
+        adapter = adapter_for(inp.runner)
+        test_run = TestRun(
+            workspace=ws,
+            log_dir=inp.log_dir,
+            label=inp.label,
+            related_to=inp.related_to,
+            coverage_dir=inp.coverage_dir,
+        )
+        planned = adapter.plan(command, test_run)
+        if isinstance(planned, Skipped):
+            return _skipped(name, command, planned.why), planned.failures, None, planned.ran
+        run_command, json_out = planned.command, planned.report
     if json_out is not None:
         json_out.unlink(missing_ok=True)
 
@@ -258,43 +203,10 @@ def _run_one(
                 parse_eslint_stylish(result.output, root, warnings),
                 "eslint text",
             )
-    elif name == "test" and inp.runner == "karma" and json_out is not None and json_out.is_file():
-        spec_sources = [
-            (rel, (ws / rel).read_text("utf-8", errors="replace"))
-            for rel in list_files(ws, ["src/**/*.spec.ts", "projects/**/*.spec.ts"], [])
-        ]
-        failures, totals = parse_karma_json(
-            json_out.read_text("utf-8"), root, lambda p: real_path(ws, p), spec_sources
-        )
-        if inp.related_to is not None:
-            suites = sorted({f.test_file for f in failures if f.test_file})
-        parsed_with = "karma json"
-    elif json_out is not None and json_out.is_file():
-        text = json_out.read_text("utf-8")
-        failures, totals = parse_jest_json(text, root, lambda p: real_path(ws, p))
-        if inp.related_to is not None:
-            suites = jest_suite_files(text, root)
-        parsed_with = f"{inp.runner} json"
-
-    if (
-        not result.ok
-        and not failures
-        and name == "test"
-        and inp.runner == "karma"
-        and ("load error" in result.output)
-    ):
-        # The test bundle didn't compile (M7): Karma ran no spec. The cause is in the
-        # type-check's failures; this says why the tests can't tell anything yet.
-        failures = [
-            Failure(
-                source="test",
-                file=None,
-                message="the test bundle didn't compile, so no spec ran (fix the build "
-                "errors first)",
-                test_name="(build)",
-            )
-        ]
-        parsed_with = "karma load error"
+    elif name == "test":
+        report = adapter.read(result, test_run, json_out)
+        failures, totals, suites = report.failures, report.totals, report.ran
+        parsed_with = report.parsed_with
     if not result.ok and not failures:
         why = "timed out" if result.timed_out else f"exited {result.exit_code}"
         failures = [
@@ -490,7 +402,7 @@ def precheck(inp: PrecheckInput, runner: CommandRunner) -> PrecheckResult:
     )
     covered = None
     if coverage_dir is not None:
-        report = inp.log_dir / f"precheck-{inp.config.runner}.json"
+        report = adapter_for(inp.config.runner).report_file(inp.log_dir, "precheck")
         covered = read_coverage(coverage_dir, inp.workspace, report)
     type_errors = [f for f in verified.failures if f.source == "typecheck"]
     if type_errors:
@@ -603,26 +515,20 @@ def update_snapshots(
     failure stays."""
     files = snapshot_only_test_files(result)
     command = inp.commands.test
-    if not files or not command or inp.runner not in ("jest", "vitest"):
+    adapter = adapter_for(inp.runner)
+    if not files or not command or not adapter.updates_snapshots:
         return result, None
     inp.log_dir.mkdir(parents=True, exist_ok=True)
     log = inp.log_dir / f"{inp.label}-snapshots-update.log"
     json_out = (inp.log_dir / f"{inp.label}-snapshots-update.json").resolve()
     json_out.unlink(missing_ok=True)
-    if inp.runner == "jest":
-        args = ["--ci=false", "-u", "--json", f"--outputFile={json_out}",
-                "--runTestsByPath", *files]  # fmt: skip
-    else:
-        args = ["-u", "--reporter=json", f"--outputFile={json_out}", *files]
     before = snapshot_hashes()
-    runner.run(with_args(command, args), inp.workspace, log_file=log)
+    runner.run(adapter.snapshot_command(command, files, json_out), inp.workspace, log_file=log)
     after = snapshot_hashes()
     changed = sorted(p for p in before.keys() | after.keys() if before.get(p) != after.get(p))
     if not json_out.is_file():
         return result, SnapshotRun(updated={}, changed_files=changed, log=log.name)
-    still, _ = parse_jest_json(
-        json_out.read_text("utf-8"), str(inp.workspace.resolve()), lambda p: True
-    )
+    still = adapter.snapshot_failures(json_out.read_text("utf-8"), str(inp.workspace.resolve()))
     failing_now = {f.test_file for f in still}
     fixed = [t for t in files if t not in failing_now]
     updated = {

@@ -130,8 +130,7 @@ def describe_failure(f: Failure, path: str) -> str:
         where = f", line {f.line}" if f.line else ""
         return f"**Not migrated yet**{where}: {f.message}"
     attributed = "" if f.test_file is None or f.file != path else " (This test imports this file.)"
-    name = f.test_name or "(suite)"
-    return f'**Failing test** `{f.test_file}` › "{name}": {f.message}{attributed}'
+    return f'**Failing test** `{f.test_file}` › "{f.test_title}": {f.message}{attributed}'
 
 
 def failure_list(failures: Sequence[Failure], path: str) -> str:
