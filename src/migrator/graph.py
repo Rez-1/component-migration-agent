@@ -115,21 +115,9 @@ from migrator.repair.tools import (
     SessionState,
     failure_key,
 )
-from migrator.report import (
-    REPORT_INPUT,
-    ReportInput,
-    RunMeta,
-    SnapshotUpdate,
-    build_scorecard,
-    render_pr_body,
-    render_scorecard,
-    repeated_edits,
-    test_fitting_flags,
-    usd,
-    write_json,
-    write_report_input,
-)
+from migrator.report import render_pr_body, render_scorecard, usd, write_json
 from migrator.review import ReviewPayload
+from migrator.review_aids import repeated_edits, test_fitting_flags
 from migrator.rules import (
     RulesInput,
     RulesResult,
@@ -140,6 +128,7 @@ from migrator.rules import (
 )
 from migrator.scan import ScanInput, UsageReport, scan
 from migrator.scan.render import render_usage_report
+from migrator.scoring import Evidence, MigratorChanges, RunMeta, SnapshotUpdate, score
 from migrator.verify import (
     Failure,
     PrecheckInput,
@@ -273,6 +262,24 @@ class RunDeps:
 
 
 # --------------------------------------------------------------------------- helpers
+
+
+# The run's Scoring evidence, in its run folder: written before the Scorecard is built,
+# so a run can be scored again later (issue #17's replay gate).
+EVIDENCE_FILE = "report-input.json"
+# Whole file texts a repair record keeps for Review; Scoring never reads them, and the
+# evidence file must not copy the target repo's source.
+_FILE_TEXTS = ("set_aside", "originals", "failures_at_hand_off")
+
+
+def write_evidence(evidence: Evidence, path: Path) -> None:
+    """``evidence`` as JSON, without the repair records' file texts."""
+    data = evidence.model_dump(mode="json")
+    for record in (data["changes"].get("repair") or {}).get("files") or []:
+        for key in _FILE_TEXTS:
+            record.pop(key, None)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", "utf-8")
 
 
 def _now() -> str:
@@ -1602,11 +1609,9 @@ class RunGraph:
             month_spent_usd=d.ledger.month_spent() if calls else None,
             stopped_by_cap=report.stopped_by_cost_cap,
         )
-        evidence = ReportInput(
+        evidence = Evidence(
             usage=usage,
             precheck=pre,
-            rules=rules,
-            rules_verify=post_rules,
             verify=final,
             final_usage=final_usage,
             traps=d.traps,
@@ -1616,32 +1621,36 @@ class RunGraph:
             if state.get("cheating")
             else None,
             cost=cost,
-            repair=report if d.configuration.repair.enabled else None,
-            later_layers=layers,
-            repeated_edits=repeated_edits(
-                self.after_rules(state), read_files(self.workspace(state)), layers
-            )
-            if layers is not None and d.configuration.repair.shared_causes
-            else None,
-            test_fitting=test_fitting_flags(
-                self.after_rules(state),
-                read_files(self.workspace(state)),
-                [(f.path, f.touched) for f in report.files if f.touched],
-                {f.file for f in post_rules.failures if f.source == "test" and f.file},
-            )
-            if layers is not None and post_rules is not None and d.configuration.repair.enabled
-            else None,
-            snapshots_to_review=[
-                SnapshotUpdate.model_validate(r) for r in state.get("snapshot_updates") or []
-            ]
-            if d.config.update_snapshots
-            else None,
             case=d.case.id if d.case else (d.traps.case if d.traps else None),
-            visual=visual,
             meta=meta,
+            changes=MigratorChanges(
+                rules=rules,
+                rules_verify=post_rules,
+                repair=report if d.configuration.repair.enabled else None,
+                later_layers=layers,
+                repeated_edits=repeated_edits(
+                    self.after_rules(state), read_files(self.workspace(state)), layers
+                )
+                if layers is not None and d.configuration.repair.shared_causes
+                else None,
+                test_fitting=test_fitting_flags(
+                    self.after_rules(state),
+                    read_files(self.workspace(state)),
+                    [(f.path, f.touched) for f in report.files if f.touched],
+                    {f.file for f in post_rules.failures if f.source == "test" and f.file},
+                )
+                if layers is not None and post_rules is not None and d.configuration.repair.enabled
+                else None,
+                snapshots_to_review=[
+                    SnapshotUpdate.model_validate(r) for r in state.get("snapshot_updates") or []
+                ]
+                if d.config.update_snapshots
+                else None,
+                visual=visual,
+            ),
         )
-        write_report_input(evidence, run_dir / REPORT_INPUT)  # before scoring: see #17
-        card = build_scorecard(evidence)
+        write_evidence(evidence, run_dir / EVIDENCE_FILE)  # before Scoring: see #17
+        card = score(evidence)
         release_run(state["run_id"])  # this run's worst-case reservation ends here
         write_json(card, run_dir / "scorecard.json")
         (run_dir / "scorecard.md").write_text(render_scorecard(card), "utf-8")

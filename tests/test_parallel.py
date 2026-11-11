@@ -17,9 +17,9 @@ from migrator.cost import (
 from migrator.evals import run_experiment
 from migrator.execs import CommandRunner
 from migrator.pipeline import RunOptions, RunResult
-from migrator.report import ReportInput
+from migrator.scoring import Evidence
 from tests.test_evals import OPUS, FakeRuns, _plan
-from tests.test_report import card_input  # noqa: F401
+from tests.test_scoring import card_input  # noqa: F401
 
 
 class OkPreflight:
@@ -30,7 +30,7 @@ class OkPreflight:
 class TogetherRuns(FakeRuns):
     """Every run waits at a barrier: the experiment only finishes if they run at once."""
 
-    def __init__(self, base: ReportInput, outcomes: list[str], parties: int):
+    def __init__(self, base: Evidence, outcomes: list[str], parties: int):
         super().__init__(base, outcomes)
         self.barrier = threading.Barrier(parties, timeout=10)
         self.lock = threading.Lock()
@@ -43,7 +43,7 @@ class TogetherRuns(FakeRuns):
 
 def test_repeat_runs_run_at_the_same_time_and_split_the_budget(
     tmp_path: Path,
-    card_input: ReportInput,  # noqa: F811
+    card_input: Evidence,  # noqa: F811
 ) -> None:
     runs = TogetherRuns(card_input, ["dirty", "dirty"], parties=2)
     out = run_experiment(
@@ -57,7 +57,7 @@ def test_repeat_runs_run_at_the_same_time_and_split_the_budget(
 
 def test_one_at_a_time_keeps_the_old_cap(
     tmp_path: Path,
-    card_input: ReportInput,  # noqa: F811
+    card_input: Evidence,  # noqa: F811
 ) -> None:
     runs = FakeRuns(card_input, ["dirty", "dirty"])
     run_experiment(
@@ -89,7 +89,7 @@ def test_a_cached_precheck_gives_the_same_scorecard_without_rerunning(
     import pytest
 
     from migrator.pipeline import start_run
-    from migrator.report import stable_view
+    from migrator.scoring import stable_view
     from tests.conftest import FakeRunner
     from tests.fakes import FakeToolchain, ScriptedChatModel, factory_for, make_mini_repo
     from tests.test_graph import GOOD, configuration

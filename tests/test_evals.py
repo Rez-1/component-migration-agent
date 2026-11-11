@@ -27,10 +27,11 @@ from migrator.evals.summary import build_summary, render_summary, stable_view, w
 from migrator.execs import CommandRunner, RunTimeoutError
 from migrator.migrations import MigrationSpec
 from migrator.pipeline import RunOptions, RunResult
-from migrator.report import ReportInput, build_scorecard, render_scorecard, write_json
+from migrator.report import render_scorecard, write_json
+from migrator.scoring import Evidence, score
 from migrator.verify import VerifyResult
 from tests.conftest import FIXTURE_CASE, REPO_ROOT
-from tests.test_report import TEST_FAIL, TYPE_ERROR, _meta, card_input  # noqa: F401
+from tests.test_scoring import TEST_FAIL, TYPE_ERROR, _meta, card_input, changed  # noqa: F401
 
 CASE = load_case(FIXTURE_CASE / "case.toml")
 OPUS = Configuration.model_validate(
@@ -50,7 +51,7 @@ OPUS = Configuration.model_validate(
 class FakeRuns:
     """A run function that returns prepared scorecards instead of running Node."""
 
-    def __init__(self, base: ReportInput, outcomes: list[str]):
+    def __init__(self, base: Evidence, outcomes: list[str]):
         self.base = base
         self.outcomes: Iterator[str] = iter(outcomes)
         self.calls: list[RunOptions] = []
@@ -92,7 +93,7 @@ class FakeRuns:
             inp = inp.model_copy(
                 update={"verify": VerifyResult(commands=[], failures=[]), "cost": cost}
             )
-        card = build_scorecard(inp)
+        card = score(inp)
         write_json(card, opts.run_dir / "scorecard.json")
         (opts.run_dir / "scorecard.md").write_text(render_scorecard(card))
         return RunResult(
@@ -132,7 +133,7 @@ def test_load_cases(tmp_path: Path) -> None:
 
 def test_experiment_writes_the_build_eval_layout(
     tmp_path: Path,
-    card_input: ReportInput,  # noqa: F811
+    card_input: Evidence,  # noqa: F811
 ) -> None:
     runs = FakeRuns(card_input, ["dirty", "dirty"])
     outcome = run_experiment(_plan(tmp_path), run=runs)
@@ -144,12 +145,13 @@ def test_experiment_writes_the_build_eval_layout(
     rows = read_rows(variant)
     assert [(r.prompt_id, r.rep) for r in rows] == [("fixture-mui4", 0), ("fixture-mui4", 1)]
     row = rows[0]
+    # The per-run metrics with a viewer column, in Scoring's order (one metric list).
     assert list(row.grade) == [
         "clean_run",
         "migrated_share",
-        "repair_traps_expected",
-        "cheating_hits",
         "regressions",
+        "cheating_hits",
+        "repair_traps_expected_share",
         "silent_misses",
     ]
     assert row.model is None and row.cost_usd == 0.0 and row.tags == ["fixture", "dev"]
@@ -167,7 +169,7 @@ def test_experiment_writes_the_build_eval_layout(
 
 def test_a_second_experiment_is_the_next_variant(
     tmp_path: Path,
-    card_input: ReportInput,  # noqa: F811
+    card_input: Evidence,  # noqa: F811
 ) -> None:
     first = run_experiment(_plan(tmp_path), run=FakeRuns(card_input, ["dirty"] * 2))
     second = run_experiment(_plan(tmp_path), run=FakeRuns(card_input, ["dirty"] * 2))
@@ -176,7 +178,7 @@ def test_a_second_experiment_is_the_next_variant(
 
 def test_a_repair_configuration_without_max_cost_fails_before_anything_runs(
     tmp_path: Path,
-    card_input: ReportInput,  # noqa: F811
+    card_input: Evidence,  # noqa: F811
 ) -> None:
     runs = FakeRuns(card_input, [])
     with pytest.raises(EvalError, match="--max-cost"):
@@ -186,7 +188,7 @@ def test_a_repair_configuration_without_max_cost_fails_before_anything_runs(
 
 def test_failed_runs_go_to_the_errors_sidecar_and_resume_reruns_them(
     tmp_path: Path,
-    card_input: ReportInput,  # noqa: F811
+    card_input: Evidence,  # noqa: F811
 ) -> None:
     out = run_experiment(_plan(tmp_path), run=FakeRuns(card_input, ["dirty", "timeout"]))
     assert (out.scored, out.errors) == (1, 1)
@@ -208,7 +210,7 @@ def test_failed_runs_go_to_the_errors_sidecar_and_resume_reruns_them(
 
 def test_resume_refuses_a_changed_configuration(
     tmp_path: Path,
-    card_input: ReportInput,  # noqa: F811
+    card_input: Evidence,  # noqa: F811
 ) -> None:
     run_experiment(_plan(tmp_path), run=FakeRuns(card_input, ["dirty"] * 2))
     changed = BASELINE.model_copy(
@@ -222,7 +224,7 @@ def test_resume_refuses_a_changed_configuration(
 
 def test_a_round_the_preflight_refuses_leaves_no_folder(
     tmp_path: Path,
-    card_input: ReportInput,  # noqa: F811
+    card_input: Evidence,  # noqa: F811
 ) -> None:
     """A refused round must not leave a v<N> folder behind: it would look like a round
     that ran and push the next round's number up."""
@@ -240,7 +242,7 @@ def test_a_round_the_preflight_refuses_leaves_no_folder(
 
 def test_a_cheating_hit_fails_the_run(
     tmp_path: Path,
-    card_input: ReportInput,  # noqa: F811
+    card_input: Evidence,  # noqa: F811
 ) -> None:
     out = run_experiment(_plan(tmp_path), run=FakeRuns(card_input, ["clean", "cheat"]))
     rows = read_rows(out.path)
@@ -257,7 +259,7 @@ def test_a_cheating_hit_fails_the_run(
 
 def test_summary_mean_and_both_values_for_two_runs(
     tmp_path: Path,
-    card_input: ReportInput,  # noqa: F811
+    card_input: Evidence,  # noqa: F811
 ) -> None:
     base = run_experiment(_plan(tmp_path), run=FakeRuns(card_input, ["dirty"] * 2))
     other = run_experiment(_plan(tmp_path), run=FakeRuns(card_input, ["costly", "dirty"]))
@@ -278,7 +280,7 @@ def test_summary_mean_and_both_values_for_two_runs(
 
 def test_cost_per_clean_run_is_undefined_without_clean_runs(
     tmp_path: Path,
-    card_input: ReportInput,  # noqa: F811
+    card_input: Evidence,  # noqa: F811
 ) -> None:
     out = run_experiment(_plan(tmp_path), run=FakeRuns(card_input, ["dirty"] * 2))
     summary = build_summary(out.path)
@@ -289,7 +291,7 @@ def test_cost_per_clean_run_is_undefined_without_clean_runs(
 
 def test_three_runs_show_the_range(
     tmp_path: Path,
-    card_input: ReportInput,  # noqa: F811
+    card_input: Evidence,  # noqa: F811
 ) -> None:
     out = run_experiment(
         _plan(tmp_path, repeats=3), run=FakeRuns(card_input, ["dirty", "clean", "dirty"])
@@ -301,7 +303,7 @@ def test_three_runs_show_the_range(
 
 def test_trap_results_across_runs(
     tmp_path: Path,
-    card_input: ReportInput,  # noqa: F811
+    card_input: Evidence,  # noqa: F811
 ) -> None:
     out = run_experiment(_plan(tmp_path), run=FakeRuns(card_input, ["dirty", "clean"]))
     summary = build_summary(out.path)
@@ -312,7 +314,7 @@ def test_trap_results_across_runs(
 
 def test_stable_summary_has_no_dates_and_rerenders(
     tmp_path: Path,
-    card_input: ReportInput,  # noqa: F811
+    card_input: Evidence,  # noqa: F811
 ) -> None:
     out = run_experiment(_plan(tmp_path), run=FakeRuns(card_input, ["dirty"] * 2))
     a = build_summary(out.path, created_at="2026-11-09T00:00:00Z")
@@ -328,9 +330,27 @@ def test_stable_summary_has_no_dates_and_rerenders(
     assert render_summary(ExperimentSummary.model_validate(data), stable=True) == md
 
 
+def test_repair_traps_expected_is_a_count_even_from_an_old_row(
+    tmp_path: Path,
+    card_input: Evidence,  # noqa: F811
+) -> None:
+    """Rows written before the metric list moved to Scoring keep the share under
+    ``repair_traps_expected``; the summary reads the count from the scorecard."""
+    agent_fixed = changed(card_input, later_layers={"src/Clean.tsx": "agent"})
+    out = run_experiment(_plan(tmp_path), run=FakeRuns(agent_fixed, ["dirty"] * 2))
+    path = out.path / "results.jsonl"
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    for row in rows:
+        row["grade"]["repair_traps_expected"] = row["grade"].pop("repair_traps_expected_share")
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    by_id = {m.id: m for m in build_summary(out.path).metrics}
+    assert by_id["repair_traps_expected"].values == [1.0, 1.0]  # 1 of the 3 agent traps
+    assert by_id["repair_traps_expected_share"].values == [0.3333, 0.3333]
+
+
 def test_summary_recomputes_from_rows_and_catches_disagreement(
     tmp_path: Path,
-    card_input: ReportInput,  # noqa: F811
+    card_input: Evidence,  # noqa: F811
 ) -> None:
     out = run_experiment(_plan(tmp_path), run=FakeRuns(card_input, ["dirty"] * 2))
     path = out.path / "results.jsonl"
@@ -388,7 +408,7 @@ def test_cli_eval_summary_unknown_experiment(tmp_path: Path) -> None:
 
 def test_cli_eval_summary_writes_both_files(
     tmp_path: Path,
-    card_input: ReportInput,  # noqa: F811
+    card_input: Evidence,  # noqa: F811
 ) -> None:
     run_experiment(_plan(tmp_path), run=FakeRuns(card_input, ["dirty"] * 2))
     result = cli.invoke(

@@ -64,8 +64,9 @@ from migrator.pipeline import (
     write_usage_report,
 )
 from migrator.pr import PrError, open_pr, plan_pr
-from migrator.report import Scorecard, traps_line, usd
+from migrator.report import traps_line, usd
 from migrator.review import AutoReviewer, Reviewer, RichReviewer
+from migrator.scoring import Scorecard
 from migrator.tracing import describe, flush, install_redaction, tracing_settings
 from migrator.workspace import RUN_FILES_DIR, run_files_ignored
 

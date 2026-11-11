@@ -44,7 +44,7 @@ from migrator.config import CaseConfig
 from migrator.configuration import Configuration
 from migrator.cost import CostGuard, Ledger, LedgerRow, cost_usd, now_utc
 from migrator.evals.upstream import materialize, reference_changes, reference_file
-from migrator.report import Scorecard
+from migrator.scoring import Scorecard
 
 JUDGE_MODEL = "claude-opus-5-5"  # M6's judge; its cached judgements keep their keys
 JUDGE_EFFORT = "low"

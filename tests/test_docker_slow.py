@@ -16,7 +16,7 @@ from migrator.config import load_case
 from migrator.execs import DockerRunner, docker_available, node_image
 from migrator.migrations import MigrationSpec
 from migrator.pipeline import RunOptions, dry_run
-from migrator.report import stable_view
+from migrator.scoring import stable_view
 from tests.conftest import FIXTURE, FIXTURE_CASE, REPO_ROOT
 
 pytestmark = [

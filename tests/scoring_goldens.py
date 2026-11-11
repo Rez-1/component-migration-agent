@@ -24,7 +24,8 @@ import json
 import sys
 from pathlib import Path
 
-from migrator.report import REPORT_INPUT, stable_view
+from migrator.graph import EVIDENCE_FILE
+from migrator.scoring import stable_view
 
 GOLDENS = Path(__file__).parent / "data" / "scoring"
 EXPECTED = "expected.json"
@@ -45,9 +46,9 @@ def save_golden(run_dir: Path, dest: Path, paths: dict[str, Path] | None = None)
     names = {"<repo>": REPO_ROOT, "<run>": run_dir, **(paths or {})}
     card = json.loads((run_dir / "scorecard.json").read_text("utf-8"))
     expected = json.dumps(stable_view(card), indent=2, ensure_ascii=False) + "\n"
-    evidence = (run_dir / REPORT_INPUT).read_text("utf-8")
+    evidence = (run_dir / EVIDENCE_FILE).read_text("utf-8")
     dest.mkdir(parents=True, exist_ok=True)
-    (dest / REPORT_INPUT).write_text(_placeholders(evidence, names), "utf-8")
+    (dest / EVIDENCE_FILE).write_text(_placeholders(evidence, names), "utf-8")
     (dest / EXPECTED).write_text(_placeholders(expected, names), "utf-8")
 
 

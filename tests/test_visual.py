@@ -9,7 +9,8 @@ import pytest
 from PIL import Image, ImageDraw
 
 from migrator.config import load_case
-from migrator.report import _visual_lines, stable_view
+from migrator.report import _visual_lines
+from migrator.scoring import stable_view
 from migrator.visual import (
     VisualConfig,
     VisualPage,

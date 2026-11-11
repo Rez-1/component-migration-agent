@@ -16,18 +16,12 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from migrator.configuration import Configuration
 from migrator.cost import Ledger
-from migrator.graph import repair_order
+from migrator.graph import EVIDENCE_FILE, repair_order
 from migrator.migrations import MigrationSpec
 from migrator.pipeline import PausedRun, RunOptions, RunResult, resume_run, start_run
 from migrator.repair.records import ReviewAnswer
-from migrator.report import (
-    REPORT_INPUT,
-    FileRepairSummary,
-    build_scorecard,
-    read_report_input,
-    stable_view,
-)
 from migrator.review import ReviewPayload
+from migrator.scoring import Evidence, FileRepairSummary, score, stable_view
 from tests.conftest import FakeRunner
 from tests.fakes import (
     FakeToolchain,
@@ -220,11 +214,11 @@ def test_the_runs_evidence_scores_again_to_the_same_scorecard(
     so the run can be scored again later (issue #17's gate), without file texts."""
     result, _, _, _ = run(tmp_path, spec, GOOD, reviewer=Recorder(["keep"]), mode="cli")
     assert isinstance(result, RunResult)
-    evidence = result.run_dir / REPORT_INPUT
-    again = build_scorecard(read_report_input(evidence))
+    evidence = result.run_dir / EVIDENCE_FILE
+    again = score(Evidence.model_validate_json(evidence.read_text()))
     written = json.loads((result.run_dir / "scorecard.json").read_text())
     assert stable_view(again) == stable_view(written)
-    for record in json.loads(evidence.read_text())["repair"]["files"]:
+    for record in json.loads(evidence.read_text())["changes"]["repair"]["files"]:
         assert not {"set_aside", "originals", "failures_at_hand_off"} & set(record)
 
 
