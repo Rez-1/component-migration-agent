@@ -103,6 +103,25 @@ strict_tools = true
 
 Claude models keep their bare ids (`claude-opus-5-5`), so ledgers and scorecards from before the levels still line up. Configurations written before M7 name models directly and keep their digests.
 
+## Adding a migration: `migrator spec`
+
+Migration specs ship with the Migrator, one per supported migration, so an app developer never writes one. To add one:
+
+```sh
+uv run migrator spec new <name> --from lib@4 --to lib@5 --library "Library name"
+uv run migrator spec check <name> --network
+```
+
+`spec new` writes a commented `migration.toml` in `src/migrator/migrations/<name>/`, plus `guide/SOURCE.md` and `tools/package.json` to fill in. `spec check` is the rulebook. It checks that:
+- the spec loads and has no TODO left;
+- the vendored guide is there with its `SOURCE.md` and splits into sections at the configured heading levels;
+- the guide is pinned to a full commit;
+- the dependency map pins exact versions;
+- each codemod's tool is pinned in the tools lockfile;
+- the rule steps come in an order that can work.
+
+With `--network` it also confirms the commit on GitHub and every pin on npm. The `add-migration` Claude Code skill (`.claude/skills/add-migration/`) walks through the research each field needs. The rules stay in the CLI: the skill only guides.
+
 ## The sandbox: where commands run
 
 Verify and the repair agent's `run_verify` run the repo's type-check, lint and tests, and the tests import files the repair agent just edited. So **Verify executes code an LLM wrote**, with whatever permissions the runner has. The guardrails limit which files the agent can edit and block escape hatches, but not what the edited code does when it runs.

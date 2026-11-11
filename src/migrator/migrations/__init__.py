@@ -123,7 +123,7 @@ class MigrationSpec(_Model):
     exclude: list[str] = []
     guide: GuideConfig
     tools: ToolsConfig
-    dependency_map: list[DependencyMapEntry]
+    dependency_map: list[DependencyMapEntry] = []
     rule_steps: list[RuleStep]
 
     # Set by the loader: the folder the spec came from. Not part of the TOML.

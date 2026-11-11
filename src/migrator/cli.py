@@ -77,6 +77,11 @@ eval_app = typer.Typer(
     help="Experiments over eval cases, and their summaries.", no_args_is_help=True
 )
 app.add_typer(eval_app, name="eval")
+spec_app = typer.Typer(
+    help="For contributors adding a migration: write and check a migration spec.",
+    no_args_is_help=True,
+)
+app.add_typer(spec_app, name="spec")
 console = Console()
 err = Console(stderr=True)
 
@@ -716,6 +721,55 @@ def eval_summary(
 
 
 DEFAULT_FLOW = Path(".claude") / "hillclimb" / "dev"
+
+
+@spec_app.command("new")
+def spec_new(
+    name: Annotated[str, typer.Argument(help="The migration's folder name, e.g. mui-4-to-5.")],
+    from_: Annotated[str, typer.Option("--from", help="The old version, e.g. mui@4.")],
+    to: Annotated[str, typer.Option("--to", help="The new version, e.g. mui@5.")],
+    library: Annotated[str, typer.Option(help="The library's name, e.g. 'Material UI'.")],
+    root: Annotated[
+        Path | None, typer.Option(help="Where migrations live (default: the Migrator's own).")
+    ] = None,
+) -> None:
+    """Write a new migration folder: a commented migration.toml, guide/ and tools/."""
+    from migrator.spec_tools import SpecToolError, new_spec
+
+    try:
+        folder = new_spec(name, from_, to, library, **({"root": root} if root else {}))
+    except SpecToolError as exc:
+        raise _fail(str(exc)) from exc
+    console.print(f"Wrote {folder}. Fill in every TODO, then: migrator spec check {name}")
+
+
+@spec_app.command("check")
+def spec_check(
+    name: Annotated[str, typer.Argument(help="A migration's folder name, or a path to it.")],
+    network: Annotated[
+        bool,
+        typer.Option(help="Also check the guide's commit on GitHub and the pins on npm."),
+    ] = False,
+    root: Annotated[
+        Path | None, typer.Option(help="Where migrations live (default: the Migrator's own).")
+    ] = None,
+) -> None:
+    """Check a migration spec: it loads, its guide splits, its codemods and pins resolve."""
+    from migrator.spec_tools import SpecToolError, check_spec, resolve_folder
+
+    try:
+        folder = resolve_folder(name, **({"root": root} if root else {}))
+    except SpecToolError as exc:
+        raise _fail(str(exc)) from exc
+    checks = check_spec(folder, network=network)
+    style = {"ok": "green", "warn": "yellow", "fail": "bold red"}
+    for c in checks:
+        console.print(f"[{style[c.status]}]{c.status:>4}[/] {c.name}: {c.detail}")
+    failed = sum(c.status == "fail" for c in checks)
+    warned = sum(c.status == "warn" for c in checks)
+    console.print(f"{folder.name}: {failed} failed, {warned} to look at")
+    if failed:
+        raise typer.Exit(code=1)
 
 
 def _say_features_off(configuration: Configuration) -> None:

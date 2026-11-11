@@ -1,0 +1,97 @@
+# Migration spec: {library_name} {from_} -> {to}.
+# Written by `migrator spec new`. Replace every "TODO" value, then run
+# `migrator spec check {name}` until it reports no failures. The add-migration skill
+# (.claude/skills/add-migration) walks through the research each field needs.
+#
+# Pure data, checked by migrator.migrations.MigrationSpec on load. One spec is one
+# version jump; skipping a version is two runs.
+
+id = "{from_}->{to}"
+from = "{from_}"
+to = "{to}"
+
+# Filled into the repair prompt; no library names live in prompt or tool text.
+library_name = "{library_name}"
+from_version = "TODO"          # how the guide names the old version, e.g. "v4"
+to_version = "TODO"            # e.g. "v5"
+codemod_name = "TODO"          # the official codemod or schematic package, e.g. "@mui/codemod"
+guide_title = "TODO"           # the guide's own title, e.g. "Migrating to v5"
+# Policies the repair agent must follow (what not to rewrite, what stays as the
+# codemods left it). One sentence each.
+repair_notes = [
+  "TODO",
+]
+
+# Comments the codemods leave where they gave up (Codemod TODOs).
+codemod_todo_markers = ["FIXME", "TODO"]
+
+# Source files, unless the repo's migrate.toml says otherwise.
+source_globs = ["src/**/*.ts", "src/**/*.tsx", "src/**/*.js", "src/**/*.jsx"]
+exclude = ["**/node_modules/**"]
+
+# A target repo is on the old version when one of these packages is a direct
+# dependency with this major version.
+[detection]
+packages = ["TODO"]
+major = 0
+
+# Optional: other packages the old version needs, at a minimum major.
+# [[preconditions]]
+# package = "react"
+# min_major = 17
+
+# Module-specifier patterns (regular expressions) for the scanner's usages and the
+# "no old imports" outcome check.
+[usage]
+old_modules = ['TODO']
+new_modules = ['TODO']
+
+# The vendored migration guide: copy the files unchanged into guide/, with the
+# licence notice and guide/SOURCE.md. Pin a tag and its commit; never track a branch.
+[guide]
+repo = "TODO"                  # owner/name on GitHub
+tag = "TODO"
+commit = "TODO"                # the full 40-character commit the tag points at
+dir = "guide"
+files = ["TODO.md"]
+section_level = 2              # the heading level of one component or area
+change_level = 3               # the heading level of one change inside it
+# codemod_marker = "✅"        # a prefix on change headings the codemods handle
+drop_sections = []             # headings that hold no changes (link lists, intros)
+# link_base = "https://..."    # where the guide's site-relative links point
+
+# Pinned Node tools (codemods), installed once from tools/package-lock.json into the
+# Migrator's cache, never into the target repo. Pin exact versions in package.json,
+# then run `npm install --package-lock-only` in tools/.
+[tools]
+workspace = "tools"
+
+[tools.bins]
+# codemod-tool = "node_modules/<package>/<bin>.js"
+
+# Dependency map, exact pins matching the guide's tag. Each old package that is a
+# direct dependency is replaced, in the same section, by its new packages.
+# [[dependency_map]]
+# old = "old-package"
+# new = { "new-package" = "1.2.3" }
+
+# Ordered rule steps: install, dependencies, codemod, format or script. Codemods run
+# exactly once ("{files}" expands to the affected files), so check whether yours need
+# the old packages installed first, as MUI's do.
+[[rule_steps]]
+kind = "install"
+
+# [[rule_steps]]
+# kind = "codemod"
+# name = "TODO"
+# tool = "codemod-tool"
+# args = ["{files}"]
+
+[[rule_steps]]
+kind = "format"
+
+[[rule_steps]]
+kind = "dependencies"
+
+[[rule_steps]]
+kind = "install"
