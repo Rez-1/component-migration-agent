@@ -406,7 +406,7 @@ class RunGraph:
         t0 = time.monotonic()
         d = self.d
         if d.worktree is not None:
-            workspace = d.worktree.path  # a real run: the worktree on the migration branch
+            workspace = d.worktree.workspace  # a real run: the worktree on the migration branch
         else:
             parent = Path(tempfile.mkdtemp(prefix=f"migrator-{state['run_id']}-"))
             workspace = parent / "workspace"

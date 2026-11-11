@@ -518,7 +518,7 @@ def start_run(
         mode=opts.mode,
         sandbox=opts.sandbox,
         worktree=worktree,
-        workspace=str(worktree.path) if worktree else None,
+        workspace=str(worktree.workspace) if worktree else None,
     )
     write_run_record(run_dir, record)
     reviewer = reviewer or AutoReviewer()
@@ -529,7 +529,7 @@ def start_run(
 
     first = initial_state(run_id, run_dir)
     if worktree is not None:
-        first["workspace"] = str(worktree.path)
+        first["workspace"] = str(worktree.workspace)
 
     def go(saver: BaseCheckpointSaver[Any]) -> RunResult | PausedRun:
         graph = builder.compile(checkpointer=saver)

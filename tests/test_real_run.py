@@ -280,3 +280,63 @@ def test_an_eval_never_makes_a_real_run(tmp_path: Path, spec: MigrationSpec) -> 
             RunOptions(repo=repo, spec=spec, run_dir=tmp_path / "run", real=True, mode="eval"),
             FakeRunner(FakeToolchain()),
         )
+
+
+def make_monorepo(root: Path) -> Path:
+    """A git repo whose Material UI app is in ``frontend/``, beside a backend."""
+    make_mini_repo(root / "frontend")
+    (root / "frontend" / ".gitignore").write_text("node_modules/\n")
+    (root / "backend").mkdir()
+    (root / "backend" / "main.go").write_text("package main\n")
+    git(root, "init", "-q", "-b", "main")
+    git(root, "config", "user.name", "Test User")
+    git(root, "config", "user.email", "test@example.com")
+    git(root, "config", "commit.gpgsign", "false")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "A monorepo")
+    return root
+
+
+def test_a_real_run_on_a_folder_inside_a_repo_commits_only_that_folder(
+    tmp_path: Path, spec: MigrationSpec
+) -> None:
+    root = make_monorepo(tmp_path / "mono")
+    frontend = root / "frontend"
+    result = start_run(
+        RunOptions.model_validate(
+            {
+                "repo": frontend,
+                "spec": spec,
+                "run_dir": frontend / ".migrator" / "runs" / "r1",
+                "configuration": configuration(),
+                "tools_cache": tmp_path / "tools",
+                "run_id": "r1",
+                "mode": "cli",
+                "real": True,
+            }
+        ),
+        FakeRunner(FakeToolchain()),
+        model_factory=factory_for(ScriptedChatModel(script=GOOD)),
+        reviewer=Recorder(["revert"]),
+        ledger=Ledger(tmp_path / "ledger.jsonl"),
+    )
+    assert isinstance(result, RunResult)
+    assert [stage for _, stage in branch_commits(root)] == ["rules", "agent"]
+    changed = git(root, "diff", "--name-only", f"main..{BRANCH}").split()
+    assert changed and all(p.startswith("frontend/") for p in changed)
+    assert f"frontend/{THEME}" in changed
+    assert "@mui/material" in git(root, "show", f"{BRANCH}:frontend/{THEME}")
+    assert not any(".migrator" in p for p in tree_files(root, BRANCH))
+    assert result.scorecard.meta.base_branch == "main"
+
+
+def test_a_stage_commit_in_a_folder_takes_only_that_folder(tmp_path: Path) -> None:
+    root = make_monorepo(tmp_path / "mono")
+    wt = add_worktree(root / "frontend", tmp_path / "wt", BRANCH)
+    assert wt.repo == root.resolve() and wt.subdir == "frontend"
+    assert wt.workspace == wt.path / "frontend"
+    # A stage commit takes only the folder's changes, even if something else changed.
+    (wt.path / "backend" / "main.go").write_text("package main // edited\n")
+    (wt.workspace / THEME).write_text("// migrated\n")
+    made = commit_stage(wt, run_id="r9", stage="rules", title="Rules", body="b")
+    assert made is not None and made.files == [f"frontend/{THEME}"]

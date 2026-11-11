@@ -168,13 +168,22 @@ class StageCommit(BaseModel):
 
 
 class Worktree(BaseModel):
-    """The real run's workspace: a worktree of ``repo`` on ``branch``."""
+    """The real run's workspace: a worktree of ``repo`` on ``branch``.
+
+    ``repo`` and ``path`` are git roots. When the code to migrate is a folder inside the
+    repo (a monorepo's ``frontend/``), ``subdir`` names it: the run works in
+    ``workspace``, and git still runs at ``path``."""
 
     repo: Path
     path: Path
     branch: str
     base_branch: str | None  # the branch checked out when the run started (None: detached)
     base_sha: str
+    subdir: str = ""  # POSIX path of the migrated folder inside the repo; "" for the root
+
+    @property
+    def workspace(self) -> Path:
+        return self.path / self.subdir if self.subdir else self.path
 
 
 def repo_toplevel(repo: Path) -> Path:
@@ -222,11 +231,10 @@ def run_files_ignored(repo: Path) -> bool:
 
 
 def check_real_run(repo: Path, branch: str) -> None:
-    """Refuse a real run that would surprise: not the repo root, a dirty tree, or a
-    branch that already exists."""
-    top = repo_toplevel(repo)
-    if top != repo.resolve():
-        raise GitError(f"{repo} is inside the git repo {top}; run the Migrator on the repo root")
+    """Refuse a real run that would surprise: a dirty tree or a branch that already
+    exists. ``repo`` may be a folder inside the git repo; only that folder is migrated
+    and committed, and only it must be clean."""
+    repo_toplevel(repo)
     try:
         git(["rev-parse", "--verify", "HEAD"], repo)
     except GitError as exc:
@@ -248,8 +256,12 @@ def check_real_run(repo: Path, branch: str) -> None:
 
 
 def add_worktree(repo: Path, path: Path, branch: str) -> Worktree:
-    """A new worktree of ``repo``'s HEAD at ``path`` on a new ``branch``."""
-    repo = repo.resolve()
+    """A new worktree of ``repo``'s HEAD at ``path`` on a new ``branch``. When ``repo``
+    is a folder inside a git repo, the worktree is of the whole repo and remembers the
+    folder (``Worktree.subdir``)."""
+    folder = repo.resolve()
+    repo = repo_toplevel(folder)
+    subdir = folder.relative_to(repo).as_posix() if folder != repo else ""
     base_sha = git(["rev-parse", "HEAD"], repo).strip()
     try:
         base_branch: str | None = git(["symbolic-ref", "--short", "-q", "HEAD"], repo).strip()
@@ -258,7 +270,12 @@ def add_worktree(repo: Path, path: Path, branch: str) -> Worktree:
     path.parent.mkdir(parents=True, exist_ok=True)
     git(["worktree", "add", "-b", branch, str(path), base_sha], repo)
     return Worktree(
-        repo=repo, path=path.resolve(), branch=branch, base_branch=base_branch, base_sha=base_sha
+        repo=repo,
+        path=path.resolve(),
+        branch=branch,
+        base_branch=base_branch,
+        base_sha=base_sha,
+        subdir=subdir,
     )
 
 
@@ -331,7 +348,7 @@ def commit_stage(
     done = find_stage_commit(worktree, run_id, stage)
     if done is not None:
         return done
-    git(["add", "-A"], worktree.path)
+    git(["add", "-A", "--", worktree.subdir or "."], worktree.path)
     # Naming an ignored folder in `git add` is an error, so unstage instead.
     staged = git(["diff", "--cached", "--name-only", "-z"], worktree.path).split("\0")
     never = [p for p in staged if p and _never_committed(p)]

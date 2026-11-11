@@ -32,15 +32,6 @@ def test_scan_refuses_a_repo_not_on_the_old_version(tmp_path: Path) -> None:
     assert "not on mui@4" in result.output
 
 
-def test_a_real_run_refuses_a_folder_inside_another_git_repo() -> None:
-    # The fixture is a folder of this repository, not a repo of its own.
-    result = runner.invoke(
-        app, ["migrate", str(FIXTURE), "--from", "mui@4", "--to", "mui@5", "--sandbox", "local"]
-    )
-    assert result.exit_code == 2
-    assert "inside the git repo" in " ".join(result.output.split())
-
-
 def test_unknown_migration() -> None:
     result = runner.invoke(
         app, ["migrate", str(FIXTURE), "--from", "mui@5", "--to", "mui@6", "--dry-run"]
