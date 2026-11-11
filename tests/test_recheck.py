@@ -58,7 +58,12 @@ class Graph(graph.RunGraph):
         return []
 
     def after_rules(self, state: Any) -> dict[str, str]:
-        return {"src/app/list.component.ts": "", "src/app/search.component.ts": ""}
+        return {
+            "src/app/list.component.ts": "",
+            "src/app/search.component.ts": "",
+            "src/app/a.component.scss": "",
+            "src/app/b.component.scss": "",
+        }
 
 
 def state(first: list[Failure], tried: list[FileRepair], **extra: Any) -> graph.RunState:
@@ -97,6 +102,31 @@ def test_a_recheck_only_when_no_spec_ran_and_repair_changed_something(tmp_path: 
     assert g.route_next_file(state([TYPE, SPEC], [fixed()])) == "commit_agent"
 
 
+def test_the_recheck_comes_as_soon_as_the_build_compiles(tmp_path: Path) -> None:
+    g = Graph(tmp_path)
+    queued = ["src/app/confirm.component.scss"]
+    # the type-check still fails: the specs can't run yet, so repair goes on
+    still = state([BUILD, TYPE], [fixed()], queue=queued, known_failures=[TYPE.model_dump()])
+    assert not g.needs_recheck(still)
+    assert g.route_next_file(still) == "start_file"
+    # the build compiles: check every spec before the next file's repair is charged
+    clean = state([BUILD, TYPE], [fixed()], queue=queued, known_failures=[])
+    assert g.route_next_file(clean) == "recheck"
+
+
+def test_the_recheck_keeps_queued_files_that_still_fail_and_drops_the_rest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    still = Failure(source="migration", file="src/app/a.component.scss", message="stale rule")
+    monkeypatch.setattr(
+        graph, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[still, SPEC])
+    )
+    g = Graph(tmp_path)
+    queued = ["src/app/b.component.scss", "src/app/a.component.scss"]
+    out = g.recheck_node(state([BUILD, TYPE], [fixed()], queue=queued))
+    assert out["queue"] == ["src/app/a.component.scss", "src/app/search.component.ts"]
+
+
 def test_the_files_that_fail_only_now_are_queued_and_reserved(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -118,7 +148,7 @@ def test_a_file_already_tried_is_not_queued_again(
     )
     tried = [fixed(), FileRepair(path="src/app/search.component.ts", outcome="Handed off")]
     out = Graph(tmp_path).recheck_node(state([BUILD, TYPE], tried))
-    assert out["rechecked"] and "queue" not in out
+    assert out["rechecked"] and out["queue"] == []
 
 
 def test_new_files_over_the_cap_are_left_unmigrated(
@@ -128,7 +158,7 @@ def test_new_files_over_the_cap_are_left_unmigrated(
         graph, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
     )
     out = Graph(tmp_path, run_cap=1.5).recheck_node(state([BUILD, TYPE], [fixed()]))
-    assert "queue" not in out
+    assert out["queue"] == []
     files = RepairReport.model_validate(out["repair"]).files
     assert files[-1].path == "src/app/search.component.ts" and files[-1].outcome == "Unmigrated"
 

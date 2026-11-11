@@ -886,20 +886,26 @@ class RunGraph:
         return {}
 
     def route_next_file(self, state: RunState) -> str:
-        if state.get("queue"):
-            return "start_file"
-        return "recheck" if self.needs_recheck(state) else "commit_agent"
+        if self.needs_recheck(state):
+            return "recheck"
+        return "start_file" if state.get("queue") else "commit_agent"
 
     def needs_recheck(self, state: RunState) -> bool:
         """The Verify after Rules ran no spec (a Karma bundle that didn't compile hides
-        every test) and repair changed something: check the whole project once more."""
+        every test) and repair changed something: check the whole project once more, as
+        soon as the type-check is clean (the bundle compiles, so the specs run), or when
+        the queue is done. Before that, a spec that fails only because it never ran
+        would be charged to the next file's patch as a new failure."""
         if state.get("rechecked") or not self.d.repair_on or not state.get("verify"):
             return False
         first = VerifyResult.model_validate(state["verify"])
         if not any(f.source == "test" and f.test_name == "(build)" for f in first.failures):
             return False
         report = self.report_of(state)
-        return not report.stopped_by_cost_cap and any(f.touched for f in report.files)
+        if report.stopped_by_cost_cap or not any(f.touched for f in report.files):
+            return False
+        known = _failures(state.get("known_failures"))
+        return not state.get("queue") or not any(f.source == "typecheck" for f in known)
 
     def recheck_node(self, state: RunState) -> RunState:
         """M7: the failures the first Verify couldn't see. Files that fail only now join
@@ -924,12 +930,18 @@ class RunGraph:
         report = self.report_of(state)
         tried = {f.path for f in report.files}
         after = self.after_rules(state)
-        new = [p for p in result.failing_files() if p in after and p not in tried]
+        failing = set(result.failing_files())
+        queued = list(state.get("queue") or [])
+        kept = [p for p in queued if p in failing]  # a queued file may pass by now
+        new = [p for p in sorted(failing) if p in after and p not in tried and p not in kept]
         updates: RunState = {
             "rechecked": True,
             "known_failures": _dump_failures(result.failures),
+            "queue": kept,
             "timings": self.timed(state, "recheck", t0),
         }
+        if gone := [p for p in queued if p not in kept]:
+            d.say("Repair", f"recheck: no longer failing, skipped: {', '.join(gone)}")
         if not new:
             d.say("Repair", "recheck: no new failing files")
             return updates
@@ -963,7 +975,7 @@ class RunGraph:
             report.reserved_usd = worst
             updates["repair"] = report.model_dump(mode="json")
         d.say("Repair", f"recheck: {len(order)} new failing files: {', '.join(order)}")
-        updates["queue"] = order
+        updates["queue"] = [*kept, *order]
         return updates
 
     def route_recheck(self, state: RunState) -> str:
