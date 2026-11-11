@@ -10,6 +10,7 @@ verifies exclude.
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 from collections.abc import Callable
@@ -142,6 +143,27 @@ def incremental_typecheck(command: str, body: str) -> str:
     return command
 
 
+def real_path(root: Path, rel: str) -> str | None:
+    """``rel`` as it is spelled on disk under ``root``, or None if there is no such file.
+    macOS's file system ignores case, so asking whether ``month.tsx`` exists says yes when
+    only ``Month.tsx`` does; the failure must be charged to ``Month.tsx``, the path every
+    file list has (M6, wps: failures charged to ``month.tsx`` were never repaired)."""
+    folder, parts = root, []
+    for part in Path(rel).parts:
+        try:
+            names = [e.name for e in os.scandir(folder)]
+        except OSError:
+            return None
+        match = (
+            part if part in names else next((n for n in names if n.lower() == part.lower()), None)
+        )
+        if match is None:
+            return None
+        parts.append(match)
+        folder = folder / match
+    return "/".join(parts) if folder.is_file() else None
+
+
 def with_args(command: str, args: list[str]) -> str:
     """Append arguments to a command; ``npm run``/``npm test`` need ``--`` first."""
     sep = " -- " if command.startswith("npm ") and " -- " not in command else " "
@@ -208,7 +230,7 @@ def _run_one(
             )
     elif json_out is not None and json_out.is_file():
         text = json_out.read_text("utf-8")
-        failures, totals = parse_jest_json(text, root, lambda p: (ws / p).is_file())
+        failures, totals = parse_jest_json(text, root, lambda p: real_path(ws, p))
         if inp.related_to is not None:
             suites = jest_suite_files(text, root)
         parsed_with = f"{inp.runner} json"

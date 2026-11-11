@@ -514,3 +514,17 @@ def test_a_path_next_to_the_workspace_reads_the_same_in_every_run() -> None:
         == name("2026-11-10-2-bbb-y2")
         == "in sync with ../backend/c.json"
     )
+
+
+def test_a_test_is_charged_to_its_component_as_spelled_on_disk(tmp_path: Path) -> None:
+    from migrator.verify import real_path
+    from migrator.verify.parsers import subject_file
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "Month.tsx").write_text("x")
+    (tmp_path / "src" / "month.test.tsx").write_text("x")
+    assert real_path(tmp_path, "src/month.tsx") == "src/Month.tsx"
+    assert real_path(tmp_path, "src/Month.tsx") == "src/Month.tsx"
+    assert real_path(tmp_path, "src/Week.tsx") is None
+    # wps: month.test.tsx's failures belong to Month.tsx, the path every file list has.
+    assert subject_file("src/month.test.tsx", lambda p: real_path(tmp_path, p)) == "src/Month.tsx"

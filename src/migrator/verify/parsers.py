@@ -261,9 +261,14 @@ def subject_candidates(test_file: str) -> list[str]:
     return [(f / f"{stem}{ext}").as_posix() for f in folders for ext in SOURCE_EXTENSIONS]
 
 
-def subject_file(test_file: str, exists: Callable[[str], bool]) -> str:
-    """The file a test's failures are charged to; the test file itself if none is found."""
-    return next((c for c in subject_candidates(test_file) if exists(c)), test_file)
+def subject_file(test_file: str, exists: Callable[[str], bool | str | None]) -> str:
+    """The file a test's failures are charged to; the test file itself if none is found.
+    ``exists`` may return the file's real path (its exact case) instead of True."""
+    for candidate in subject_candidates(test_file):
+        found = exists(candidate)
+        if found:
+            return found if isinstance(found, str) else candidate
+    return test_file
 
 
 def jest_suite_files(text: str, workspace: str | None) -> list[str]:
@@ -273,7 +278,7 @@ def jest_suite_files(text: str, workspace: str | None) -> list[str]:
 
 
 def parse_jest_json(
-    text: str, workspace: str | None, exists: Callable[[str], bool]
+    text: str, workspace: str | None, exists: Callable[[str], bool | str | None]
 ) -> tuple[list[Failure], TestTotals]:
     data = json.loads(text)
     failures: list[Failure] = []
