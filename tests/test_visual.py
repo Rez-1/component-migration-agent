@@ -204,3 +204,12 @@ def test_two_captures_of_the_fixture_are_identical(tmp_path: Path) -> None:
         one.folder, two.folder, names, tmp_path / "d", a_label="1", b_label="2", threshold=0.0
     )
     assert [p.pixels for p in same.pages] == [0] * len(names)
+
+
+def test_a_real_repo_case_builds_with_its_own_command_and_mock_backend() -> None:
+    case = load_case(CASES.parent / "m6-cases" / "kubeflow-pipelines" / "case.toml")
+    visual = case.repo.visual
+    assert visual is not None and visual.build is not None and visual.out == "build"
+    assert visual.backend is not None and visual.backend.port == 3001
+    assert "/apis" in visual.backend.proxy and "--transpile-only" in visual.backend.command
+    assert visual.pages[0].path == "/#/pipelines"  # hash routes

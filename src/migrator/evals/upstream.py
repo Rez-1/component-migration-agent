@@ -81,6 +81,35 @@ def materialize(case: CaseConfig, cache: Path | None = None) -> Path:
     return target
 
 
+def materialize_reference(case: CaseConfig, cache: Path | None = None) -> Path:
+    """The case's target repo as the merged migration PR left it (its last commit),
+    extracted once into the cache: what the visual check compares a run against (M7)."""
+    up = case.upstream
+    if up is None:
+        raise ValueError(f"case {case.id!r} has no [upstream] table")
+    root = (cache or tools_cache_root()) / "cases" / f"{case.id}-ref-{up.reference_head[:12]}"
+    target = root / up.subdir if up.subdir else root
+    marker = root / MARKER
+    if (
+        marker.is_file()
+        and json.loads(marker.read_text("utf-8")).get("commit") == up.reference_head
+    ):
+        return target
+    shutil.rmtree(root, ignore_errors=True)
+    clone = ensure_clone(up, cache)
+    root.mkdir(parents=True)
+    args = ["archive", "--format=tar", up.reference_head]
+    if up.subdir:
+        args.append(up.subdir)
+    with tarfile.open(fileobj=io.BytesIO(_git_bytes(args, clone))) as tar:
+        tar.extractall(root, filter="data")
+    marker.write_text(
+        json.dumps({"repo": up.repo, "commit": up.reference_head, "subdir": up.subdir}) + "\n",
+        "utf-8",
+    )
+    return target
+
+
 def _git_bytes(args: list[str], cwd: Path) -> bytes:
     import subprocess
 

@@ -64,10 +64,20 @@ class VisualPage(_Model):
     files: list[str] = []
 
 
+class VisualBackend(_Model):
+    """The repo's own mock API server, started next to the built site in the capture
+    container (network off): requests under ``proxy`` go to it on ``port``."""
+
+    command: str  # run from the workspace root, e.g. "npm run mock:api"
+    port: int = Field(gt=0, lt=65536)
+    proxy: list[str]  # path prefixes, e.g. ["/apis", "/system"]
+
+
 class VisualConfig(_Model):
     """``[visual]``: how to build the app and which pages to look at."""
 
     pages: list[VisualPage]
+    backend: VisualBackend | None = None
     # The repo's own build (a shell command) and where it writes the static site. Leave
     # it out to bundle ``entry`` with the Migrator's esbuild instead.
     build: str | None = None
@@ -147,6 +157,7 @@ class PageCapture(_Model):
     error: str | None = None
     errors: list[str] = []  # the page's own console errors
     blocked: list[str] = []  # requests to anything but the local server (refused)
+    failed: list[str] = []  # "<status> <path>" for every response of 400 or more
 
 
 class Capture(_Model):
@@ -226,15 +237,27 @@ def capture(
         ],
         "viewport": list(config.viewport),
         "hide": config.hide,
+        "backend": (
+            {**config.backend.model_dump(), "cwd": str(workspace.resolve())}
+            if config.backend
+            else None
+        ),
     }
     (out / "capture-input.json").write_text(json.dumps(request, indent=2), "utf-8")
     shots.mkdir(parents=True, exist_ok=True)
+    mounts = [tools]
+    if config.backend is not None:
+        mounts.append(workspace.resolve())  # the backend runs from the workspace
+    if not site.resolve().is_relative_to(out.resolve()) and not any(
+        site.resolve().is_relative_to(m) for m in mounts
+    ):
+        mounts.append(site.resolve())
     viewer = (
         with_tools
-        if site.resolve().is_relative_to(out.resolve())
+        if len(mounts) == 1
         else DockerRunner(
             browser_runner.image,
-            read_only=[tools, site.resolve()],
+            read_only=mounts,
             docker=browser_runner.docker,
             limits=browser_runner.limits,
         )

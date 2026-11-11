@@ -29,6 +29,7 @@ run folder; the state holds their paths.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -127,7 +128,14 @@ from migrator.report import (
     write_json,
 )
 from migrator.review import ReviewPayload
-from migrator.rules import RulesInput, RulesResult, ToolsError, apply_rules, ensure_tools
+from migrator.rules import (
+    RulesInput,
+    RulesResult,
+    ToolsError,
+    apply_rules,
+    ensure_tools,
+    tools_cache_root,
+)
 from migrator.scan import ScanInput, UsageReport, scan
 from migrator.scan.render import render_usage_report
 from migrator.verify import (
@@ -144,6 +152,7 @@ from migrator.visual import VisualError, capture, ensure_browser_image, ensure_v
 from migrator.visual.compare import VisualReport, new_page_errors
 from migrator.visual.compare import compare as compare_captures
 from migrator.workspace import (
+    GitError,
     StageCommit,
     StageName,
     Worktree,
@@ -558,21 +567,75 @@ class RunGraph:
         if not after or after.get("skipped"):
             return VisualReport(skipped=str((after or {}).get("skipped")))
         names = [p.name for p in cfg.pages]
-        comparison = compare_captures(
-            Path(before["folder"]),
-            Path(after["folder"]),
-            names,
-            self.run_dir(state) / "visual" / "before-vs-after",
-            a_label="before",
-            b_label="after",
-            threshold=cfg.threshold,
-            files={p.name: p.files for p in cfg.pages},
+        files = {p.name: p.files for p in cfg.pages}
+        comparisons = []
+        reference = self.visual_reference()
+        if reference is not None:
+            comparisons.append(
+                compare_captures(
+                    reference,
+                    Path(after["folder"]),
+                    names,
+                    self.run_dir(state) / "visual" / "reference-vs-after",
+                    a_label="the reference PR",
+                    b_label="this run",
+                    threshold=cfg.threshold,
+                    files=files,
+                )
+            )
+        comparisons.append(
+            compare_captures(
+                Path(before["folder"]),
+                Path(after["folder"]),
+                names,
+                self.run_dir(state) / "visual" / "before-vs-after",
+                a_label="before",
+                b_label="after",
+                threshold=cfg.threshold,
+                files=files,
+            )
         )
         return VisualReport(
             built_by=str(after.get("built_by")),
-            comparisons=[comparison],
+            comparisons=comparisons,
             new_page_errors=new_page_errors(before["pages"], after["pages"], "after"),
         )
+
+    def visual_reference(self) -> Path | None:
+        """For a real-repo eval case: screenshots of the reference PR's own build, made
+        once per case and visual config and kept in the cache (M7). None without one."""
+        d = self.d
+        cfg = d.config.visual
+        if cfg is None or d.case is None or d.case.upstream is None or d.mode != "eval":
+            return None
+        from migrator.evals.upstream import materialize_reference
+        from migrator.verify import install
+
+        cfg = cfg.model_copy(update={"hide": [*d.spec.visual_hide, *cfg.hide]})
+        try:
+            image = ensure_browser_image()
+            browser = DockerRunner(image)
+            tools = ensure_visual_tools(browser, d.tools_cache)
+            key = hashlib.sha256(
+                "\0".join(
+                    [d.case.upstream.reference_head, cfg.model_dump_json(), image, tools.name]
+                ).encode()
+            ).hexdigest()[:16]
+            out = (d.tools_cache or tools_cache_root()) / "visual-reference" / f"{d.case.id}-{key}"
+            if (out / "shots" / "capture.json").is_file():
+                return out / "shots"
+            ref = materialize_reference(d.case, d.tools_cache)
+            if not (ref / "node_modules").is_dir():
+                d.say("Visual", "installing the reference PR's dependencies (once per case)")
+                done = install(d.runner, ref, d.config, frozen=True, log_file=out / "install.log")
+                if not done.ok:
+                    raise VisualError(f"installing the reference failed; see {out / 'install.log'}")
+            cap = capture(ref, cfg, out, build_runner=d.runner, browser_runner=browser, tools=tools)
+        except (VisualError, SandboxError, ToolsError, GitError, ValueError) as exc:
+            d.say("Visual", f"no reference capture: {exc}")
+            return None
+        d.say("Visual", f"reference PR: {sum(p.ok for p in cap.pages)} of {len(cap.pages)} pages")
+        return cap.folder
 
     def where(self) -> str:
         """Where commands run, as part of the Pre-check cache key."""

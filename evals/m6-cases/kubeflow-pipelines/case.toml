@@ -31,3 +31,38 @@ update_snapshots = true
 typecheck = "node_modules/.bin/tsc --noEmit"
 lint = "node_modules/.bin/eslint --ext js,ts,tsx src --max-warnings=0"
 test = "node_modules/.bin/tailwindcss build -i src/tailwind.css -o src/build/tailwind.output.css && LC_ALL=en_US.UTF-8 node_modules/.bin/vitest run"
+
+# The visual check (M7). The repo's Vite build (without its lint and type-check, which
+# Verify already runs), served with the repo's own mock API server. That mock only
+# serves the v1beta1 API while this frontend calls v2beta1, so the list pages render
+# their error banner and empty tables: the same in every capture, and the MUI parts
+# (navigation, buttons, filter field, table header, pagination) are all there.
+# --transpile-only: the mock server doesn't pass its own type-check under ts-node-dev.
+[repo.visual]
+build = "node_modules/.bin/tailwindcss build -i src/tailwind.css -o src/build/tailwind.output.css && node_modules/.bin/vite build"
+out = "build"
+
+[repo.visual.backend]
+command = "node_modules/.bin/ts-node-dev --transpile-only -O '{\"module\": \"commonjs\"}' --project mock-backend/tsconfig.json -r tsconfig-paths/register mock-backend/mock-api-server.ts 3001"
+port = 3001
+proxy = ["/api", "/apis", "/apps", "/artifacts", "/hub", "/k8s", "/ml_metadata", "/system", "/visualizations"]
+
+[[repo.visual.pages]]
+name = "pipelines"
+path = "/#/pipelines"
+files = ["src/pages/PipelineList.tsx", "src/components/SideNav.tsx", "src/components/CustomTable.tsx", "src/components/Toolbar.tsx"]
+
+[[repo.visual.pages]]
+name = "experiments"
+path = "/#/experiments"
+files = ["src/pages/ExperimentList.tsx", "src/components/CustomTable.tsx"]
+
+[[repo.visual.pages]]
+name = "runs"
+path = "/#/runs"
+files = ["src/pages/RunList.tsx", "src/components/CustomTable.tsx"]
+
+[[repo.visual.pages]]
+name = "recurringruns"
+path = "/#/recurringruns"
+files = ["src/pages/RecurringRunList.tsx", "src/components/CustomTable.tsx"]

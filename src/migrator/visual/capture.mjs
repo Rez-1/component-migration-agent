@@ -5,12 +5,17 @@
 //   node capture.mjs <input.json>
 //
 // input.json: { site, out, pages: [{ name, path, click, wait_for }], viewport: [w, h],
-//               hide: [css selectors], settle_ms }
+//               hide: [css selectors], settle_ms,
+//               backend: { command, cwd, port, proxy: [path prefixes] } | null }
+// With a backend (the repo's own mock API server), it is started inside the same
+// container, and requests under its proxy prefixes are passed to it.
 // Writes <out>/<name>.png per page and <out>/capture.json with what happened.
 // Everything that could make two captures of the same site differ is pinned: the
 // clock, the time zone, the locale, animations, the caret and the device scale.
 
-import { createServer } from "node:http";
+import { spawn } from "node:child_process";
+import { createServer, request as httpRequest } from "node:http";
+import { connect } from "node:net";
 import { readFile, stat, writeFile, mkdir } from "node:fs/promises";
 import { extname, join, normalize, resolve } from "node:path";
 import { chromium } from "playwright-core";
@@ -24,10 +29,47 @@ const TYPES = {
 };
 const FIXED_TIME = new Date("2026-01-15T10:00:00Z");
 
-async function serve(root) {
+function proxied(req, res, port) {
+  const upstream = httpRequest(
+    { host: "127.0.0.1", port, path: req.url, method: req.method,
+      headers: { ...req.headers, host: `127.0.0.1:${port}` } },
+    (answer) => { res.writeHead(answer.statusCode ?? 502, answer.headers); answer.pipe(res); },
+  );
+  upstream.on("error", () => { res.writeHead(502).end(); });
+  req.pipe(upstream);
+}
+
+async function portOpen(port) {
+  return new Promise((ok) => {
+    const socket = connect(port, "127.0.0.1");
+    socket.on("connect", () => { socket.end(); ok(true); });
+    socket.on("error", () => ok(false));
+  });
+}
+
+async function startBackend(backend) {
+  const child = spawn("sh", ["-c", backend.command], {
+    cwd: backend.cwd, stdio: ["ignore", "pipe", "pipe"], detached: true,
+  });
+  let log = "";
+  child.stdout.on("data", (d) => { log += d; });
+  child.stderr.on("data", (d) => { log += d; });
+  for (let i = 0; i < 240; i++) {
+    if (await portOpen(backend.port)) return { child, log: () => log };
+    if (child.exitCode !== null) break;
+    await new Promise((ok) => setTimeout(ok, 500));
+  }
+  throw new Error(`the backend did not listen on ${backend.port}: ${log.slice(-800)}`);
+}
+
+async function serve(root, backend) {
   const base = resolve(root);
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, "http://127.0.0.1");
+    if (backend && backend.proxy.some((prefix) => url.pathname.startsWith(prefix))) {
+      proxied(req, res, backend.port);
+      return;
+    }
     let file = normalize(join(base, decodeURIComponent(url.pathname)));
     if (!file.startsWith(base)) { res.writeHead(403).end(); return; }
     try {
@@ -50,7 +92,8 @@ async function serve(root) {
 
 const input = JSON.parse(await readFile(process.argv[2], "utf8"));
 await mkdir(input.out, { recursive: true });
-const server = await serve(input.site);
+const backend = input.backend ? await startBackend(input.backend) : null;
+const server = await serve(input.site, input.backend);
 const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({
   executablePath: process.env.CHROME_BIN || "/usr/bin/chromium",
@@ -79,8 +122,12 @@ for (const page of input.pages) {
   });
   const tab = await context.newPage();
   tab.on("pageerror", (e) => errors.push(String(e)));
-  tab.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
-  const entry = { name: page.name, path: page.path ?? "/", ok: false, blocked, errors };
+  tab.on("console", (m) => {
+    if (m.type() === "error" && !m.text().startsWith("Failed to load resource")) errors.push(m.text());
+  });
+  const failed = [];
+  tab.on("response", (r) => { if (r.status() >= 400) failed.push(`${r.status()} ${new URL(r.url()).pathname}`); });
+  const entry = { name: page.name, path: page.path ?? "/", ok: false, blocked, errors, failed };
   try {
     await tab.goto(origin + (page.path ?? "/"), { waitUntil: "networkidle", timeout: 30000 });
     await tab.addStyleTag({ content: calm });
@@ -102,4 +149,8 @@ for (const page of input.pages) {
 
 await browser.close();
 server.close();
+if (backend) {
+  try { process.kill(-backend.child.pid, "SIGKILL"); } catch {}
+  report.backend_log = backend.log().slice(-2000);
+}
 await writeFile(join(input.out, "capture.json"), JSON.stringify(report, null, 2));

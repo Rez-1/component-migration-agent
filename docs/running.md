@@ -120,7 +120,17 @@ click = ['role=tab[name="Notifications"]']   # Playwright selectors, in order
 files = ["src/Settings.tsx"]                 # optional: the files behind the page
 ```
 
+An app that needs an API to render can bring its own mock server, started next to the built site inside the capture container. The network stays off, and requests under the listed prefixes go to the mock:
+
+```toml
+[visual.backend]
+command = "npm run mock:api"     # run from the repo root
+port = 3001
+proxy = ["/api", "/apis"]
+```
+
 - **The scorecard and the PR list visual changes to review:** first any page that broke, then every page whose pixels changed by at least `threshold` (0.1% by default), most changed first. A broken page is one that loaded and ran cleanly before and now fails to load or throws. Each listed page gets a diff image in `visual/` in the run folder.
+- **In evals on a real repo**, the run's pages are also compared with the reference PR's own build, made once per case and cached. Before vs after mostly shows the new version's intended look, but a page that still differs from the reference is where a run left something out.
 - **Not a verdict.** The new version is supposed to look different, so a changed page is something to look at, not a failure. It never changes a file's outcome.
 - **The sandbox only.** The page runs code the repair agent may have written, so screenshots are taken in Docker with the network off. The image is the pinned Node image plus Debian's Chromium and fonts, built locally once (`migrator-browser:node20-<hash>`). Without Docker the check is skipped, and the scorecard says so.
 - **Stable by construction:** a fixed clock, time zone and locale; no animations; one device scale; the network off. Two captures of the same app are identical, and a test checks this.
