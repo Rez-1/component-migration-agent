@@ -59,7 +59,8 @@ VERDICTS: tuple[Verdict, ...] = ("matches", "other valid fix", "wrong", "untouch
 class ItemScore(BaseModel):
     path: str
     verdict: Verdict
-    by: Literal["deterministic", "judge"]
+    by: Literal["deterministic", "judge", "override"]
+    judge_verdict: Verdict | None = None  # what the judge said, when an override replaced it
     reason: str
     out_of_scope_changes: list[str] = []
     reference_hunks: list[dict[str, str]] = []  # the judge's kind for each reference hunk
@@ -79,6 +80,8 @@ class ReferenceScore(BaseModel):
     items: list[ItemScore]
     counts: dict[str, int]
     silent_misses: int
+    # The judge's own count, before any recorded override (equal without overrides).
+    judge_silent_misses: int | None = None
     # Not scoring items, listed so nothing the reference did is silently dropped.
     test_files_changed: list[str]  # expected hand-offs: only a human may edit tests
     formatting_only: list[str]
@@ -386,6 +389,33 @@ def pending_judgements(case: CaseConfig, runs: list[RunInputs], cache: JudgeCach
     return len(keys)
 
 
+class Override(BaseModel):
+    """A recorded scoring decision by a human (M6): where the judge is not trusted, the
+    owner sets the verdict for a file whose run output contains a given change. Kept in
+    the case's ``overrides.toml``, with who decided, when and why; the judge's own verdict
+    stays in the score beside it."""
+
+    path: str
+    when_candidate_contains: str
+    verdict: Verdict
+    decided_by: str
+    date: str
+    reason: str
+
+    def applies(self, path: str, final: str | None) -> bool:
+        return path == self.path and final is not None and self.when_candidate_contains in final
+
+
+def load_overrides(case: CaseConfig) -> list[Override]:
+    path = case.folder / "overrides.toml"
+    if not path.is_file():
+        return []
+    import tomllib
+
+    with path.open("rb") as fh:
+        return [Override.model_validate(o) for o in tomllib.load(fh).get("override", [])]
+
+
 def score_run(
     case: CaseConfig, run: RunInputs, judge: JudgeFn | None, cache: JudgeCache
 ) -> ReferenceScore:
@@ -396,6 +426,7 @@ def score_run(
         find_test_files(run.base, set(run.base) | set(changes), read_test_rules(materialize(case)))
     )
     sel = select_items(changes, run.base, lambda p: reference_file(case, p), tests)
+    overrides = load_overrides(case)
     outcomes = {f.path: f.outcome for f in card.files}
     failures = Counter(f.file for f in (card.verify.failures if card.verify else []) if f.file)
     handed = set(card.repair.review_list) if card.repair else set()
@@ -408,7 +439,7 @@ def score_run(
         hunks: list[dict[str, str]] = []
         if final is not None and ref is not None and normalise(final) == normalise(ref):
             verdict: Verdict = "matches"
-            by: Literal["deterministic", "judge"] = "deterministic"
+            by: Literal["deterministic", "judge", "override"] = "deterministic"
             reason = "the same as the reference after normalising formatting"
         else:
             key = judge_key(path, base, ref, final)
@@ -425,6 +456,11 @@ def score_run(
             hunks = [h.model_dump() for h in found.reference_hunks]
             if verdict == "untouched" and final != base:
                 verdict = "wrong"  # the run did change it: an empty-diff verdict is a slip
+        judge_verdict: Verdict | None = None
+        rule = next((o for o in overrides if o.applies(path, final)), None)
+        if rule is not None and by == "judge" and verdict != rule.verdict:
+            judge_verdict, verdict, by = verdict, rule.verdict, "override"
+            reason = f"override ({rule.decided_by}, {rule.date}): {rule.reason}"
         fails = failures.get(path, 0)
         items.append(
             ItemScore(
@@ -440,6 +476,7 @@ def score_run(
                 silent_miss=verdict in ("wrong", "untouched") and fails == 0 and path not in handed,
                 covered=run.covered.get(path) if run.covered is not None else None,
                 judge_key=key,
+                judge_verdict=judge_verdict,
             )
         )
     counts = Counter(i.verdict for i in items)
@@ -451,6 +488,12 @@ def score_run(
         items=items,
         counts={v: counts[v] for v in VERDICTS},
         silent_misses=sum(i.silent_miss for i in items),
+        judge_silent_misses=sum(
+            (i.judge_verdict or i.verdict) in ("wrong", "untouched")
+            and i.final_failures == 0
+            and not i.handed_off
+            for i in items
+        ),
         test_files_changed=sel.test_files,
         formatting_only=sel.formatting_only,
         other_files_changed=sel.other,
@@ -472,7 +515,12 @@ def render_reference_score(s: ReferenceScore) -> str:
         *[f"| {v} | {s.counts.get(v, 0)} |" for v in VERDICTS],
         "",
         f"**Silent misses** (wrong or untouched, and verify passes for the file): "
-        f"{s.silent_misses}",
+        f"{s.silent_misses}"
+        + (
+            f" ({s.judge_silent_misses} by the judge alone, before the recorded overrides)"
+            if s.judge_silent_misses is not None and s.judge_silent_misses != s.silent_misses
+            else ""
+        ),
         "",
         "| File | Verdict | By | Outcome | Final failures | Covered | Reason |",
         "|---|---|---|---|---|---|---|",
@@ -484,6 +532,12 @@ def render_reference_score(s: ReferenceScore) -> str:
             f"| `{i.path}` | {i.verdict}{mark} | {i.by} | {i.outcome or ''} | "
             f"{i.final_failures} | {cov} | {i.reason.replace('|', '/')} |"
         )
+    overridden = [i for i in s.items if i.by == "override"]
+    if overridden:
+        lines += ["", "## Recorded overrides (the judge's verdict replaced by a human's)", ""]
+        lines += [
+            f"- `{i.path}`: judge said {i.judge_verdict}, scored {i.verdict}" for i in overridden
+        ]
     oos = [(i.path, c) for i in s.items for c in i.out_of_scope_changes]
     if oos:
         lines += ["", "## Reference changes set aside as out of scope", ""]

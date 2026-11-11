@@ -10,10 +10,14 @@ import pytest
 from migrator.config import CaseConfig, load_case
 from migrator.configuration import find_configuration
 from migrator.evals.reference import (
+    ItemScore,
     JudgeCache,
     Judgement,
+    ReferenceScore,
     judge_key,
+    load_overrides,
     normalise,
+    render_reference_score,
     select_items,
 )
 from migrator.graph import snapshot_belongs
@@ -528,3 +532,47 @@ def test_a_test_is_charged_to_its_component_as_spelled_on_disk(tmp_path: Path) -
     assert real_path(tmp_path, "src/Week.tsx") is None
     # wps: month.test.tsx's failures belong to Month.tsx, the path every file list has.
     assert subject_file("src/month.test.tsx", lambda p: real_path(tmp_path, p)) == "src/Month.tsx"
+
+
+def test_the_wps_override_is_recorded_and_applies_only_to_its_fix() -> None:
+    case = load_case(REPO_ROOT / "evals" / "m6-cases" / "bcgov-wps" / "case.toml")
+    (rule,) = load_overrides(case)
+    assert rule.verdict == "other valid fix" and rule.decided_by and rule.date and rule.reason
+    fixed = "makeStyles(styles, { defaultTheme: createTheme() })"
+    assert rule.applies(rule.path, fixed)
+    assert not rule.applies(rule.path, "makeStyles(styles)")
+    assert not rule.applies("src/other.tsx", fixed)
+    assert not rule.applies(rule.path, None)
+
+
+def test_a_rendered_score_shows_overrides_and_the_judges_own_count() -> None:
+    item = ItemScore(
+        path="src/Day.tsx",
+        verdict="other valid fix",
+        by="override",
+        judge_verdict="wrong",
+        reason="override (the owner, 2026-11-11): same fix as elsewhere",
+        outcome="migrated",
+        final_failures=0,
+        handed_off=False,
+        silent_miss=False,
+        covered=None,
+    )
+    score = ReferenceScore(
+        case="c",
+        run_id="r",
+        configuration="cfg",
+        reference_pr="https://example.test/pr/1",
+        items=[item],
+        counts={"other valid fix": 1},
+        silent_misses=0,
+        judge_silent_misses=1,
+        test_files_changed=[],
+        formatting_only=[],
+        other_files_changed=[],
+        judge_calls=0,
+        judge_cost_usd=0.0,
+    )
+    text = render_reference_score(score)
+    assert "(1 by the judge alone, before the recorded overrides)" in text
+    assert "`src/Day.tsx`: judge said wrong, scored other valid fix" in text
