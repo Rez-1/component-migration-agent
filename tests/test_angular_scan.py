@@ -89,3 +89,46 @@ def test_the_angular_scan_counts_imports_and_styles_as_old_and_reports_templates
     assert [u.symbol for u in by_path["src/app/a.component.html"].template_usages] == [
         "mat-raised-button"
     ]
+
+
+def test_init_reads_angular_json_for_build_lint_and_karma(tmp_path: Path) -> None:
+    import json
+
+    from migrator.init import detect
+
+    (tmp_path / "package.json").write_text(
+        json.dumps(
+            {
+                "name": "app",
+                "scripts": {"test": "ng test", "build": "ng build"},
+                "devDependencies": {"karma": "~6.4.0", "@angular/cli": "15.2.10"},
+                "engines": {"node": ">=18"},
+            }
+        )
+    )
+    (tmp_path / "package-lock.json").write_text("{}")
+    (tmp_path / "angular.json").write_text(
+        json.dumps(
+            {
+                "projects": {
+                    "app": {
+                        "projectType": "application",
+                        "architect": {
+                            "build": {"configurations": {"production": {}, "development": {}}},
+                            "test": {},
+                            "lint": {},
+                        },
+                    }
+                }
+            }
+        )
+    )
+    for rel in ("src/app/a.component.ts", "src/app/a.component.html", "src/styles.scss"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text("x")
+    result = detect(tmp_path)
+    assert result.runner.value == "karma"
+    assert result.typecheck.value == "node_modules/.bin/ng build --configuration development"
+    assert result.lint.value == "node_modules/.bin/ng lint"
+    assert result.test.value == "node_modules/.bin/ng test --watch=false"
+    assert result.source_globs.value == ["src/**/*.html", "src/**/*.scss", "src/**/*.ts"]

@@ -75,6 +75,13 @@ def detect_node(repo: Path, package: dict[str, object]) -> Detected:
 
 
 def detect_runner(deps: dict[str, str]) -> Detected:
+    if "jest-preset-angular" in deps:
+        return Detected(
+            value="jest",
+            source=f"jest-preset-angular {deps['jest-preset-angular']} in package.json",
+        )
+    if "karma" in deps:  # M7: Angular's default (ng test)
+        return Detected(value="karma", source=f"karma {deps['karma']} in package.json")
     if "vitest" in deps:
         return Detected(value="vitest", source=f"vitest {deps['vitest']} in package.json")
     if "jest" in deps:
@@ -141,6 +148,76 @@ def detect_verify(
     return typecheck, lint, test
 
 
+class AngularProject(BaseModel):
+    """The angular.json project the Migrator verifies (M7)."""
+
+    name: str
+    build_configurations: list[str]
+    has_lint: bool
+    has_test: bool
+
+
+def detect_angular(repo: Path) -> AngularProject | None:
+    """The first application project in angular.json with a build target, if any."""
+    path = repo / "angular.json"
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text("utf-8"))
+    except ValueError:
+        return None
+    projects = data.get("projects") if isinstance(data, dict) else None
+    if not isinstance(projects, dict):
+        return None
+    default = data.get("defaultProject")
+    ordered = sorted(
+        projects.items(),
+        key=lambda kv: (kv[0] != default, (kv[1] or {}).get("projectType") != "application"),
+    )
+    for name, project in ordered:
+        targets = (project or {}).get("architect") or (project or {}).get("targets") or {}
+        build = targets.get("build")
+        if not isinstance(build, dict):
+            continue
+        return AngularProject(
+            name=str(name),
+            build_configurations=sorted((build.get("configurations") or {}).keys()),
+            has_lint="lint" in targets,
+            has_test="test" in targets,
+        )
+    return None
+
+
+def angular_verify(
+    project: AngularProject, runner: str | None
+) -> tuple[Detected, Detected, Detected]:
+    """Verify commands from angular.json: `ng build` type-checks templates, `tsc` alone
+    doesn't (M7)."""
+    ng = "node_modules/.bin/ng"
+    where = f"angular.json, project {project.name}"
+    dev = "development" in project.build_configurations
+    typecheck = Detected(
+        value=f"{ng} build" + (" --configuration development" if dev else ""),
+        source=f"{where}: its build target (the template type-check)"
+        + ("; the development configuration builds faster" if dev else ""),
+    )
+    lint = (
+        Detected(value=f"{ng} lint", source=f"{where}: its lint target")
+        if project.has_lint
+        else Detected(value=None, source=f"{where} has no lint target")
+    )
+    if runner == "karma" and project.has_test:
+        test = Detected(
+            value=f"{ng} test --watch=false",
+            source=f"{where}: its test target (Karma; the Migrator adds headless Chrome)",
+        )
+    elif project.has_test:
+        test = Detected(value=f"{ng} test", source=f"{where}: its test target")
+    else:
+        test = Detected(value=None, source=f"{where} has no test target")
+    return typecheck, lint, test
+
+
 def detect_globs(repo: Path) -> Detected:
     folder = "src" if (repo / "src").is_dir() else None
     if folder is None:
@@ -149,14 +226,24 @@ def detect_globs(repo: Path) -> Detected:
         {
             p.suffix
             for p in (repo / folder).rglob("*")
-            if p.suffix in (".ts", ".tsx", ".js", ".jsx") and "node_modules" not in p.parts
+            if p.suffix in _SOURCE_SUFFIXES and "node_modules" not in p.parts
         }
     )
+    if (repo / "angular.json").is_file():
+        exts = sorted(
+            {*exts, *(e for e in _ANGULAR_SUFFIXES if any((repo / folder).rglob(f"*{e}")))}
+        )
+    else:
+        exts = [e for e in exts if e not in _ANGULAR_SUFFIXES]
     if not exts:
         return Detected(value=None, source="no .ts/.tsx/.js/.jsx files under src/")
     return Detected(
         value=[f"{folder}/**/*{e}" for e in exts], source=f"the file types found under {folder}/"
     )
+
+
+_ANGULAR_SUFFIXES = (".html", ".scss", ".css")
+_SOURCE_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", *_ANGULAR_SUFFIXES)
 
 
 # Install-time downloads that unit tests don't need, by the dependency that does them.
@@ -190,9 +277,11 @@ def detect(repo: Path) -> InitResult:
     manager = detect_manager(repo)
     runner = detect_runner(deps)
     pm: PackageManager = manager.value if isinstance(manager.value, str) else "npm"  # type: ignore[assignment]
-    typecheck, lint, test = detect_verify(
-        scripts, pm, repo, runner.value if isinstance(runner.value, str) else None
-    )
+    runner_name = runner.value if isinstance(runner.value, str) else None
+    typecheck, lint, test = detect_verify(scripts, pm, repo, runner_name)
+    angular = detect_angular(repo)
+    if angular is not None:  # M7: an Angular CLI workspace
+        typecheck, lint, test = angular_verify(angular, runner_name)
     result = InitResult(
         package_manager=manager,
         node=detect_node(repo, package),
