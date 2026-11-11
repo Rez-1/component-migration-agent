@@ -3,6 +3,9 @@
 - The chat model comes from LangChain's ``init_chat_model`` (``ChatAnthropic`` for
   Claude), so the M5 model comparison is a configuration value. The model is chosen
   per attempt from the configuration's ``attempt_models``.
+- Provider features come from the model table (M7, ``migrator.model_table``): effort,
+  strict tool schemas and cache breakpoints are sent only to a model whose card
+  declares them. For Claude that is all three, so nothing changes from M6.
 - Effort is always passed explicitly (Opus 5.5 defaults to ``medium``); ``temperature``
   and a forced ``tool_choice`` are never set (both are rejected on Opus 5.5). Tools are
   bound with ``strict=True``.
@@ -68,6 +71,7 @@ from migrator.cost import (
     usage_from_langchain,
     worst_case_usd,
 )
+from migrator.model_table import card_for, chat_model
 
 MAX_TOKENS = 16_000  # per call: the skill's non-streaming default; part of the worst case
 CACHE_CONTROL = {"type": "ephemeral"}  # 5-minute cache
@@ -75,14 +79,10 @@ CACHE_CONTROL = {"type": "ephemeral"}  # 5-minute cache
 ModelFactory = Callable[[str, str | None, int], BaseChatModel]
 
 
-def anthropic_model(model: str, effort: str | None, max_tokens: int) -> BaseChatModel:
-    """A Claude chat model through ``init_chat_model`` (needs ``ANTHROPIC_API_KEY``)."""
-    from langchain.chat_models import init_chat_model
-
-    kwargs: dict[str, Any] = {"max_tokens": max_tokens, "max_retries": 2}
-    if effort is not None:
-        kwargs["reasoning_effort"] = effort
-    chat: BaseChatModel = init_chat_model(model, model_provider="anthropic", **kwargs)
+def provider_model(model: str, effort: str | None, max_tokens: int) -> BaseChatModel:
+    """The chat model for ``model`` from its provider, with only the features its card in
+    the model table declares (needs that provider's API key in the environment)."""
+    chat: BaseChatModel = chat_model(model, effort, max_tokens)
     return chat
 
 
@@ -92,9 +92,13 @@ def served_model(message: AIMessage, requested: str) -> str:
     return str(name) if name else requested
 
 
-def system_message(text: str) -> SystemMessage:
-    """The system prompt as one block carrying the explicit cache breakpoint."""
-    return SystemMessage(content=[{"type": "text", "text": text, "cache_control": CACHE_CONTROL}])
+def system_message(text: str, *, caching: bool = True) -> SystemMessage:
+    """The system prompt as one block, carrying the explicit cache breakpoint when the
+    model declares prompt caching."""
+    block: dict[str, Any] = {"type": "text", "text": text}
+    if caching:
+        block["cache_control"] = CACHE_CONTROL
+    return SystemMessage(content=[block])
 
 
 class Priced(BaseModel):
@@ -243,9 +247,15 @@ class GuardedModel:
     def _bound(self, model: str, effort: str | None) -> Any:
         key = (model, effort)
         if key not in self._models:
-            llm = self.factory(model, effort, self.max_tokens)
-            self._models[key] = llm.bind_tools(self._bind, strict=True).bind(
-                cache_control=CACHE_CONTROL
+            card = card_for(model)
+            llm = self.factory(model, card.effort(effort), self.max_tokens)
+            bound = (
+                llm.bind_tools(self._bind, strict=True)
+                if card.strict_tools
+                else llm.bind_tools(self._bind)
+            )
+            self._models[key] = (
+                bound.bind(cache_control=CACHE_CONTROL) if card.prompt_caching else bound
             )
         return self._models[key]
 
@@ -309,8 +319,10 @@ class GuardedModel:
             "run_name": f"repair {file or '?'} · attempt {attempt}",
         }
         # Merged into the graph node's config: the call stays inside the run's trace.
+        caching = card_for(model).prompt_caching
         message = self._bound(model, effort).invoke(
-            [system_message(system), *messages], config=merge_configs(ensure_config(), ours)
+            [system_message(system, caching=caching), *messages],
+            config=merge_configs(ensure_config(), ours),
         )
         if not isinstance(message, AIMessage):
             raise TypeError(f"the model returned {type(message).__name__}, not an AIMessage")

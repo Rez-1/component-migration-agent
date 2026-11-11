@@ -155,6 +155,10 @@ A Missed agent or human trap whose checks all pass at the final verify, so verif
 Everything an experiment varies: model per attempt, effort, repair prompt, retrieval mode, max attempts, cost caps and which rules are on. The baseline is the configuration with repair turned off.
 _Avoid_: variant, arm, settings
 
+**Model level**:
+A role a configuration names instead of a model: strong (the repair agent), balanced (the reviewer and the eval judge, never the same model as strong) or fast (cheap helpers). The configuration's model table maps each level to a priced model from any provider.
+_Avoid_: tier, model class
+
 **Split**:
 Either the dev set (climbed on) or the held-out set (run only at milestones).
 

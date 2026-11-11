@@ -236,6 +236,9 @@ class RunMeta(BaseModel):
     branch: str | None = None
     base_branch: str | None = None
     commits: list[StageCommit] = []
+    # Provider features the configuration asked for and a model doesn't declare, turned
+    # off before the run (M7, migrator.model_table). Empty for Claude.
+    features_off: list[str] = []
 
 
 class Scorecard(BaseModel):

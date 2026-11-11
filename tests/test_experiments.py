@@ -36,7 +36,7 @@ from migrator.cost import (
     worst_case_usd,
 )
 from migrator.migrations import MigrationSpec
-from migrator.pipeline import RunError, RunOptions, start_run
+from migrator.pipeline import RunOptions, start_run
 from migrator.repair.model import GuardedModel, advisor_tool, price_message
 from migrator.repair.prompt import PROMPTS_DIR, load_templates
 from migrator.repair.tools import new_parse_error
@@ -401,7 +401,8 @@ def test_the_advisor_needs_its_prompt_and_its_prompt_needs_the_advisor(
             )
         }
     )
-    with pytest.raises(RunError, match="no pinned price"):
+    # M7: refused when the run's options are validated, before anything runs.
+    with pytest.raises(ValueError, match="no price"):
         run_with(tmp_path / "b", spec, {}, unpriced)
 
 

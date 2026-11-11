@@ -6,10 +6,11 @@ changes accessibility props or the rendered element. That catches the agent fitt
 component to an outdated v4 test (OpossumUI: ``describeChild`` added, an ``aria-label``
 removed), but also legitimate v5 changes (kubeflow: a ``<div>`` that v5's ``Slide``
 needs around ``Resizable``, which the developers made too). So a flagged patch goes to
-one call of a different model than the repair agent's (Claude Sonnet 5.5; the owner:
-not Opus reviewing Opus), with the patch, the test that failed and the matching guide
-sections. It answers ``v5_required`` (the file stays migrated; the flag and the reason
-are a review note) or ``fits_old_test`` (the file becomes a test-fitting hand-off).
+one call of a different model than the repair agent's (the balanced level: Claude
+Sonnet 5.5 by default; the owner: not Opus reviewing Opus), with the patch, the test
+that failed and the matching guide sections. It answers ``v5_required`` (the file
+stays migrated; the flag and the reason are a review note) or ``fits_old_test`` (the
+file becomes a test-fitting hand-off).
 
 The call is priced and capped by the same cost guard and ledger as every repair call
 (ledger file label ``review <file>``), runs inside the run's trace, and the scorecard
@@ -21,10 +22,9 @@ from __future__ import annotations
 import difflib
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from migrator.cost import (
@@ -37,6 +37,8 @@ from migrator.cost import (
     now_utc,
     usage_from_langchain,
 )
+from migrator.model_table import card_for, chat_model
+from migrator.structured import ask_structured
 from migrator.verify import Failure
 
 REVIEW_MAX_TOKENS = 4000
@@ -125,12 +127,8 @@ ModelFactory = Callable[[str, str | None, int], BaseChatModel]
 
 
 def default_model(model: str, effort: str | None, max_tokens: int) -> BaseChatModel:
-    from langchain.chat_models import init_chat_model
-
-    kwargs: dict[str, Any] = {"max_tokens": max_tokens, "max_retries": 2}
-    if effort is not None:
-        kwargs["reasoning_effort"] = effort
-    chat: BaseChatModel = init_chat_model(model, model_provider="anthropic", **kwargs)
+    """The reviewer's chat model from its provider (features from the model table)."""
+    chat: BaseChatModel = chat_model(model, effort, max_tokens)
     return chat
 
 
@@ -148,16 +146,17 @@ def review_patch(
 ) -> Review:
     """One structured-output call; raises CostCapError when it can't fit the caps."""
     guard.check(model, estimate_tokens(REVIEW_SYSTEM + prompt), REVIEW_MAX_TOKENS, run_spent_usd)
-    chat = factory(model, REVIEW_EFFORT, REVIEW_MAX_TOKENS)
-    structured = chat.with_structured_output(ReviewAnswer, method="json_schema", include_raw=True)
-    out = structured.invoke(
-        [SystemMessage(content=REVIEW_SYSTEM), HumanMessage(content=prompt)],
+    chat = factory(model, card_for(model).effort(REVIEW_EFFORT), REVIEW_MAX_TOKENS)
+    out = ask_structured(
+        chat,
+        model,
+        ReviewAnswer,
+        REVIEW_SYSTEM,
+        prompt,
         config={"run_name": f"review {path}", "metadata": {"file": path, "reviewer": model}},
     )
-    assert isinstance(out, dict)
-    raw = out.get("raw")
-    usage = usage_from_langchain(getattr(raw, "usage_metadata", None))
-    served = str((getattr(raw, "response_metadata", None) or {}).get("model_name") or model)
+    usage = usage_from_langchain(getattr(out.raw, "usage_metadata", None))
+    served = out.served or model
     cost = cost_usd(model, usage)
     ledger.append(
         LedgerRow(
@@ -171,11 +170,9 @@ def review_patch(
             cost_usd=cost,
         )
     )
-    parsed = out.get("parsed")
+    parsed = out.parsed
     if not isinstance(parsed, ReviewAnswer):
-        raise ValueError(
-            f"the reviewer gave no usable answer for {path}: {out.get('parsing_error')}"
-        )
+        raise ValueError(f"the reviewer gave no usable answer for {path}: {out.error}")
     call = CallRecord(
         model=served, requested_model=model, usage=usage, cost_usd=cost, file=f"review {path}"
     )

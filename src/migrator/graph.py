@@ -1323,6 +1323,7 @@ class RunGraph:
             branch=d.worktree.branch if d.worktree else None,
             base_branch=d.worktree.base_branch if d.worktree else None,
             commits=[StageCommit.model_validate(c) for c in state.get("commits") or []],
+            features_off=d.configuration.feature_notes(),
         )
         layers: dict[str, Layer] | None = None
         if (

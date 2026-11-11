@@ -30,7 +30,7 @@ from migrator.migrations import MigrationSpec
 from migrator.pipeline import RunResult
 from migrator.repair.context import PatchSize, file_view, signatures
 from migrator.repair.guardrails import added_escape_hatches, check_target, workspace_path
-from migrator.repair.model import GuardedModel, anthropic_model
+from migrator.repair.model import GuardedModel, provider_model
 from migrator.repair.prompt import (
     PROMPTS_DIR,
     first_message,
@@ -345,7 +345,7 @@ def test_the_anthropic_model_gets_effort_and_never_temperature(
     import langchain.chat_models
 
     monkeypatch.setattr(langchain.chat_models, "init_chat_model", fake_init)
-    anthropic_model("claude-opus-5-5", "low", 16_000)
+    provider_model("claude-opus-5-5", "low", 16_000)
     assert seen["model"] == "claude-opus-5-5" and seen["model_provider"] == "anthropic"
     assert seen["reasoning_effort"] == "low" and seen["max_tokens"] == 16_000
     assert "temperature" not in seen and "tool_choice" not in seen

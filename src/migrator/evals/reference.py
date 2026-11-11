@@ -15,10 +15,12 @@ formatting only. Each item gets one verdict:
 
 Deterministic first: a run whose file equals the reference after normalising whitespace,
 quotes and trailing commas *matches* without a model. Everything else goes to an LLM
-judge (Claude Opus 5.5 at low effort), which also says which reference changes are out
-of scope. The judge sees the two diffs only, never which configuration made the run.
-Its answers are cached on disk by content, so a file that came out the same in several
-runs (every Baseline run, and every file the agent didn't touch) is judged once.
+judge, which also says which reference changes are out of scope. M6's judge was Claude
+Opus 5.5 at low effort; from M7 it is the balanced level (Claude Sonnet 5.5 by default),
+so the judge is never the repair agent's model. The judge sees the two diffs only,
+never which configuration made the run. Its answers are cached on disk by content, so a
+file that came out the same in several runs (every Baseline run, and every file the
+agent didn't touch) is judged once.
 
 A **real-repo Silent miss** is a *wrong* or *untouched* item whose file has no failure
 at the final verify and was not handed off: verify can't show it.
@@ -39,11 +41,12 @@ from pydantic import BaseModel
 
 from migrator.checks import find_test_files, read_test_rules
 from migrator.config import CaseConfig
-from migrator.cost import CostGuard, Ledger, LedgerRow, Usage, cost_usd, now_utc
+from migrator.configuration import Configuration
+from migrator.cost import CostGuard, Ledger, LedgerRow, cost_usd, now_utc
 from migrator.evals.upstream import materialize, reference_changes, reference_file
 from migrator.report import Scorecard
 
-JUDGE_MODEL = "claude-opus-5-5"
+JUDGE_MODEL = "claude-opus-5-5"  # M6's judge; its cached judgements keep their keys
 JUDGE_EFFORT = "low"
 JUDGE_MAX_TOKENS = 4000
 JUDGE_PROMPT_VERSION = "j2"  # j1 (10 Nov): no per-hunk kinds; 41% agreement with the owner
@@ -88,6 +91,7 @@ class ReferenceScore(BaseModel):
     other_files_changed: list[str]  # non-code files and code without the library
     judge_calls: int
     judge_cost_usd: float
+    judge_model: str | None = None  # M7: which model judged (M6 scores: Opus 5.5)
 
 
 # --------------------------------------------------------------------------- items
@@ -252,9 +256,16 @@ def judge_prompt(path: str, reference_diff: str, candidate_diff: str) -> str:
     )
 
 
-def judge_key(path: str, base: str | None, ref: str | None, final: str | None) -> str:
+def judge_key(
+    path: str,
+    base: str | None,
+    ref: str | None,
+    final: str | None,
+    *,
+    model: str = JUDGE_MODEL,
+) -> str:
     h = hashlib.sha256()
-    for part in (JUDGE_PROMPT_VERSION, JUDGE_MODEL, JUDGE_EFFORT, path, base, ref, final):
+    for part in (JUDGE_PROMPT_VERSION, model, JUDGE_EFFORT, path, base, ref, final):
         h.update((part if part is not None else "\0none").encode() + b"\0")
     return h.hexdigest()[:20]
 
@@ -262,62 +273,88 @@ def judge_key(path: str, base: str | None, ref: str | None, final: str | None) -
 JudgeFn = Callable[[str, str], Judgement]  # (prompt, ledger file label) -> Judgement
 
 
-class ClaudeJudge:
-    """One structured-output Messages call per judgement, priced and capped through the
-    ledger like every repair call (run id ``judge:<case>``, no attempt number)."""
+def independent_judge(name: str, judged: Configuration) -> str:
+    """The judge's model for scoring runs of ``judged``: a level (of the default levels)
+    or a model, priced, and not a model that wrote the runs' code, a repair attempt's or
+    the advisor's (M7: no model judges its own work). The test-fitting reviewer writes
+    no code, and shares the balanced level with the judge. Raises ValueError otherwise."""
+    from migrator.model_table import ModelLevels
 
-    def __init__(self, case: str, guard: CostGuard, ledger: Ledger):
-        import anthropic
+    model = ModelLevels().resolve(name)
+    r = judged.repair
+    writers = [*r.attempt_models, *([r.advisor.model] if r.advisor else [])]
+    if model in writers:
+        raise ValueError(
+            f"the judge ({model}) writes code in {judged.name}; no model judges its own "
+            "work: pass --judge with another model"
+        )
+    return model
 
-        self.client = anthropic.Anthropic(max_retries=2)
+
+class LLMJudge:
+    """One structured-output call per judgement to any model in the model table, priced
+    and capped through the ledger like every repair call (run id ``judge:<case>``, no
+    attempt number)."""
+
+    def __init__(
+        self,
+        case: str,
+        guard: CostGuard,
+        ledger: Ledger,
+        *,
+        model: str = JUDGE_MODEL,
+        factory: Callable[[str, str | None, int], Any] | None = None,
+    ):
+        from migrator.model_table import canonical, chat_model
+
+        self.model = canonical(model)
+        self.factory = factory or chat_model
         self.case, self.guard, self.ledger = case, guard, ledger
         self.spent = 0.0
         self.calls = 0
 
     def __call__(self, prompt: str, label: str) -> Judgement:
-        from migrator.cost import estimate_tokens
+        from migrator.cost import estimate_tokens, usage_from_langchain
+        from migrator.model_table import card_for
+        from migrator.structured import ask_structured
 
         self.guard.check(
-            JUDGE_MODEL, estimate_tokens(JUDGE_SYSTEM + prompt), JUDGE_MAX_TOKENS, self.spent
+            self.model, estimate_tokens(JUDGE_SYSTEM + prompt), JUDGE_MAX_TOKENS, self.spent
         )
-        output_config: Any = {
-            "effort": JUDGE_EFFORT,
-            "format": {"type": "json_schema", "schema": JUDGE_SCHEMA},
-        }
-        response = self.client.messages.create(
-            model=JUDGE_MODEL,
-            max_tokens=JUDGE_MAX_TOKENS,
-            system=JUDGE_SYSTEM,
-            messages=[{"role": "user", "content": prompt}],
-            output_config=output_config,
+        chat = self.factory(self.model, card_for(self.model).effort(JUDGE_EFFORT), JUDGE_MAX_TOKENS)
+        out = ask_structured(
+            chat,
+            self.model,
+            {"title": "judgement", **JUDGE_SCHEMA},
+            JUDGE_SYSTEM,
+            prompt,
+            config={"run_name": f"judge {label}", "metadata": {"case": self.case, "file": label}},
         )
-        u = response.usage
-        usage = Usage(
-            input_tokens=u.input_tokens or 0,
-            output_tokens=u.output_tokens or 0,
-            cache_read_input_tokens=u.cache_read_input_tokens or 0,
-            cache_creation_input_tokens=u.cache_creation_input_tokens or 0,
-        )
-        cost = cost_usd(JUDGE_MODEL, usage)
+        usage = usage_from_langchain(getattr(out.raw, "usage_metadata", None))
+        cost = cost_usd(self.model, usage)
         self.spent += cost
         self.calls += 1
+        served = out.served or self.model
         self.ledger.append(
             LedgerRow(
                 at=now_utc(),
                 run_id=f"judge:{self.case}",
                 case=self.case,
                 file=label,
-                model=str(response.model),
-                requested_model=JUDGE_MODEL,
+                model=served,
+                requested_model=self.model,
                 usage=usage,
                 cost_usd=cost,
             )
         )
-        if response.stop_reason == "refusal":
+        if out.stop_reason == "refusal":
             raise RuntimeError(f"the judge refused {label}")
-        text = next(b.text for b in response.content if b.type == "text")
-        data = json.loads(text)
-        return Judgement(**data, cost_usd=cost)
+        if not isinstance(out.parsed, dict):
+            raise RuntimeError(f"the judge gave no usable answer for {label}: {out.error}")
+        return Judgement(**out.parsed, model=served, cost_usd=cost)
+
+
+ClaudeJudge = LLMJudge  # the M6 name
 
 
 class JudgeCache:
@@ -369,7 +406,9 @@ def read_run(run_dir: Path) -> RunInputs:
     return RunInputs(card=card, base=base, final=final, covered=covered)
 
 
-def pending_judgements(case: CaseConfig, runs: list[RunInputs], cache: JudgeCache) -> int:
+def pending_judgements(
+    case: CaseConfig, runs: list[RunInputs], cache: JudgeCache, *, model: str = JUDGE_MODEL
+) -> int:
     """How many judge calls scoring these runs would make (not cached, not decided)."""
     keys: set[str] = set()
     changes = reference_changes(case)
@@ -383,7 +422,7 @@ def pending_judgements(case: CaseConfig, runs: list[RunInputs], cache: JudgeCach
             final = r.final.get(path)
             if final is not None and ref is not None and normalise(final) == normalise(ref):
                 continue
-            key = judge_key(path, r.base.get(path), ref, final)
+            key = judge_key(path, r.base.get(path), ref, final, model=model)
             if cache.get(key) is None:
                 keys.add(key)
     return len(keys)
@@ -417,7 +456,12 @@ def load_overrides(case: CaseConfig) -> list[Override]:
 
 
 def score_run(
-    case: CaseConfig, run: RunInputs, judge: JudgeFn | None, cache: JudgeCache
+    case: CaseConfig,
+    run: RunInputs,
+    judge: JudgeFn | None,
+    cache: JudgeCache,
+    *,
+    judge_model: str = JUDGE_MODEL,
 ) -> ReferenceScore:
     assert case.upstream is not None
     card = run.card
@@ -442,7 +486,7 @@ def score_run(
             by: Literal["deterministic", "judge", "override"] = "deterministic"
             reason = "the same as the reference after normalising formatting"
         else:
-            key = judge_key(path, base, ref, final)
+            key = judge_key(path, base, ref, final, model=judge_model)
             found = cache.get(key)
             if found is None:
                 if judge is None:
@@ -482,6 +526,7 @@ def score_run(
     counts = Counter(i.verdict for i in items)
     return ReferenceScore(
         case=case.id,
+        judge_model=judge_model,
         run_id=card.meta.run_id,
         configuration=card.configuration,
         reference_pr=case.upstream.reference_pr,

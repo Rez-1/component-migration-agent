@@ -7,6 +7,14 @@ also what a normal run is configured by (its caps and models).
 
 From M3 a configuration with repair on runs the repair agent with the models it
 names, one per attempt. ``ensure_runnable`` still guards the M2 refusal path.
+
+From M7 a configuration names model **levels** (``strong``, ``balanced``, ``fast``)
+wherever it named a model, and its ``[models]`` table says which model fills each level
+(Claude's by default; see ``migrator.model_table``). Levels are resolved when the
+configuration loads, so everything downstream sees model ids, and the digest is taken
+over the resolved models: a configuration that names levels digests the same as one
+naming the same models directly. Every configuration written before M7 names models,
+so its digest is unchanged.
 """
 
 from __future__ import annotations
@@ -20,6 +28,12 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from migrator.migrations import CodemodStep, MigrationSpec, ScriptStep
+from migrator.model_table import (
+    ModelLevels,
+    UnknownModelError,
+    feature_notes,
+    missing_packages,
+)
 
 SCHEMA_VERSION = 1
 
@@ -147,6 +161,9 @@ class Configuration(_Model):
     schema_version: int = SCHEMA_VERSION
     name: str
     description: str = ""
+    # Which model fills each level (M7). Not digested itself: the levels a configuration
+    # uses are resolved into the repair settings, which are.
+    models: ModelLevels = ModelLevels()
     repair: RepairSettings = RepairSettings()
     cost: CostCaps = CostCaps()
     rules: RulesSettings = RulesSettings()
@@ -154,13 +171,70 @@ class Configuration(_Model):
     # Set by the loader. Not part of the TOML.
     path: Path | None = Field(default=None, exclude=True)
 
+    @model_validator(mode="after")
+    def _resolve_levels(self) -> Configuration:
+        """Levels become model ids; every model must be in the model table (priced); the
+        reviewer must not be a model that repairs."""
+        r = self.repair
+        try:
+            attempts = [self.models.resolve(m) for m in r.attempt_models]
+            reviewer = self.models.resolve(r.reviewer_model) if r.reviewer_model else None
+            advisor = (
+                r.advisor.model_copy(update={"model": self.models.resolve(r.advisor.model)})
+                if r.advisor
+                else None
+            )
+        except UnknownModelError as exc:
+            raise ValueError(str(exc)) from exc
+        if reviewer is not None and reviewer in attempts:
+            raise ValueError(
+                f"the reviewer ({reviewer}) also repairs; a reviewer must be a different "
+                "model from every repair attempt's, so no model reviews its own work"
+            )
+        update = {"attempt_models": attempts, "reviewer_model": reviewer, "advisor": advisor}
+        if any(getattr(r, k) != v for k, v in update.items()):
+            # Frozen models: set in place (pydantic wants an after-validator to return self).
+            object.__setattr__(self, "repair", r.model_copy(update=update))
+        return self
+
+    def models_used(self) -> list[str]:
+        """Every model a run of this configuration may call."""
+        r = self.repair
+        names = [*r.attempt_models, *([r.reviewer_model] if r.reviewer_model else [])]
+        if r.advisor:
+            names.append(r.advisor.model)
+        return list(dict.fromkeys(names))
+
+    def feature_notes(self) -> list[str]:
+        """The features this configuration asks for that a model doesn't declare, which
+        the run turns off (one line each, for the run's output and scorecard)."""
+        from migrator.repair.reviewer import REVIEW_EFFORT
+
+        r = self.repair
+        if not r.enabled:
+            return []
+        notes: list[str] = []
+        for attempt, model in enumerate(r.attempt_models, start=1):
+            notes += feature_notes(
+                "repair",
+                model,
+                effort=r.effort_for(attempt),
+                caching=True,
+                strict_tools=True,
+            )
+        if r.reviewer_model:
+            notes += feature_notes(
+                "reviewer", r.reviewer_model, effort=REVIEW_EFFORT, structured_output=True
+            )
+        return list(dict.fromkeys(notes))
+
     @property
     def uses_llm(self) -> bool:
         return self.repair.enabled
 
     def digest(self) -> str:
         """A short hash of everything the configuration varies (not its description)."""
-        data = self.model_dump(mode="json", exclude={"description"})
+        data = self.model_dump(mode="json", exclude={"description", "models"})
         repair = data["repair"]
         for key, off in _DIGEST_OPTIONAL.items():
             if repair.get(key) == off:
@@ -222,6 +296,23 @@ def ensure_runnable(config: Configuration) -> None:
             raise ConfigurationError(
                 f"configuration {config.name!r}: an advisor needs prompt 'v1-advisor', and "
                 "that prompt needs [repair.advisor]"
+            )
+    if repair.enabled:
+        from migrator.model_table import card_for
+
+        if repair.advisor is not None:
+            lacking = [m for m in repair.attempt_models if not card_for(m).advisor]
+            if lacking:
+                raise ConfigurationError(
+                    f"configuration {config.name!r}: {', '.join(dict.fromkeys(lacking))} "
+                    "doesn't declare the advisor tool, and turning it off would change "
+                    "what the configuration measures"
+                )
+        missing = missing_packages(config.models_used())
+        if missing:
+            raise ConfigurationError(
+                f"configuration {config.name!r} needs {', '.join(missing)}; install it "
+                "(uv add ...) before running"
             )
     if config.repair.enabled and not REPAIR_LOOP_AVAILABLE:
         models = ", ".join(dict.fromkeys(config.repair.attempt_models))

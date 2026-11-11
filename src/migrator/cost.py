@@ -1,10 +1,11 @@
 """Cost: the pinned USD price table, the ledger, the hard cap and the pre-flight.
 
-Everything is in USD at Anthropic's first-party prices, with no exchange rate in the
+Everything is in USD at the providers' own list prices, with no exchange rate in the
 code (ticket #12). Cost is always derived from recorded tokens and the model that
 served them, never from an assumed flat rate.
 
-- **Price table** (``PRICES``): pinned, with the date it was checked.
+- **Price table** (``PRICES``): built from the model table (``migrator/models.toml``
+  and the user's own), with the date it was checked. A model with no price is refused.
 - **Ledger** (``Ledger``): one JSON line per model call, per machine, at
   ``~/.config/migrator/ledger.jsonl`` (``MIGRATOR_LEDGER`` overrides the path). The
   month cap is enforced from it. It guards against accidents, not intent: it knows
@@ -35,11 +36,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, SerializerFunctionWrapHandler, model_serializer
 
-# Checked against the claude-api skill's model table (cached 2026-10-06) on 2026-11-09,
-# and again for M3 on 2026-11-09: Opus 5.5 $4 / $20 (cache reads $0.20), Sonnet 5.5
-# $2 / $10 ($0.20), Haiku 5.5 $0.10 / $0.50 up to 100K prompt tokens and $0.50 / $2.50
-# above (cache reads 0.1x input). Cache writes: 5-minute 1.25x input, 1-hour 2x input.
-PRICES_CHECKED = "2026-11-09"
+from migrator.model_table import ModelTable, model_table
 
 
 class Price(BaseModel):
@@ -76,11 +73,26 @@ def _price(
     )
 
 
-PRICES: dict[str, Price] = {
-    "claude-opus-5-5": _price(4.00, 20.00, 0.20),
-    "claude-sonnet-5-5": _price(2.00, 10.00, 0.20),
-    "claude-haiku-5-5": _price(0.10, 0.50, 0.01, long_above=100_000, long=_price(0.50, 2.50, 0.05)),
-}
+def _prices(table: ModelTable) -> dict[str, Price]:
+    """The price table, by model ref and by full ``provider:model`` id."""
+    out: dict[str, Price] = {}
+    for card in table.cards.values():
+        long = card.long_prompt
+        price = _price(
+            card.price.input,
+            card.price.output,
+            card.price.cache_read,
+            long_above=long.above if long else None,
+            long=_price(long.input, long.output, long.cache_read) if long else None,
+        )
+        out[card.ref] = out[card.id] = price
+    return out
+
+
+# The model table's prices (migrator/models.toml, plus the user's own table). A model
+# with no price can't be capped, so it is refused before any call.
+PRICES: dict[str, Price] = _prices(model_table())
+PRICES_CHECKED = model_table().checked
 
 
 class Usage(BaseModel):
@@ -118,10 +130,11 @@ class UnknownModelPriceError(KeyError):
 
 def price_for(model: str, prompt_tokens: int = 0) -> Price:
     try:
-        p = PRICES[model]
+        p = PRICES[model] if model in PRICES else _prices(model_table())[model]
     except KeyError as exc:
         raise UnknownModelPriceError(
-            f"no pinned price for {model!r}; add it to migrator.cost.PRICES"
+            f"no price for {model!r}; add it to the model table (migrator/models.toml or "
+            "~/.config/migrator/models.toml)"
         ) from exc
     if p.long_prompt is not None and p.long_prompt_above and prompt_tokens > p.long_prompt_above:
         return p.long_prompt

@@ -1,0 +1,52 @@
+# The model table: every model the Migrator may call, with its price and the provider
+# features it supports. A model that isn't here (or in the user's own table, see
+# migrator.model_table) has no price, so the cost cap can't work and the Migrator
+# refuses to run it.
+#
+# Prices are USD per million tokens. Cache writes are derived: 5-minute 1.25x input,
+# 1-hour 2x input. Claude models keep their bare ids ("claude-opus-5-5"), so ledgers,
+# priors and scorecards written before the table still line up; other providers are
+# named "provider:model", in LangChain's init_chat_model form.
+#
+# Features are declared, never assumed. Where a model lacks one the Migrator turns it
+# off before the run and says so in the run's notes, rather than failing mid-run:
+#   efforts            the effort levels it accepts (empty: no effort control)
+#   prompt_caching     explicit cache breakpoints (cache_control)
+#   strict_tools       strict tool schemas (bind_tools(strict=True))
+#   structured_output  JSON-schema structured output (otherwise: JSON in text, parsed)
+#   advisor            may call the advisor server tool (a configuration needing it is
+#                      refused, since dropping it would change the experiment)
+
+# Checked against https://platform.claude.com/docs/en/about-claude/pricing on
+# 2026-11-11. The M2-M6 table had Sonnet 5.5's cache reads at $0.20; they are $0.10
+# (0.05x input), so M6's reviewer costs were slightly overstated.
+checked = "2026-11-11"
+
+[[model]]
+id = "anthropic:claude-opus-5-5"
+price = { input = 4.00, output = 20.00, cache_read = 0.20 }
+efforts = ["low", "medium", "high", "xhigh", "max"]
+prompt_caching = true
+strict_tools = true
+structured_output = true
+advisor = true
+
+[[model]]
+id = "anthropic:claude-sonnet-5-5"
+price = { input = 2.00, output = 10.00, cache_read = 0.10 }
+efforts = ["low", "medium", "high", "xhigh", "max"]
+prompt_caching = true
+strict_tools = true
+structured_output = true
+advisor = true
+
+[[model]]
+id = "anthropic:claude-haiku-5-5"
+price = { input = 0.10, output = 0.50, cache_read = 0.01 }
+# Prompts over 100K tokens (cache reads and writes included) pay this card instead.
+long_prompt = { above = 100000, input = 0.50, output = 2.50, cache_read = 0.05 }
+efforts = ["low", "medium", "high", "xhigh", "max"]
+prompt_caching = true
+strict_tools = true
+structured_output = true
+advisor = true

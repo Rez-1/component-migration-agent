@@ -68,7 +68,7 @@ from migrator.graph import (
 )
 from migrator.migrations import MigrationSpec, find_spec
 from migrator.precheck_cache import PrecheckCache
-from migrator.repair.model import GuardedModel, ModelFactory, anthropic_model
+from migrator.repair.model import GuardedModel, ModelFactory, provider_model
 from migrator.repair.prompt import load_templates, tool_text
 from migrator.repair.retriever import GuideRetriever
 from migrator.repair.tools import RepairTools
@@ -319,7 +319,7 @@ def build_deps(
         tools = RepairTools(tool_text(templates, spec))
         retriever = GuideRetriever.from_spec(spec, mode=repair.retrieval or "keyword")
         model = GuardedModel(
-            model_factory or anthropic_model,
+            model_factory or provider_model,
             CostGuard(guard_cap, month_cap, ledger),
             tools.tools,
             effort=repair.effort,

@@ -360,6 +360,7 @@ def migrate_command(
         case_config = load_case(case) if case else None
         configuration = find_configuration(config, _repo_root(root) / "evals" / "configs")
         ensure_runnable(configuration)
+        _say_features_off(configuration)
     except (UnknownMigrationError, ConfigError, ConfigurationError) as exc:
         raise _fail(str(exc)) from exc
     if configuration.uses_llm:
@@ -584,6 +585,7 @@ def eval_run(
     try:
         configuration = find_configuration(config, configs)
         ensure_runnable(configuration)
+        _say_features_off(configuration)
         baseline = (
             find_configuration("baseline", configs)
             if (configs / "baseline.toml").is_file()
@@ -716,6 +718,12 @@ def eval_summary(
 DEFAULT_FLOW = Path(".claude") / "hillclimb" / "dev"
 
 
+def _say_features_off(configuration: Configuration) -> None:
+    """Features the configuration asks for that a model doesn't declare (M7)."""
+    for note in configuration.feature_notes():
+        console.print(f"[yellow]Turned off:[/] {note}")
+
+
 @eval_app.command("score-reference")
 def eval_score_reference(
     experiment: Annotated[
@@ -730,13 +738,21 @@ def eval_score_reference(
     ] = False,
     root: RootOpt = None,
     cases_dir: Annotated[Path | None, typer.Option(help="Default <root>/evals/m6-cases.")] = None,
+    judge_model: Annotated[
+        str,
+        typer.Option(
+            "--judge",
+            help="The judge: a level (balanced, the default from M7) or a model. M6's "
+            "scores were judged by claude-opus-5-5.",
+        ),
+    ] = "balanced",
 ) -> None:
     """Score each run of an experiment against its case's merged migration PR (M6)."""
     from migrator.cost import CostGuard, Ledger
     from migrator.evals import read_manifest, read_rows
     from migrator.evals.reference import (
-        ClaudeJudge,
         JudgeCache,
+        LLMJudge,
         pending_judgements,
         read_run,
         render_reference_score,
@@ -750,6 +766,14 @@ def eval_score_reference(
         manifest = read_manifest(variant)
     except EvalError as exc:
         raise _fail(str(exc)) from exc
+    from migrator.evals.reference import independent_judge
+
+    try:
+        judge_ref = independent_judge(
+            judge_model, Configuration.model_validate(manifest.configuration_data)
+        )
+    except ValueError as exc:
+        raise _fail(str(exc)) from exc
     folder = (cases_dir or base / "evals" / "m6-cases").resolve()
     cases = {c.id: c for c in (load_case(p) for p in sorted(folder.glob("*/case.toml")))}
     cache = JudgeCache(variant.parent.parent / "judge-cache")
@@ -762,12 +786,12 @@ def eval_score_reference(
         run_dir = variant / "runs" / f"{row.prompt_id}_rep{row.rep}"
         todo.append((case, run_dir, read_run(run_dir)))
     needed = sum(
-        pending_judgements(c, [r for cc, _d, r in todo if cc.id == c.id], cache)
+        pending_judgements(c, [r for cc, _d, r in todo if cc.id == c.id], cache, model=judge_ref)
         for c in {c.id: c for c, _d, _r in todo}.values()
     )
     console.print(
         f"{manifest.experiment}: {len(todo)} runs, {needed} judge calls needed "
-        f"(not cached), on claude-opus-5-5 at low effort"
+        f"(not cached), on {judge_ref} at low effort"
     )
     if plan or not todo:
         return
@@ -777,8 +801,8 @@ def eval_score_reference(
     ledger = Ledger()
     guard = CostGuard(max_cost or 0.01, M6_MONTH_CAP_USD, ledger)
     for case, run_dir, inputs in todo:
-        judge = ClaudeJudge(case.id, guard, ledger)
-        score = score_run(case, inputs, judge, cache)
+        judge = LLMJudge(case.id, guard, ledger, model=judge_ref)
+        score = score_run(case, inputs, judge, cache, judge_model=judge_ref)
         write_json(score, run_dir / "reference-score.json")
         (run_dir / "reference-score.md").write_text(render_reference_score(score), "utf-8")
         guard.run_cap_usd = max(0.01, round(guard.run_cap_usd - judge.spent, 6))
@@ -847,6 +871,7 @@ def eval_climb(
         changed = sync_cases(state, cases)
         configuration = find_configuration(config, configs)
         ensure_runnable(configuration)
+        _say_features_off(configuration)
     except (ClimbError, ConfigurationError, ConfigError, EvalError) as exc:
         raise _fail(str(exc)) from exc
     if changed:

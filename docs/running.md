@@ -69,6 +69,40 @@ A run never opens a PR by itself. Without `--open` the command prints the push a
 
 **The PR body** is `pr-body.md` in the run folder, written for every run (dry runs too) and rendered from `scorecard.json`, which stays the source: the scorecard's headline and table, the hand-off checklist (one task per handed-off file with the agent's reason and its remaining failures, then the Unmigrated files), the Codemod TODOs as tasks, the stage commits and the cost line.
 
+## Models: three levels, any provider
+
+A configuration names **model levels**, not models: **strong** (the repair agent), **balanced** (the test-fitting reviewer and the eval judge) and **fast** (cheap helper tasks). Its `[models]` table says which model fills each level; without one, the levels are Claude's:
+
+```toml
+[models]
+strong = "claude-opus-5-5"
+balanced = "claude-sonnet-5-5"   # must be a different model from strong
+fast = "claude-haiku-5-5"
+
+[repair]
+attempt_models = ["strong", "strong", "strong"]
+reviewer_model = "balanced"
+```
+
+Three rules hold before anything runs:
+
+- **Every model has a price.** The cost cap prices each call's worst case first, so a model with no price is refused. Prices and features live in the model table, [`src/migrator/models.toml`](../src/migrator/models.toml), checked against the provider's pricing page.
+- **No model reviews or judges its own work.** balanced must differ from strong, the reviewer from every repair model, and `migrator eval score-reference --judge` (balanced by default) from every model that wrote the runs' code.
+- **Provider features are declared, not assumed.** Each model lists what it supports: effort levels, prompt caching, strict tool schemas, structured output and the advisor tool. What a configuration asks for and its model lacks is turned off before the run, printed as `Turned off: ...` and recorded in the scorecard's `meta.features_off`. The one exception is the advisor tool, which is refused, because turning it off would change what the configuration measures.
+
+To use another provider, add its models to your own table, `~/.config/migrator/models.toml` (or the file `MIGRATOR_MODELS` names), in LangChain's `provider:model` form, with their prices. Then install its LangChain package (`uv add langchain-openai`, for example) and set its API key in the environment:
+
+```toml
+[[model]]
+id = "openai:<model>"
+price = { input = 1.25, output = 10.0, cache_read = 0.125 }   # USD per million tokens
+efforts = ["low", "medium", "high"]
+structured_output = true
+strict_tools = true
+```
+
+Claude models keep their bare ids (`claude-opus-5-5`), so ledgers and scorecards from before the levels still line up. Configurations written before M7 name models directly and keep their digests.
+
 ## The sandbox: where commands run
 
 Verify and the repair agent's `run_verify` run the repo's type-check, lint and tests, and the tests import files the repair agent just edited. So **Verify executes code an LLM wrote**, with whatever permissions the runner has. The guardrails limit which files the agent can edit and block escape hatches, but not what the edited code does when it runs.
