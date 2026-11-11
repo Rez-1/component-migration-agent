@@ -585,7 +585,7 @@ class Reservation(BaseModel):
     held: bool
     files: int  # the files reserved for (failing Test files cost nothing)
     added_usd: float  # their worst case: files x attempts x reserve per attempt
-    total_usd: float  # the Run's whole Reservation with them
+    total_usd: float  # the Run's whole Reservation with them, at most what it can spend
     available_usd: float  # what the run cap and the month left had room for
 
 
@@ -629,12 +629,15 @@ class Budget:
         and the month (less other runs' Reservations) have room: the first pass reserves
         for its queue, the recheck tops up for the files it adds. None when the caps
         reserve nothing. The new total counts this run's spend twice against the month:
-        on the safe side."""
+        on the safe side.
+
+        Never more than the run can spend: the total stops at the lower of the run cap
+        and the hard stop, since the check before each call ends the run there anyway."""
         per = self.caps.reserve_attempt_usd
         if per is None:
             return None
         added = round(len(files) * self.caps.max_attempts * per, 2)
-        total = round((self.reserved_usd or 0.0) + added, 2)
+        total = min(round((self.reserved_usd or 0.0) + added, 2), self.caps.call_cap_usd)
         held, available = self._book(total, need=total)
         if held:
             self.reserved_usd = total

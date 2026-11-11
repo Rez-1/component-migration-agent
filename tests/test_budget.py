@@ -8,7 +8,16 @@ from typing import Any
 import pytest
 
 import migrator.graph as graph
-from migrator.cost import Budget, CostCapError, Ledger, LedgerRow, RunCaps, Usage, now_utc
+from migrator.cost import (
+    Budget,
+    CostCapError,
+    Ledger,
+    LedgerRow,
+    Reservation,
+    RunCaps,
+    Usage,
+    now_utc,
+)
 from migrator.migrations import MigrationSpec
 from migrator.pipeline import PausedRun, RunResult, resume_run
 from migrator.repair.records import RepairReport
@@ -22,7 +31,7 @@ CAPS = RunCaps(run_usd=8.0, month_usd=10.0, reserve_attempt_usd=0.5, max_attempt
 def held_by_others(ledger: Ledger) -> float:
     """What the shared book holds for running runs, less what they have spent: a probe
     run with room for everything else is refused, and says what was left."""
-    probe = Budget("probe", RunCaps(run_usd=1e6, month_usd=1e6, reserve_attempt_usd=1e6), ledger)
+    probe = Budget("probe", RunCaps(run_usd=2e6, month_usd=1e6, reserve_attempt_usd=1e6), ledger)
     out = probe.reserve(["x"])
     assert out is not None and not out.held
     return round(1e6 - ledger.month_spent() - float(out.available_usd), 2)
@@ -49,16 +58,32 @@ def test_reserve_then_top_up_then_release(tmp_path: Path) -> None:
     assert held_by_others(ledger) == 0.0
 
 
-def test_a_reservation_over_the_caps_is_refused_and_holds_nothing(tmp_path: Path) -> None:
+def test_a_reservation_over_the_month_is_refused_and_holds_nothing(tmp_path: Path) -> None:
     ledger = Ledger(tmp_path / "ledger.jsonl")
+    spend(ledger, "earlier", 6.0)  # the month counts other runs' spend
     budget = Budget("a", CAPS, ledger, reserved_usd=3.0)
-    out = budget.reserve(["v", "w", "x", "y"])  # $3 + $6 is over the $8 run cap
-    assert out is not None and not out.held and out.available_usd == 8.0
-    assert budget.reserved_usd == 3.0 and held_by_others(ledger) == 0.0
-    # The month counts other runs' spend and Reservations.
-    spend(ledger, "earlier", 6.0)
-    out = Budget("a", CAPS, ledger).reserve(["x", "y", "z"])  # $4.50 > $10 - $6
+    out = budget.reserve(["x"])  # $3 + $1.50 > $10 - $6
     assert out is not None and not out.held and out.available_usd == 4.0
+    assert budget.reserved_usd == 3.0 and held_by_others(ledger) == 0.0
+    # ... and other runs' Reservations.
+    assert Budget("b", CAPS, ledger).reserve(["x", "y"]).held  # type: ignore[union-attr]
+    out = Budget("a", CAPS, ledger).reserve(["x"])  # $1.50 > $10 - $6 - $3
+    assert out is not None and not out.held and out.available_usd == 1.0
+    Budget("b", CAPS, ledger).release()
+
+
+def test_never_reserve_more_than_the_run_can_spend(tmp_path: Path) -> None:
+    """Codecharta: 34 files x 3 attempts x $0.15 = $15.30, under an $8 run cap and a $2
+    hard stop. The $2 stop would end the run first, so $2 is reserved and repair starts."""
+    ledger = Ledger(tmp_path / "ledger.jsonl")
+    caps = RunCaps(run_usd=8.0, month_usd=20.0, stop_usd=2.0, reserve_attempt_usd=0.15)
+    out = Budget("a", caps, ledger).reserve([f"f{n}" for n in range(34)])
+    assert out == Reservation(held=True, files=34, added_usd=15.3, total_usd=2.0, available_usd=8.0)
+    assert held_by_others(ledger) == 2.0
+    # Without a hard stop, the run cap: the recheck's top-up stops there too.
+    out = Budget("a", CAPS, ledger, reserved_usd=6.0).reserve(["x", "y"])
+    assert out is not None and out.held and out.total_usd == 8.0
+    Budget("a", caps, ledger).release()
 
 
 def test_no_reservation_without_a_reserve_per_attempt(tmp_path: Path) -> None:
@@ -107,8 +132,9 @@ def test_the_first_pass_reserves_its_queue_through_the_budget(tmp_path: Path) ->
     assert report.reserved_usd == 0.9 and not report.stopped_by_cost_cap  # 2 x 3 x $0.15
     assert held_by_others(g.d.ledger) == 0.9
     Budget("recheck-test", g.d.caps, g.d.ledger).release()
-    # Over the run cap: repair does not start, and every queued file ends not attempted.
-    g = FirstPass(tmp_path, run_cap=0.5)
+    # No room in the month: repair does not start, and every queued file ends not attempted.
+    g = FirstPass(tmp_path)
+    spend(g.d.ledger, "earlier", 49.5)
     out = g.plan_repair_node(first)
     report = RepairReport.model_validate(out["repair"])
     assert report.stopped_by_cost_cap and "so repair did not start" in str(report.cost_cap_reason)

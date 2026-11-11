@@ -13,7 +13,7 @@ import migrator.graph as graph
 import migrator.verify.checker as checker
 from migrator.checks import read_files
 from migrator.config import VerifyCommands
-from migrator.cost import Budget, Ledger, Reservation, RunCaps
+from migrator.cost import Budget, Ledger, LedgerRow, Reservation, RunCaps, Usage, now_utc
 from migrator.repair.records import FileRepair, RepairReport
 from migrator.verify import VerifyResult
 from migrator.verify.parsers import Failure
@@ -127,7 +127,7 @@ def test_the_files_that_fail_only_now_are_queued_and_reserved(
     assert RepairReport.model_validate(out["repair"]).reserved_usd == 1.8  # 1.35 + 3 x 0.15
     assert g.route_recheck(out) == "start_file"
     # The top-up is held in the shared book: another run has $50 - $1.80 of the month.
-    other = Budget("other", RunCaps(run_usd=50, month_usd=50, reserve_attempt_usd=20), g.d.ledger)
+    other = Budget("other", RunCaps(run_usd=99, month_usd=50, reserve_attempt_usd=20), g.d.ledger)
     assert other.reserve(["x"]) == Reservation(
         held=False, files=1, added_usd=60.0, total_usd=60.0, available_usd=48.2
     )
@@ -151,10 +151,28 @@ def test_new_files_over_the_cap_are_left_unmigrated(
     monkeypatch.setattr(
         checker, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
     )
-    out = Graph(tmp_path, run_cap=1.5).recheck_node(state([BUILD, TYPE], [fixed()]))
+    g = Graph(tmp_path)
+    g.d.ledger.append(
+        LedgerRow(at=now_utc(), run_id="earlier", model="m", requested_model="m", usage=Usage(),
+                  cost_usd=49.0)
+    )  # fmt: skip
+    out = g.recheck_node(state([BUILD, TYPE], [fixed()]))  # $1.80 > $50 - $49 of the month
     assert out["queue"] == []
     files = RepairReport.model_validate(out["repair"]).files
     assert files[-1].path == "src/app/search.component.ts" and files[-1].outcome == "Unmigrated"
+
+
+def test_the_top_up_stops_at_what_the_run_can_spend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        graph, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
+    )
+    g = Graph(tmp_path, run_cap=1.5)
+    out = g.recheck_node(state([BUILD, TYPE], [fixed()]))  # $1.80 asked, the run stops at $1.50
+    assert out["queue"] == ["src/app/search.component.ts"]
+    assert RepairReport.model_validate(out["repair"]).reserved_usd == 1.5
+    Budget("recheck-test", g.d.caps, g.d.ledger).release()
 
 
 def test_build_output_is_not_read_as_source(tmp_path: Path) -> None:

@@ -832,12 +832,17 @@ class RunGraph:
             report = self.report_of(state)
             report.reserved_usd = held.total_usd
             if not held.held:
+                capped = (
+                    f", ${held.total_usd:.2f} at most, what the run can spend"
+                    if held.total_usd < held.added_usd
+                    else ""
+                )
                 why = (
                     f"the worst case ({held.files} files x {caps.max_attempts} attempts x "
-                    f"${caps.reserve_attempt_usd:.2f} = ${held.added_usd:.2f}) is more than the "
-                    f"${held.available_usd:.2f} available (run cap ${caps.run_usd:.2f}, less "
-                    "what this month and other running runs have spent or reserved), so repair "
-                    "did not start"
+                    f"${caps.reserve_attempt_usd:.2f} = ${held.added_usd:.2f}{capped}) is more "
+                    f"than the ${held.available_usd:.2f} available (run cap "
+                    f"${caps.run_usd:.2f}, less what this month and other running runs have "
+                    "spent or reserved), so repair did not start"
                 )
                 report.stopped_by_cost_cap = True
                 report.cost_cap_reason = why
