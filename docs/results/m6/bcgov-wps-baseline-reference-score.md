@@ -1,16 +1,16 @@
-# Reference score: bcgov-wps, run 2026-11-11-090925-2b2 (m6-baseline)
+# Reference score: bcgov-wps, run 2026-11-11-101322-a53 (m6-baseline)
 
 Scored against [https://github.com/bcgov/wps/pull/1933](https://github.com/bcgov/wps/pull/1933): 123 items (2 more out of scope).
 
 | Verdict | Items |
 |---|---|
-| matches | 103 |
+| matches | 105 |
 | other valid fix | 4 |
-| wrong | 15 |
+| wrong | 13 |
 | untouched | 1 |
 | out of scope | 2 |
 
-**Silent misses** (wrong or untouched, and verify passes for the file): 13
+**Silent misses** (wrong or untouched, and verify passes for the file): 11
 
 | File | Verdict | By | Outcome | Final failures | Covered | Reason |
 |---|---|---|---|---|---|---|
@@ -45,7 +45,7 @@ Scored against [https://github.com/bcgov/wps/pull/1933](https://github.com/bcgov
 | `src/features/fbaCalculator/components/CriticalHoursCell.tsx` | matches | deterministic | Migrated by rules | 0 | no | the same as the reference after normalising formatting |
 | `src/features/fbaCalculator/components/CrownFractionBurnedCell.tsx` | matches | deterministic | Migrated by rules | 0 | no | the same as the reference after normalising formatting |
 | `src/features/fbaCalculator/components/ErrorAlert.tsx` | matches | judge | Migrated by rules | 0 | no | R1's import migrations are reproduced. The candidate keeps the theme argument on makeStyles instead of importing the app theme. That is valid as long as a ThemeProvider supplies the theme, and it makes the same required v5 changes. |
-| `src/features/fbaCalculator/components/FBAProgressRow.tsx` | wrong **(silent miss)** | judge | Migrated by rules | 0 | yes | Candidate matches R1 except it leaves literal '(' and ')' text nodes inside StyledEngineProvider (a codemod artifact). Inside a table body these render as stray text, which produces invalid DOM and visible characters. |
+| `src/features/fbaCalculator/components/FBAProgressRow.tsx` | matches | deterministic | Migrated by rules | 0 | yes | the same as the reference after normalising formatting |
 | `src/features/fbaCalculator/components/FBATable.tsx` | wrong | judge | Unmigrated | 2 |  | The candidate keeps color="default" on the two Buttons (R7, R8), which v5 no longer supports. It does match the import changes in R1. |
 | `src/features/fbaCalculator/components/FBATableHead.tsx` | matches | deterministic | Migrated by rules | 0 | no | the same as the reference after normalising formatting |
 | `src/features/fbaCalculator/components/FBATableInstructions.tsx` | matches | deterministic | Migrated by rules | 0 | no | the same as the reference after normalising formatting |
@@ -59,7 +59,7 @@ Scored against [https://github.com/bcgov/wps/pull/1933](https://github.com/bcgov
 | `src/features/fbaCalculator/components/TableHeader.tsx` | matches | deterministic | Migrated by rules | 0 | no | the same as the reference after normalising formatting |
 | `src/features/fbaCalculator/components/TextDisplayCell.tsx` | matches | deterministic | Migrated by rules | 0 | no | the same as the reference after normalising formatting |
 | `src/features/fbaCalculator/components/WeatherStationCell.tsx` | matches | judge | Migrated by rules | 0 | no | The candidate makes the same import changes (split across two lines, which is equivalent) and the same prop rename as R1 and R2. |
-| `src/features/fbaCalculator/components/WindSpeedCell.tsx` | wrong **(silent miss)** | judge | Migrated by rules | 0 | yes | The candidate leaves out the fontSize 0.875rem compensation in R2. In R3 it also adds literal parentheses that would render as stray text. |
+| `src/features/fbaCalculator/components/WindSpeedCell.tsx` | wrong **(silent miss)** | judge | Migrated by rules | 0 | yes | Candidate matches R1 and R3 and the adaptV4Theme wrap in R2, but omits the fontSize: '0.875rem' override the developers added to preserve the v4 look. |
 | `src/features/fbaCalculator/pages/FireBehaviourCalculatorPage.tsx` | matches | deterministic | Migrated by rules | 0 | no | the same as the reference after normalising formatting |
 | `src/features/fireWeather/components/AccuracyColorLegend.tsx` | wrong **(silent miss)** | judge | Migrated by rules | 0 | no | Candidate matches R1 but omits the R2 fontSize compensation, so the title would render at a different size than in v4. |
 | `src/features/fireWeather/components/AccuracyVariablePicker.tsx` | wrong **(silent miss)** | judge | Migrated by rules | 0 | no | The candidate matches R1 and R3 but leaves out R2's styling fix that keeps the InputLabel white in v5, where emotion's specificity would override the JSS colour. The label would look different. |
@@ -102,7 +102,7 @@ Scored against [https://github.com/bcgov/wps/pull/1933](https://github.com/bcgov
 | `src/features/hfiCalculator/components/DownloadPDFButton.tsx` | matches | deterministic | Migrated by rules | 0 | no | the same as the reference after normalising formatting |
 | `src/features/hfiCalculator/components/EmptyFireCentre.tsx` | matches | deterministic | Migrated by rules | 0 | yes | the same as the reference after normalising formatting |
 | `src/features/hfiCalculator/components/EmptyStaticCells.tsx` | matches | deterministic | Migrated by rules | 0 | no | the same as the reference after normalising formatting |
-| `src/features/hfiCalculator/components/ErrorIconWithTooltip.tsx` | wrong **(silent miss)** | judge | Migrated by rules | 0 | yes | In R2 the candidate leaves literal '(' and ')' text inside the StyledEngineProvider JSX (a known codemod artifact). These render as visible parentheses around the icon, so the result looks different from the reference. |
+| `src/features/hfiCalculator/components/ErrorIconWithTooltip.tsx` | matches | deterministic | Migrated by rules | 0 | yes | the same as the reference after normalising formatting |
 | `src/features/hfiCalculator/components/FireCentreCell.tsx` | matches | deterministic | Migrated by rules | 0 | no | the same as the reference after normalising formatting |
 | `src/features/hfiCalculator/components/FireCentreDropdown.tsx` | wrong **(silent miss)** | judge | Migrated by rules | 0 | no | The candidate matches R1 imports and R3 but omits R2, the endAdornment positioning adjustment made to keep the v4 look. |
 | `src/features/hfiCalculator/components/FireStartsCell.tsx` | matches | deterministic | Migrated by rules | 0 | no | the same as the reference after normalising formatting |
