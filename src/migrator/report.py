@@ -25,6 +25,7 @@ from migrator.repair.records import RepairReport
 from migrator.rules import CodemodTodo, RulesResult
 from migrator.scan import UsageReport
 from migrator.verify import Failure, PrecheckResult, TestTotals, VerifyResult
+from migrator.visual.compare import VisualReport
 from migrator.workspace import StageCommit
 
 # 2: cheating checks, cost block, configuration digest (M2).
@@ -268,6 +269,9 @@ class Scorecard(BaseModel):
     test_fitting: list[TestFittingFlag] | None = None
     # Codemod changes to the repo's own components that Rules undid (M6); None: none.
     codemod_false_positives: list[CodemodFalsePositive] | None = None
+    # M7: screenshots compared (migrator.visual). Visual changes to review, never a
+    # verdict; None when the repo has no [visual] section.
+    visual: VisualReport | None = None
     cost: RunCost
     meta: RunMeta
 
@@ -291,6 +295,7 @@ class ReportInput(BaseModel):
     # Who changed each file after Rules ("agent" or "human"); None: nobody did.
     later_layers: dict[str, Layer] | None = None
     snapshots_to_review: list[SnapshotUpdate] | None = None
+    visual: VisualReport | None = None
     repeated_edits: list[RepeatedEdit] | None = None
     test_fitting: list[TestFittingFlag] | None = None
     meta: RunMeta
@@ -643,6 +648,7 @@ def build_scorecard(inp: ReportInput) -> Scorecard:
         repeated_edits=inp.repeated_edits,
         test_fitting=inp.test_fitting,
         codemod_false_positives=(inp.rules.false_positives or None) if inp.rules else None,
+        visual=inp.visual,
         cost=inp.cost,
         meta=inp.meta,
     )
@@ -702,12 +708,39 @@ def _repair_summary(repair: RepairReport, files: list[FileResult]) -> RepairSumm
     )
 
 
+def _visual_lines(visual: VisualReport, *, task: bool) -> list[str]:
+    """The visual check, for the scorecard and the PR body: never a verdict."""
+    box = "- [ ] " if task else "- "
+    if visual.skipped:
+        return [f"- Not compared: {visual.skipped}"]
+    lines = [
+        f"{box}`{e.name}` breaks in the {e.capture} capture: {_md_cell('; '.join(e.errors), 200)}"
+        for e in visual.new_page_errors
+    ]
+    for c in visual.comparisons:
+        flagged = c.flagged
+        lines.append(
+            f"- {c.b} against {c.a}: {len(flagged)} of {len(c.pages)} pages differ by "
+            f"{c.threshold:.1%} of their pixels or more"
+            + (f"; no screenshot for {', '.join(m.name for m in c.missing)}" if c.missing else "")
+        )
+        lines += [
+            f"  {box}`{p.name}`: {p.share:.2%} of pixels differ"
+            + (f" (`{p.diff_png}`)" if p.diff_png else "")
+            + (f"; files: {', '.join(f'`{f}`' for f in p.files)}" if p.files else "")
+            for p in flagged
+        ]
+    return lines
+
+
 def stable_view(scorecard: Scorecard | dict[str, Any]) -> dict[str, Any]:
-    """The deterministic part of a scorecard: everything but ``meta``."""
+    """The deterministic part of a scorecard: everything but ``meta`` and ``visual`` (M7:
+    screenshots depend on Docker and the browser image, so they are not part of it)."""
     data = (
         scorecard.model_dump(mode="json") if isinstance(scorecard, Scorecard) else dict(scorecard)
     )
     data.pop("meta", None)
+    data.pop("visual", None)
     for key in _M6_KEYS:
         if data.get(key) is None:
             data.pop(key, None)
@@ -1131,6 +1164,8 @@ def _m6_review_section(card: Scorecard) -> list[str]:
             + "; ".join(f"`{_md_cell(x, 100)}`" for x in t.lines[:4])
             for t in card.test_fitting
         ]
+    if card.visual is not None:
+        out += ["", "## Visual changes to review", "", *_visual_lines(card.visual, task=False)]
     if card.codemod_false_positives:
         out += ["", "## Codemod false positives (undone by Rules)", ""]
         out += [
@@ -1256,6 +1291,9 @@ def render_pr_body(card: Scorecard) -> str:
             + "; ".join(f"`{_md_cell(x, 100)}`" for x in t.lines[:4])
             for t in card.test_fitting
         ]
+    if card.visual is not None and (card.visual.to_review or card.visual.skipped):
+        lines += ["", "Visual changes to review (screenshots in the run folder):", ""]
+        lines += _visual_lines(card.visual, task=True)
     if card.codemod_false_positives:
         lines += ["", "Codemod false positives, undone by Rules (check them):", ""]
         lines += [

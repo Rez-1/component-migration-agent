@@ -103,6 +103,28 @@ strict_tools = true
 
 Claude models keep their bare ids (`claude-opus-5-5`), so ledgers and scorecards from before the levels still line up. Configurations written before M7 name models directly and keep their digests.
 
+## The visual check: screenshots before and after
+
+A component-library migration is mostly styling, and the repo's own checks see almost none of it. With a `[visual]` section in `migrate.toml` (or `[repo.visual]` in a `case.toml`), the run takes screenshots of the app after the Pre-check and again at the end, and compares them page by page:
+
+```toml
+[visual]
+build = "npm run build"     # the repo's own build; or entry = "src/index.tsx" to bundle with esbuild
+out = "build"               # where the build writes its static site
+# hide = [".live-clock"]    # anything that changes on its own between two captures
+
+[[visual.pages]]
+name = "settings"
+path = "/settings"
+click = ['role=tab[name="Notifications"]']   # Playwright selectors, in order
+files = ["src/Settings.tsx"]                 # optional: the files behind the page
+```
+
+- **The scorecard and the PR list visual changes to review:** first any page that broke, then every page whose pixels changed by at least `threshold` (0.1% by default), most changed first. A broken page is one that loaded and ran cleanly before and now fails to load or throws. Each listed page gets a diff image in `visual/` in the run folder.
+- **Not a verdict.** The new version is supposed to look different, so a changed page is something to look at, not a failure. It never changes a file's outcome.
+- **The sandbox only.** The page runs code the repair agent may have written, so screenshots are taken in Docker with the network off. The image is the pinned Node image plus Debian's Chromium and fonts, built locally once (`migrator-browser:node20-<hash>`). Without Docker the check is skipped, and the scorecard says so.
+- **Stable by construction:** a fixed clock, time zone and locale; no animations; one device scale; the network off. Two captures of the same app are identical, and a test checks this.
+
 ## Adding a migration: `migrator spec`
 
 Migration specs ship with the Migrator, one per supported migration, so an app developer never writes one. To add one:

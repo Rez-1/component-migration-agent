@@ -16,6 +16,8 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from migrator.visual import VisualConfig
+
 Runner = Literal["jest", "vitest"]
 VerifyName = Literal["typecheck", "lint", "test"]
 VERIFY_ORDER: tuple[VerifyName, ...] = ("typecheck", "lint", "test")
@@ -56,6 +58,8 @@ class RepoConfig(_Model):
     # The snapshot policy (M6): when a test file's only failures are snapshot
     # mismatches, the Migrator updates its snapshots and lists them for a human.
     update_snapshots: bool | None = None
+    # The visual check (M7): how to build the app and which pages to screenshot.
+    visual: VisualConfig | None = None
 
     def merged_over(self, base: RepoConfig) -> RepoConfig:
         """This config's set fields on top of ``base``; verify commands merge per command."""
@@ -216,6 +220,7 @@ class ResolvedRepoConfig(_Model):
     extra_dependencies: dict[str, str] = {}
     coverage: bool = False
     update_snapshots: bool = False
+    visual: VisualConfig | None = None
 
 
 def resolve_repo_config(
@@ -249,6 +254,7 @@ def resolve_repo_config(
         extra_dependencies=config.extra_dependencies or {},
         coverage=bool(config.coverage),
         update_snapshots=bool(config.update_snapshots),
+        visual=config.visual,
     )
 
 

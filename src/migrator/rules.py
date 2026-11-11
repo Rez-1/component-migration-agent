@@ -106,12 +106,19 @@ def ensure_tools(
     spec: MigrationSpec, runner: CommandRunner, cache_root: Path | None = None
 ) -> Path:
     """Install the spec's pinned Node tools once, from their lockfile, into the cache."""
-    source = spec.tools_dir()
+    return ensure_tools_dir(spec.tools_dir(), spec.folder.name, runner, cache_root)
+
+
+def ensure_tools_dir(
+    source: Path, label: str, runner: CommandRunner, cache_root: Path | None = None
+) -> Path:
+    """Install a pinned Node tools workspace (``package.json`` and ``package-lock.json``)
+    once into the cache, keyed by its lockfile; returns the installed folder."""
     lock = source / "package-lock.json"
     if not lock.is_file():
         raise ToolsError(f"{source} has no package-lock.json; the tools must be pinned")
     key = manifest_hash(source, "package-lock.json")[:12]
-    target = (cache_root or tools_cache_root()) / "tools" / f"{spec.folder.name}-{key}"
+    target = (cache_root or tools_cache_root()) / "tools" / f"{label}-{key}"
     if installed_manifest(target) == manifest_hash(source, "package-lock.json"):
         return target
     target.mkdir(parents=True, exist_ok=True)

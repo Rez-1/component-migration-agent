@@ -72,7 +72,13 @@ from migrator.cost import (
     reserve_run,
     run_cost,
 )
-from migrator.execs import CommandRunner, RunContainerRunner, node_image
+from migrator.execs import (
+    CommandRunner,
+    DockerRunner,
+    RunContainerRunner,
+    SandboxError,
+    node_image,
+)
 from migrator.migrations import MigrationSpec
 from migrator.precheck_cache import (
     CachedPrecheck,
@@ -134,6 +140,9 @@ from migrator.verify import (
     update_snapshots,
     verify,
 )
+from migrator.visual import VisualError, capture, ensure_browser_image, ensure_visual_tools
+from migrator.visual.compare import VisualReport, new_page_errors
+from migrator.visual.compare import compare as compare_captures
 from migrator.workspace import (
     StageCommit,
     StageName,
@@ -161,6 +170,7 @@ class RunState(TypedDict, total=False):
     run_dir: str
     workspace: str | None
     started_at: str
+    visual_before: dict[str, Any] | None  # M7: the before capture, or why there is none
     timings: dict[str, float]
     config: dict[str, Any]  # ResolvedRepoConfig
     usage_path: str
@@ -449,7 +459,9 @@ class RunGraph:
                 create_dry_run_workspace(d.repo, workspace)
             node_version, npm_version, pre = self.run_precheck(state, workspace)
         d.say("Pre-check", pre.status if pre.status == "ok" else f"rejected: {pre.reason}")
+        before = self.visual_capture(state, workspace, "before") if pre.status == "ok" else None
         return {
+            "visual_before": before,
             "workspace": str(workspace),
             "node_version": node_version,
             "npm_version": npm_version,
@@ -494,6 +506,73 @@ class RunGraph:
         except Exception as exc:  # the flag still decides: a hand-off
             d.say("Repair", f"{record.path}: the reviewer could not answer ({exc})")
             return None
+
+    def visual_capture(self, state: RunState, workspace: Path, label: str) -> dict[str, Any] | None:
+        """Screenshots of the app as ``workspace`` is now (M7), or why there are none; None
+        when the repo has no [visual] section. A failure never fails the run."""
+        d = self.d
+        cfg = d.config.visual
+        if cfg is None:
+            return None
+        if d.sandbox != "docker":
+            return {"skipped": "the visual check runs only in the Docker sandbox"}
+        cfg = cfg.model_copy(update={"hide": [*d.spec.visual_hide, *cfg.hide]})
+        made_out = cfg.build is not None and not (workspace / cfg.out).exists()
+        t0 = time.monotonic()
+        try:
+            browser = DockerRunner(ensure_browser_image())
+            tools = ensure_visual_tools(browser, d.tools_cache)
+            cap = capture(
+                workspace,
+                cfg,
+                self.run_dir(state) / "visual" / label,
+                build_runner=d.runner,
+                browser_runner=browser,
+                tools=tools,
+            )
+        except (VisualError, SandboxError, ToolsError) as exc:
+            d.say("Visual", f"{label}: {exc}")
+            return {"skipped": f"the {label} capture failed: {exc}"}
+        finally:
+            if made_out:  # the repo's build output must not end up in a commit
+                shutil.rmtree(workspace / cfg.out, ignore_errors=True)
+        ok = sum(p.ok for p in cap.pages)
+        d.say(
+            "Visual",
+            f"{label}: {ok} of {len(cap.pages)} pages ({round(time.monotonic() - t0)} s)",
+        )
+        return cap.model_dump(mode="json")
+
+    def visual_report(self, state: RunState, finished: bool) -> VisualReport | None:
+        """Before against after, page by page, and pages that broke (M7)."""
+        cfg = self.d.config.visual
+        if cfg is None:
+            return None
+        before = state.get("visual_before")
+        if not before or before.get("skipped"):
+            why = (before or {}).get("skipped") or "there is no before capture"
+            return VisualReport(skipped=str(why))
+        if not finished:
+            return VisualReport(skipped="the run stopped before its final verify")
+        after = self.visual_capture(state, self.workspace(state), "after")
+        if not after or after.get("skipped"):
+            return VisualReport(skipped=str((after or {}).get("skipped")))
+        names = [p.name for p in cfg.pages]
+        comparison = compare_captures(
+            Path(before["folder"]),
+            Path(after["folder"]),
+            names,
+            self.run_dir(state) / "visual" / "before-vs-after",
+            a_label="before",
+            b_label="after",
+            threshold=cfg.threshold,
+            files={p.name: p.files for p in cfg.pages},
+        )
+        return VisualReport(
+            built_by=str(after.get("built_by")),
+            comparisons=[comparison],
+            new_page_errors=new_page_errors(before["pages"], after["pages"], "after"),
+        )
 
     def where(self) -> str:
         """Where commands run, as part of the Pre-check cache key."""
@@ -1338,6 +1417,13 @@ class RunGraph:
                 report,
                 self.migrator_snapshots(state),
             )
+        visual = self.visual_report(
+            state,
+            finished=bool(state.get("workspace"))
+            and rules is not None
+            and rules.status == "ok"
+            and final is not None,
+        )
         cost = run_cost(
             calls,
             d.run_cap_usd,
@@ -1381,6 +1467,7 @@ class RunGraph:
                 if d.config.update_snapshots
                 else None,
                 case=d.case.id if d.case else (d.traps.case if d.traps else None),
+                visual=visual,
                 meta=meta,
             )
         )

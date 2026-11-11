@@ -45,3 +45,33 @@ exclude = ["node_modules/**"]
 typecheck = "npm run typecheck"   # tsc --noEmit
 lint = "npm run lint"             # eslint src --ext .ts,.tsx --max-warnings 0
 test = "npm test"                 # jest
+
+# The visual check (M7): the fixture has no build of its own, so the Migrator bundles
+# its entry with a pinned esbuild. Each page is one tab of the app's navigation. The
+# visual-only trap (switch-default-color) is on the account page.
+[repo.visual]
+entry = "src/index.tsx"
+
+[[repo.visual.pages]]
+name = "dashboard"
+files = ["src/screens/Dashboard.tsx", "src/screens/Notifications.tsx", "src/screens/ResponsiveNav.tsx"]
+
+[[repo.visual.pages]]
+name = "users"
+click = ['role=tab[name="Users"]']
+files = ["src/screens/UsersTable.tsx"]
+
+[[repo.visual.pages]]
+name = "search"
+click = ['role=tab[name="Search"]']
+files = ["src/screens/Search.tsx"]
+
+[[repo.visual.pages]]
+name = "account"
+click = ['role=tab[name="Account"]']
+files = ["src/screens/ProfileCard.tsx", "src/screens/ProfileForm.tsx", "src/screens/Settings.tsx", "src/screens/AccountDialog.tsx"]
+
+[[repo.visual.pages]]
+name = "help"
+click = ['role=tab[name="Help"]']
+files = ["src/screens/Faq.tsx"]

@@ -125,6 +125,9 @@ class MigrationSpec(_Model):
     tools: ToolsConfig
     dependency_map: list[DependencyMapEntry] = []
     rule_steps: list[RuleStep]
+    # Selectors the visual check hides in every screenshot (M7): animated decorations
+    # of the library, such as a click ripple, that would differ between two captures.
+    visual_hide: list[str] = []
 
     # Set by the loader: the folder the spec came from. Not part of the TOML.
     folder: Path = Field(default=Path(), exclude=True)
