@@ -92,8 +92,9 @@ def test_installing_the_tools_mounts_only_their_folder(tmp_path: Path) -> None:
 
 def test_node_images_are_pinned_per_major_version() -> None:
     assert node_image("20") == node_image("20.11") == node_image("v20") == node_image(None)
-    with pytest.raises(SandboxError, match="no pinned Docker image for Node 18"):
-        node_image("18")
+    assert node_image("18").startswith("node:18.20.8-bookworm-slim@sha256:")  # M7
+    with pytest.raises(SandboxError, match="no pinned Docker image for Node 14"):
+        node_image("14")
 
 
 def test_a_missing_docker_fails_clearly() -> None:

@@ -177,6 +177,7 @@ _CONFIG_NAMES = (
     "vite.config.ts",
     "vite.config.js",
 )
+_KARMA_CONFIGS = ("karma.conf.js", "karma.conf.cjs", "karma.conf.mjs", "src/karma.conf.js")
 _ARRAY_KEYS = {
     "testMatch": "test",
     "include": "test",  # vitest test.include
@@ -247,6 +248,12 @@ def read_test_rules(root: Path) -> TestFileRules:
                 globs += [_strip_root(str(v)) for v in jest.get(key, [])]
             for key in ("setupFiles", "setupFilesAfterEnv"):
                 setup += [_strip_root(str(v)) for v in jest.get(key, [])]
+    # Karma (Angular, M7): its config and the test entry point Angular's CLI generates
+    # belong to the tests (*.spec.ts already match the default test names).
+    karma = [n for n in _KARMA_CONFIGS if (root / n).is_file()]
+    if karma:
+        setup += karma
+        setup += [n for n in ("src/test.ts", "src/test-setup.ts") if (root / n).is_file()]
     return TestFileRules(test_globs=sorted(set(globs)), setup_files=sorted(set(setup)))
 
 

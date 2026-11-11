@@ -28,6 +28,12 @@ from migrator.config import (
     read_package_json,
 )
 from migrator.execs import CommandResult, CommandRunner
+from migrator.verify.karma import (
+    find_karma_config,
+    parse_karma_json,
+    spec_files_for,
+    write_wrapper,
+)
 from migrator.verify.parsers import (
     Failure,
     TestTotals,
@@ -35,9 +41,10 @@ from migrator.verify.parsers import (
     parse_eslint_json,
     parse_eslint_stylish,
     parse_jest_json,
+    parse_ng_build,
     parse_tsc,
 )
-from migrator.workspace import install_command, record_install
+from migrator.workspace import install_command, list_files, record_install
 
 _INSTALL_LOCK = threading.Lock()
 
@@ -197,6 +204,19 @@ def _run_one(
                 f"--coverageDirectory={inp.coverage_dir.resolve()}",
             ]
         run_command = with_args(command, args)
+    elif name == "test" and inp.runner == "karma":
+        karma_config = find_karma_config(ws)
+        if karma_config is None:
+            failure = Failure(source="test", file=None, message="no karma.conf.js in the repo")
+            return _skipped(name, command, "no karma config"), [failure], None, None
+        wrapper, json_out = write_wrapper(ws, karma_config, inp.log_dir, inp.label)
+        args = [f"--karma-config={wrapper}", "--watch=false", "--browsers=MigratorChromeHeadless"]
+        if inp.related_to is not None:
+            specs = spec_files_for(inp.related_to, lambda p: (ws / p).is_file())
+            if not specs:  # nothing tests these files: nothing to run
+                return _skipped(name, command, "no spec for these files"), [], None, []
+            args += [f"--include={s}" for s in specs]
+        run_command = with_args(command, args)
     elif name == "test" and inp.runner == "vitest":
         # Vitest's JSON reporter writes the same shape as Jest's (not yet exercised by a case).
         json_out = (inp.log_dir / f"{inp.label}-vitest.json").resolve()
@@ -218,6 +238,9 @@ def _run_one(
     parsed_with = "exit code"
     if name == "typecheck":
         failures, parsed_with = parse_tsc(result.output, root), "tsc"
+        angular = parse_ng_build(result.output, root)
+        if angular:  # an Angular build (`ng build`, ngc): its own format, templates too
+            failures, parsed_with = [*failures, *angular], "ng build"
     elif name == "lint":
         warnings = not result.ok  # --max-warnings tripped: warnings count
         if json_out is not None and json_out.is_file():
@@ -228,6 +251,17 @@ def _run_one(
                 parse_eslint_stylish(result.output, root, warnings),
                 "eslint text",
             )
+    elif name == "test" and inp.runner == "karma" and json_out is not None and json_out.is_file():
+        spec_sources = [
+            (rel, (ws / rel).read_text("utf-8", errors="replace"))
+            for rel in list_files(ws, ["src/**/*.spec.ts", "projects/**/*.spec.ts"], [])
+        ]
+        failures, totals = parse_karma_json(
+            json_out.read_text("utf-8"), root, lambda p: real_path(ws, p), spec_sources
+        )
+        if inp.related_to is not None:
+            suites = sorted({f.test_file for f in failures if f.test_file})
+        parsed_with = "karma json"
     elif json_out is not None and json_out.is_file():
         text = json_out.read_text("utf-8")
         failures, totals = parse_jest_json(text, root, lambda p: real_path(ws, p))
@@ -254,6 +288,18 @@ def _run_one(
         log=log.name,
     )
     return outcome, failures, totals, suites
+
+
+def _skipped(name: VerifyName, command: str, why: str) -> CommandOutcome:
+    return CommandOutcome(
+        name=name,
+        command=command,
+        exit_code=0,
+        duration_s=0.0,
+        failures=0,
+        parsed_with=f"not run: {why}",
+        log="",
+    )
 
 
 def _order(f: Failure) -> tuple[int, str, int, str, str, str]:

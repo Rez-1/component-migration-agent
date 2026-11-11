@@ -182,6 +182,75 @@ def parse_tsc(output: str, workspace: str | None = None) -> list[Failure]:
     return failures
 
 
+# --------------------------------------------------------------------------- ng build
+
+# `ng build` (and ngc) report TypeScript and Angular template errors as
+# `src/app/a.component.html:12:5 - error NG8001: 'mat-chip-list' is not a known element:`,
+# sometimes after an `Error: ` prefix; esbuild-based builds prefix `✘ [ERROR] `.
+_NG_LINE = re.compile(
+    r"^(?:Error: |✘ \[ERROR\] )?(?P<file>[^\s:][^:]*?):(?P<line>\d+):(?P<col>\d+) - error "
+    r"(?P<code>(?:NG|TS)\d+): (?P<msg>.*)$"
+)
+# Sass: `SassError: Undefined mixin.` then, a few lines later, `  src/a.scss 12:3  root`.
+_SASS_ERROR = re.compile(r"^(?:Error: |✘ \[ERROR\] )?(?:SassError: |Sass error: )?(?P<msg>.+)$")
+_SASS_WHERE = re.compile(r"^\s+(?P<file>\S+\.s?[ac]ss) (?P<line>\d+):(?P<col>\d+)\s")
+
+
+def parse_ng_build(output: str, workspace: str | None = None) -> list[Failure]:
+    """One Failure per TypeScript, template or Sass error in an Angular build's output.
+    A template error is charged to the template file, where the fix usually goes."""
+    failures: list[Failure] = []
+    lines = clean(output, workspace).splitlines()
+    current: dict[str, Any] | None = None
+
+    def flush() -> None:
+        if current is not None:
+            failures.append(Failure(source="typecheck", message=current.pop("msg"), **current))
+
+    i = 0
+    while i < len(lines):
+        raw = lines[i]
+        if m := _NG_LINE.match(raw):
+            flush()
+            current = {
+                "file": _relative(m["file"], workspace),
+                "line": int(m["line"]),
+                "column": int(m["col"]),
+                "code": m["code"],
+                "msg": m["msg"].rstrip(":").strip(),
+            }
+        elif "SassError" in raw or raw.lstrip().startswith("Sass error"):
+            flush()
+            current = None
+            message = _SASS_ERROR.match(raw.strip())
+            for follow in lines[i + 1 : i + 12]:
+                if w := _SASS_WHERE.match(follow):
+                    failures.append(
+                        Failure(
+                            source="typecheck",
+                            file=_relative(w["file"], workspace),
+                            line=int(w["line"]),
+                            column=int(w["col"]),
+                            code="sass",
+                            message=(message["msg"] if message else raw).strip(),
+                        )
+                    )
+                    break
+        elif not raw.strip():
+            flush()
+            current = None
+        i += 1
+    flush()
+    seen: set[tuple[str | None, int | None, str | None, str]] = set()
+    out = []
+    for f in failures:  # Angular repeats some errors (once per build target)
+        key = (f.file, f.line, f.code, f.message)
+        if key not in seen:
+            seen.add(key)
+            out.append(f)
+    return out
+
+
 # --------------------------------------------------------------------------- eslint
 
 

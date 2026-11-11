@@ -56,6 +56,7 @@ from migrator.execs import (
     SandboxError,
     make_runner,
     node_image,
+    node_major,
 )
 from migrator.graph import (
     RECURSION_LIMIT,
@@ -285,12 +286,22 @@ def sandbox_runner(
     image = node_image(config.node)
     tag = re.sub(r"[^A-Za-z0-9.]+", "-", image.split("@")[0])
     cache = (tools_cache or tools_cache_root() / "docker" / tag).resolve()
+    browser = None
+    if config.runner == "karma":
+        # Karma runs the tests in Chrome: the same Node, with Debian's Chromium (M7).
+        from migrator.visual import ensure_browser_image
+
+        try:
+            browser = ensure_browser_image(node=node_major(config.node))
+        except (SandboxError, KeyError) as exc:
+            raise RunError(f"no image with Chromium for Node {config.node}: {exc}") from exc
     runner = make_runner(
         "docker",
         config.node,
         read_only=[cache],
         per_run=per_run,
         node_modules_volume=per_run and node_modules_volume,
+        image=browser,
     )
     return runner, cache
 

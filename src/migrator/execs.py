@@ -187,6 +187,9 @@ NODE_IMAGES: dict[str, str] = {
     # Node 16 (end of life since 2023) only for real repos that need it (M6: CRA 4/5).
     "16": "node:16.20.2-bookworm-slim"
     "@sha256:89061680359f5d9103d24f0066e2c96a8018c24d5c4fe8eb8d59d16dd4ab64ba",
+    # Node 18 (end of life since 2025) for Angular 15/16 repos that need it (M7).
+    "18": "node:18.20.8-bookworm-slim"
+    "@sha256:f9ab18e354e6855ae56ef2b290dd225c1e51a564f87584b9bd21dd651838830e",
     "20": "node:20.20.2-bookworm-slim"
     "@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0",
     "22": "node:22.21.1-bookworm-slim"
@@ -240,6 +243,10 @@ _WAIT_FOR_PACKAGE_JSON = (
 
 class SandboxError(RuntimeError):
     """The sandbox cannot run: Docker is missing or stopped, or no image is pinned."""
+
+
+def node_major(node: str | None) -> str:
+    return (node or DEFAULT_NODE).strip().removeprefix("v").split(".")[0]
 
 
 def node_image(node: str | None) -> str:
@@ -645,17 +652,18 @@ def make_runner(
     read_only: Iterable[Path] = (),
     per_run: bool = False,
     node_modules_volume: bool = False,
+    image: str | None = None,
 ) -> CommandRunner:
     """The runner for a run: Docker (checked now, so a missing daemon fails at the
-    start, not at the first command) or local. ``per_run``: one long-lived container."""
+    start, not at the first command) or local. ``per_run``: one long-lived container.
+    ``image`` replaces the Node image (M7: the same Node with Chromium, for Karma)."""
     if sandbox == "local":
         return LocalRunner()
+    chosen = image or node_image(node)
     runner: DockerRunner = (
-        RunContainerRunner(
-            node_image(node), read_only=read_only, node_modules_volume=node_modules_volume
-        )
+        RunContainerRunner(chosen, read_only=read_only, node_modules_volume=node_modules_volume)
         if per_run
-        else DockerRunner(node_image(node), read_only=read_only)
+        else DockerRunner(chosen, read_only=read_only)
     )
     runner.check()
     return runner

@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from migrator.visual import VisualConfig
 
-Runner = Literal["jest", "vitest"]
+Runner = Literal["jest", "vitest", "karma"]
 VerifyName = Literal["typecheck", "lint", "test"]
 VERIFY_ORDER: tuple[VerifyName, ...] = ("typecheck", "lint", "test")
 
