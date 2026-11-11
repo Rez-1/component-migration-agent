@@ -152,6 +152,21 @@ def _major(version: str) -> int | None:
     return int(m.group()) if m else None
 
 
+def has_old_usage(repo: Path, spec: MigrationSpec) -> bool:
+    """Whether any source file imports an old module (a quick text search, before Scan)."""
+    from migrator.workspace import list_files
+
+    quoted = re.compile(r"""['"]([^'"\n]+)['"]""")
+    for rel in list_files(repo, spec.source_globs, spec.exclude):
+        try:
+            text = (repo / rel).read_text("utf-8", errors="replace")
+        except OSError:
+            continue
+        if any(spec.usage.is_old(m) for m in quoted.findall(text)):
+            return True
+    return False
+
+
 def check_detection(repo: Path, spec: MigrationSpec) -> None:
     """Refuse a repo that is not on the spec's old version or misses a precondition."""
     package = read_package_json(repo)
@@ -166,9 +181,16 @@ def check_detection(repo: Path, spec: MigrationSpec) -> None:
             f"{repo} does not depend on {' or '.join(spec.detection.packages)}, "
             f"so it is not on {spec.from_}"
         )
+    majors = spec.detection.majors
     for name in found:
-        if _major(deps[name]) != spec.detection.major:
-            raise RunError(f"{name} is {deps[name]}, not major version {spec.detection.major}")
+        if _major(deps[name]) not in majors:
+            wanted = " or ".join(str(m) for m in majors)
+            raise RunError(f"{name} is {deps[name]}, not major version {wanted}")
+    if spec.detection.requires_old_usage and not has_old_usage(repo, spec):
+        raise RunError(
+            f"{repo} has no {spec.from_} usages left (nothing imports "
+            f"{' or '.join(spec.usage.old_modules)}), so there is nothing to migrate"
+        )
     for pre in spec.preconditions:
         version = deps.get(pre.package)
         major = _major(version) if version else None

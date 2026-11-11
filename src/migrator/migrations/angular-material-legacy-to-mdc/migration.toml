@@ -1,0 +1,75 @@
+# Migration spec: Angular Material legacy components -> MDC-based components.
+# Written with `migrator spec new` (M7) and checked with `migrator spec check`.
+#
+# Angular Material 15 ships both: the legacy components under
+# `@angular/material/legacy-*` (where `ng update` to 15 moved every import) and the new
+# MDC-based ones at the old entry points. Angular Material 16 still ships both. So this
+# is one jump inside the same package version: no dependency changes, and a repo is
+# detected by its legacy imports, not by its version.
+
+id = "angular-material@15-legacy->angular-material@15-mdc"
+from = "angular-material@15-legacy"
+to = "angular-material@15-mdc"
+
+# Filled into the repair prompt; no library names live in prompt or tool text.
+library_name = "Angular Material"
+from_version = "the legacy components"
+to_version = "the MDC-based components"
+codemod_name = "the @angular/material:mdc-migration schematic"
+guide_title = "Migrating to MDC-based Angular Material Components"
+# Proposed; to be confirmed by the owner before the first agent run.
+repair_notes = [
+  "Keep the app's look: where the app's own styles adjusted a component (spacing, density, typography, colours), carry that adjustment over to the MDC version instead of dropping it.",
+  "Replace a style rule on a legacy internal class (such as .mat-form-field-wrapper or .mat-button-wrapper) with the MDC component's equivalent class, density mixin or public API; never leave a selector that no longer matches anything.",
+  "Never switch a component back to a legacy-* entry point.",
+]
+
+# What the schematic and `ng update` leave where they gave up (Codemod TODOs): SCSS
+# rules on internal classes, slider inputs that no longer exist, typography levels.
+codemod_todo_markers = ["TODO(mdc-migration)", "TODO(v15)", "TODO: The '"]
+
+# Templates and styles count: most Angular Material usage lives there.
+source_globs = ["src/**/*.ts", "src/**/*.html", "src/**/*.scss", "src/**/*.css"]
+exclude = ["**/node_modules/**", "**/*.spec.ts"]
+
+[detection]
+packages = ["@angular/material"]
+major = [15, 16]
+requires_old_usage = true
+
+[usage]
+old_modules = ['^@angular/material/legacy-']
+new_modules = ['^@angular/material(/(?!legacy-)[a-z-]+)?$']
+
+# The vendored guide (see guide/SOURCE.md). One file; each component is a `###`
+# section under "## Comprehensive List of Changes", its changes are bullet points.
+[guide]
+repo = "angular/components"
+tag = "15.2.9"
+commit = "d593195dcff51a482425c0ad898fb63baaa7435e"
+dir = "guide"
+files = ["v15-mdc-migration.md"]
+section_level = 3
+change_level = 4
+drop_sections = [
+  "1. Update to Angular Material v15",
+  "2. Run the migration tool",
+  "4. Verify Your Application",
+]
+link_base = "https://v15.material.angular.io"
+
+# The deterministic layer: the official schematic, from the repo's own Angular CLI and
+# @angular/material (so there is no pinned tools workspace). It runs exactly once: it
+# is not idempotent (the typography renames chain, its TODO comments repeat). It exits
+# 0 even when it fails, so its log decides.
+[[rule_steps]]
+kind = "schematic"
+name = "mdc-migration"
+command = ["node_modules/.bin/ng", "generate", "@angular/material:mdc-migration", "--components=all", "--interactive=false"]
+env = { NG_CLI_ANALYTICS = "false" }
+fail_on = ['Unable to migrate project', 'Could not find workspace configuration file']
+file_failed = 'Failed to process (template|stylesheet|file): (?P<file>\S+)'
+file_changed = '^UPDATE (?P<file>\S+) \('
+
+[[rule_steps]]
+kind = "format"

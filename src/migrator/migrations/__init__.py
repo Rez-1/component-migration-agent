@@ -11,7 +11,7 @@ import tomllib
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 MIGRATIONS_DIR = Path(__file__).parent
 
@@ -22,7 +22,17 @@ class _Model(BaseModel):
 
 class Detection(_Model):
     packages: list[str]
-    major: int
+    # The old version's major, or several (Angular Material's legacy components ship in
+    # both 15 and 16).
+    major: int | list[int]
+    # Also require at least one usage of an old module in the source (M7): when the
+    # major alone can't tell the old version from the new one (legacy and MDC
+    # components live in the same Angular Material 15 package).
+    requires_old_usage: bool = False
+
+    @property
+    def majors(self) -> list[int]:
+        return self.major if isinstance(self.major, list) else [self.major]
 
 
 class Precondition(_Model):
@@ -99,8 +109,42 @@ class ScriptStep(_Model):
     command: str
 
 
+class SchematicStep(_Model):
+    """A generator the target repo itself provides (M7: Angular's
+    ``ng generate @angular/material:mdc-migration``), run once from the repo root with
+    the repo's own installed tools, so it is not pinned in a tools workspace. Its exit
+    code is not trusted: Angular's schematic logs failures and still exits 0, so the log
+    is read for them."""
+
+    kind: Literal["schematic"]
+    name: str
+    command: list[str]  # an argv, run without a shell
+    env: dict[str, str] = {}
+    # A log line matching one of these fails the whole step (a Rules failure).
+    fail_on: list[str] = []
+    # A log line matching this names one file the schematic could not process (named
+    # group ``file``); those files are left for the repair agent.
+    file_failed: str | None = None
+    # A log line matching this names one file it changed (named group ``file``).
+    file_changed: str | None = None
+
+    @field_validator("fail_on")
+    @classmethod
+    def _regexes(cls, patterns: list[str]) -> list[str]:
+        for pattern in patterns:
+            re.compile(pattern)
+        return patterns
+
+    @field_validator("file_failed", "file_changed")
+    @classmethod
+    def _file_group(cls, pattern: str | None) -> str | None:
+        if pattern is not None and "file" not in re.compile(pattern).groupindex:
+            raise ValueError(f"{pattern!r} needs a named group (?P<file>...)")
+        return pattern
+
+
 RuleStep = Annotated[
-    InstallStep | DependenciesStep | CodemodStep | FormatStep | ScriptStep,
+    InstallStep | DependenciesStep | CodemodStep | FormatStep | ScriptStep | SchematicStep,
     Field(discriminator="kind"),
 ]
 
@@ -122,7 +166,9 @@ class MigrationSpec(_Model):
     source_globs: list[str]
     exclude: list[str] = []
     guide: GuideConfig
-    tools: ToolsConfig
+    # Pinned Node tools (codemods); None when the deterministic layer runs from the
+    # target repo's own tools (a schematic).
+    tools: ToolsConfig | None = None
     dependency_map: list[DependencyMapEntry] = []
     rule_steps: list[RuleStep]
     # Selectors the visual check hides in every screenshot (M7): animated decorations
@@ -135,7 +181,7 @@ class MigrationSpec(_Model):
     @field_validator("rule_steps")
     @classmethod
     def _codemods_run_once(cls, steps: list[RuleStep]) -> list[RuleStep]:
-        names = [s.name for s in steps if isinstance(s, CodemodStep)]
+        names = [s.name for s in steps if isinstance(s, CodemodStep | SchematicStep)]
         duplicates = {n for n in names if names.count(n) > 1}
         if duplicates:
             raise ValueError(f"codemods must run exactly once; repeated: {sorted(duplicates)}")
@@ -149,7 +195,15 @@ class MigrationSpec(_Model):
         return sorted({name for entry in self.dependency_map for name in entry.new})
 
     def tools_dir(self) -> Path:
+        if self.tools is None:
+            raise ValueError(f"{self.id} has no [tools]: its rule steps use the repo's own")
         return self.folder / self.tools.workspace
+
+    @model_validator(mode="after")
+    def _codemods_need_tools(self) -> MigrationSpec:
+        if self.tools is None and any(isinstance(s, CodemodStep) for s in self.rule_steps):
+            raise ValueError("codemod steps need [tools]: the pinned tools workspace")
+        return self
 
 
 class UnknownMigrationError(LookupError):

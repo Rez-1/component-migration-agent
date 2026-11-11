@@ -30,6 +30,7 @@ from migrator.migrations import (
     InstallStep,
     MigrationSpec,
     RuleStep,
+    SchematicStep,
     ScriptStep,
 )
 from migrator.scan.parser import parse_file
@@ -53,7 +54,7 @@ class RulesInput(BaseModel):
     spec: MigrationSpec
     config: ResolvedRepoConfig
     affected_files: list[str]
-    tools_dir: Path
+    tools_dir: Path | None  # None: the spec has no pinned tools (a schematic)
     log_dir: Path
     # node_modules lives in the sandbox's volume (speed-up 4): look for a tool inside it.
     probe_bins: bool = False
@@ -85,6 +86,8 @@ class RulesResult(BaseModel):
     codemod_todos: list[CodemodTodo] = []
     # Codemod changes to the repo's own components, undone after the codemods (M6).
     false_positives: list[CodemodFalsePositive] = []
+    # Files a schematic step logged it could not process (M7): left for repair.
+    schematic_failed: list[str] = []
 
 
 class ToolsError(RuntimeError):
@@ -202,6 +205,17 @@ def _indent_of(text: str) -> int:
     return len(m.group(1)) if m else 2
 
 
+def _named_files(lines: list[str], pattern: str | None) -> set[str]:
+    """The ``file`` group of every line matching ``pattern``, as a relative path."""
+    if pattern is None:
+        return set()
+    found = set()
+    for line in lines:
+        if m := re.search(pattern, line):
+            found.add(m.group("file").strip().lstrip("/").removeprefix("./"))
+    return found
+
+
 def _expand(args: list[str], files: list[str]) -> list[str]:
     out: list[str] = []
     for arg in args:
@@ -219,6 +233,7 @@ class _Run:
         self.sources = list_files(self.ws, inp.config.source_globs, inp.config.exclude)
         self.tracked = sorted({*self.sources, "package.json", inp.config.lockfile})
         self.changed: set[str] = set()
+        self.schematic_failed: set[str] = set()
         self.index = 0
 
     def snap(self) -> Snapshot:
@@ -249,7 +264,7 @@ class _Run:
 
     def codemod(self, step: CodemodStep) -> tuple[StepStatus, str, float, str]:
         spec = self.inp.spec
-        if step.tool not in spec.tools.bins:
+        if spec.tools is None or self.inp.tools_dir is None or step.tool not in spec.tools.bins:
             return "failed", f"unknown tool {step.tool!r}", 0.0, ""
         script = self.inp.tools_dir / spec.tools.bins[step.tool]
         files = sorted(self.inp.affected_files)
@@ -321,6 +336,27 @@ class _Run:
         )
         return "ok", " ".join(notes), 0.0, ""
 
+    def schematic(self, step: SchematicStep) -> tuple[StepStatus, str, float, str]:
+        """A generator from the repo's own tools, run once; its log decides (M7)."""
+        result = self.runner.run(
+            list(step.command), self.ws, env=step.env or None, log_file=self.log_file(step.name)
+        )
+        log = self.log_file(step.name).name
+        lines = result.output.splitlines()
+        fatal = [ln for ln in lines if any(re.search(p, ln) for p in step.fail_on)]
+        if fatal or not result.ok:
+            why = fatal[0].strip() if fatal else f"exit {result.exit_code}"
+            return "failed", why[:300], result.duration_s, log
+        failed_files = _named_files(lines, step.file_failed)
+        self.schematic_failed.update(failed_files)
+        changed = _named_files(lines, step.file_changed)
+        detail = f"{len(changed)} files updated" if step.file_changed else "ran"
+        if failed_files:
+            detail += f"; could not process {len(failed_files)}: " + ", ".join(
+                sorted(failed_files)[:5]
+            )
+        return "ok", detail, result.duration_s, log
+
     def script(self, step: ScriptStep) -> tuple[StepStatus, str, float, str]:
         files = " ".join(sorted(self.inp.affected_files))
         result = self.run(step.command.replace("{files}", files), step.name)
@@ -339,6 +375,8 @@ class _Run:
                 return self.dependencies(step)
             case ScriptStep():
                 return self.script(step)
+            case SchematicStep():
+                return self.schematic(step)
 
 
 def find_codemod_todos(
@@ -441,4 +479,5 @@ def apply_rules(inp: RulesInput, runner: CommandRunner) -> RulesResult:
         changed_files=sorted(state.changed),
         codemod_todos=todos,
         false_positives=false_positives,
+        schematic_failed=sorted(state.schematic_failed),
     )

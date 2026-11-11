@@ -689,7 +689,7 @@ class RunGraph:
         usage = UsageReport.model_validate_json(Path(state["usage_path"]).read_text("utf-8"))
         d.say("Rules", "running the rule steps")
         try:
-            tools = ensure_tools(d.spec, d.runner, d.tools_cache)
+            tools = ensure_tools(d.spec, d.runner, d.tools_cache) if d.spec.tools else None
         except ToolsError as exc:
             rules = RulesResult(status="rules_failure", reason=str(exc), steps=[], changed_files=[])
         else:

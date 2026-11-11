@@ -259,6 +259,9 @@ def _check_tools(spec: MigrationSpec, add: Callable[[str, Status, str], None]) -
     codemods = [s for s in spec.rule_steps if isinstance(s, CodemodStep)]
     if not codemods:
         return
+    if spec.tools is None:
+        add("tools", "fail", "codemod steps need [tools]")
+        return
     tools = spec.tools_dir()
     package, lock = tools / "package.json", tools / "package-lock.json"
     if not package.is_file() or not lock.is_file():
