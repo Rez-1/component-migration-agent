@@ -732,6 +732,7 @@ class RunGraph:
                 log_dir=self.logs(state),
                 label="verify",
                 pre_existing=pre.pre_existing_failures,
+                leftovers=d.config.leftovers,
             ),
             d.runner,
         )
@@ -1379,6 +1380,7 @@ class RunGraph:
                     log_dir=self.logs(state),
                     label="final",
                     pre_existing=pre.pre_existing_failures,
+                    leftovers=d.config.leftovers,
                 ),
                 d.runner,
             )

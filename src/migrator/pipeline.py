@@ -38,6 +38,7 @@ from migrator import __version__
 from migrator.config import (
     CaseConfig,
     ConfigError,
+    LeftoverCheck,
     RepoConfig,
     ResolvedRepoConfig,
     TrapList,
@@ -212,6 +213,15 @@ def resolve_config(
     if incremental:
         verify = config.verify.model_copy(update={"typecheck_incremental": True})
         config = config.model_copy(update={"verify": verify})
+    if spec.leftovers_fail:
+        leftovers = LeftoverCheck(
+            old_modules=spec.usage.old_modules,
+            old_styles=spec.usage.old_styles,
+            todo_markers=spec.codemod_todo_markers if spec.todos_fail else [],
+            source_globs=config.source_globs,
+            exclude=config.exclude,
+        )
+        config = config.model_copy(update={"leftovers": leftovers})
     return config
 
 

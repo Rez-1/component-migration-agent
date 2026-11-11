@@ -205,6 +205,18 @@ def detect_runner(repo: Path) -> Runner | None:
     return None
 
 
+class LeftoverCheck(_Model):
+    """What still counts as the old version after the Rules stage (M7), checked by every
+    Verify after it (never the Pre-check). For a migration whose old code still compiles
+    (Angular's legacy components do), it is the only failure an unmigrated file gets."""
+
+    old_modules: list[str]  # regexes for module specifiers, as in the spec's [usage]
+    old_styles: list[str] = []  # regexes for stylesheet lines (mat.legacy-*)
+    todo_markers: list[str] = []  # Codemod TODOs that count as failures (if the spec says)
+    source_globs: list[str]
+    exclude: list[str] = []
+
+
 class ResolvedRepoConfig(_Model):
     """A RepoConfig with every value decided."""
 
@@ -221,6 +233,7 @@ class ResolvedRepoConfig(_Model):
     coverage: bool = False
     update_snapshots: bool = False
     visual: VisualConfig | None = None
+    leftovers: LeftoverCheck | None = None
 
 
 def resolve_repo_config(

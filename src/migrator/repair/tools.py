@@ -276,6 +276,7 @@ class RepairSession:
                 label=label,
                 pre_existing=self.pre_existing,
                 related_to=related,
+                leftovers=self.config.leftovers,
             ),
             self.runner,
         )

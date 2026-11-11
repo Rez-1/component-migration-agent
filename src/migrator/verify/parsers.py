@@ -16,7 +16,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-FailureSource = Literal["typecheck", "lint", "test"]
+# "migration": what is left of the old version after the Rules stage (M7, leftovers).
+FailureSource = Literal["typecheck", "lint", "test", "migration"]
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 

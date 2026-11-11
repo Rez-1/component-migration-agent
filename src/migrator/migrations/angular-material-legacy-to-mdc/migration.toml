@@ -28,6 +28,13 @@ repair_notes = [
 # rules on internal classes, slider inputs that no longer exist, typography levels.
 codemod_todo_markers = ["TODO(mdc-migration)", "TODO(v15)", "TODO: The '"]
 
+# Legacy code still compiles in 15 and 16: after the schematic, a file that still imports
+# a legacy-* entry point or uses a legacy theme mixin is a failure for repair.
+leftovers_fail = true
+# Whether the schematic's TODO(mdc-migration) notes (rules on internal classes) are
+# failures too, so the agent restyles them: a decision for the owner.
+todos_fail = false
+
 # Templates and styles count: most Angular Material usage lives there.
 source_globs = ["src/**/*.ts", "src/**/*.html", "src/**/*.scss", "src/**/*.css"]
 exclude = ["**/node_modules/**", "**/*.spec.ts"]
@@ -40,6 +47,8 @@ requires_old_usage = true
 [usage]
 old_modules = ['^@angular/material/legacy-']
 new_modules = ['^@angular/material(/(?!legacy-)[a-z-]+)?$']
+# Legacy theme mixins in stylesheets (mat.legacy-button-theme, mat.all-legacy-component-themes).
+old_styles = ['\bmat\.(all-)?legacy-']
 
 # The vendored guide (see guide/SOURCE.md). One file; each component is a `###`
 # section under "## Comprehensive List of Changes", its changes are bullet points.

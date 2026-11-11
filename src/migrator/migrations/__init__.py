@@ -43,8 +43,10 @@ class Precondition(_Model):
 class UsagePatterns(_Model):
     old_modules: list[str]
     new_modules: list[str]
+    # Stylesheet patterns of the old version (M7, Angular: `mat\.legacy-`).
+    old_styles: list[str] = []
 
-    @field_validator("old_modules", "new_modules")
+    @field_validator("old_modules", "new_modules", "old_styles")
     @classmethod
     def _valid_regexes(cls, patterns: list[str]) -> list[str]:
         for pattern in patterns:
@@ -174,6 +176,11 @@ class MigrationSpec(_Model):
     tools: ToolsConfig | None = None
     dependency_map: list[DependencyMapEntry] = []
     rule_steps: list[RuleStep]
+    # After Rules, every Verify also fails on what is left of the old version: imports of
+    # old modules and old stylesheet patterns (M7; for a migration whose old code still
+    # compiles). With todos_fail, the Codemod TODOs left in the source fail too.
+    leftovers_fail: bool = False
+    todos_fail: bool = False
     # Selectors the visual check hides in every screenshot (M7): animated decorations
     # of the library, such as a click ripple, that would differ between two captures.
     visual_hide: list[str] = []

@@ -195,3 +195,84 @@ def test_karma_config_and_the_test_entry_point_are_test_files(tmp_path: Path) ->
         {}, ["karma.conf.js", "src/test.ts", "src/app/a.component.spec.ts", "src/app/a.ts"], rules
     )
     assert set(found) == {"karma.conf.js", "src/test.ts", "src/app/a.component.spec.ts"}
+
+
+def test_leftovers_are_old_imports_old_mixins_and_optionally_codemod_todos(
+    tmp_path: Path,
+) -> None:
+    from migrator.config import LeftoverCheck
+    from migrator.verify.leftovers import find_leftovers
+
+    files = {
+        "src/app/a.module.ts": (
+            "import { MatLegacyButtonModule as MatButtonModule } from "
+            "'@angular/material/legacy-button';\n"
+            "import { MatCardModule } from '@angular/material/card';\n"
+        ),
+        "src/styles.scss": (
+            "@use '@angular/material' as mat;\n"
+            "@include mat.legacy-button-theme($theme);\n"
+            "@include mat.card-theme($theme);\n"
+            "/* TODO(mdc-migration): The following rule targets internal classes of button "
+            "that may no longer apply for the MDC version. */\n"
+        ),
+        "src/app/a.component.spec.ts": "import { X } from '@angular/material/legacy-chips';\n",
+        "src/app/b.ts": "export const ok = 1;\n",
+    }
+    for rel, text in files.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(text)
+    check = LeftoverCheck(
+        old_modules=["^@angular/material/legacy-"],
+        old_styles=[r"\bmat\.(all-)?legacy-"],
+        source_globs=["src/**/*.ts", "src/**/*.scss"],
+        exclude=["**/*.spec.ts"],
+    )
+    found = find_leftovers(tmp_path, check)
+    assert [(f.file, f.line, f.code, f.message) for f in found] == [
+        (
+            "src/app/a.module.ts",
+            1,
+            "leftover-import",
+            "still imports @angular/material/legacy-button",
+        ),
+        ("src/styles.scss", 2, "leftover-style", "still uses mat.legacy-button-theme"),
+    ]
+    assert all(f.source == "migration" for f in found)
+    with_todos = check.model_copy(update={"todo_markers": ["TODO(mdc-migration)"]})
+    todo = find_leftovers(tmp_path, with_todos, only=["src/styles.scss"])[-1]
+    assert todo.code == "codemod-todo"
+    assert todo.message.startswith("Codemod TODO: TODO(mdc-migration): The following rule")
+
+
+def test_a_template_can_be_repaired_with_its_component_and_the_module_that_declares_it() -> None:
+    from migrator.repair.context import local_imports
+
+    files = {
+        "src/app/tags/tag-list.component.ts": (
+            "import { Component } from '@angular/core';\nimport { util } from '../util';\n"
+            "@Component({ selector: 'x', templateUrl: './tag-list.component.html',\n"
+            "  styleUrls: ['./tag-list.component.scss', '../shared.scss'] })\n"
+            "export class TagListComponent {}"
+        ),
+        "src/app/tags/tag-list.component.html": "<mat-chip-list></mat-chip-list>",
+        "src/app/tags/tag-list.component.scss": ".a{}",
+        "src/app/shared.scss": ".b{}",
+        "src/app/util.ts": "export const util = 1;",
+        "src/app/app.module.ts": (
+            "import { TagListComponent } from './tags/tag-list.component';\n"
+            "export class AppModule {}"
+        ),
+    }
+    assert local_imports("src/app/tags/tag-list.component.ts", files) == [
+        "src/app/shared.scss",
+        "src/app/tags/tag-list.component.html",
+        "src/app/tags/tag-list.component.scss",
+        "src/app/util.ts",
+    ]
+    assert local_imports("src/app/tags/tag-list.component.html", files) == [
+        "src/app/app.module.ts",
+        "src/app/shared.scss",
+        "src/app/tags/tag-list.component.scss",
+        "src/app/tags/tag-list.component.ts",
+    ]

@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict
 
 from migrator.config import (
     VERIFY_ORDER,
+    LeftoverCheck,
     ResolvedRepoConfig,
     Runner,
     VerifyCommands,
@@ -34,6 +35,7 @@ from migrator.verify.karma import (
     spec_files_for,
     write_wrapper,
 )
+from migrator.verify.leftovers import find_leftovers
 from migrator.verify.parsers import (
     Failure,
     TestTotals,
@@ -88,6 +90,8 @@ class VerifyInput(BaseModel):
     related_to: list[str] | None = None
     # Also measure test coverage into this folder (the Pre-check, M6).
     coverage_dir: Path | None = None
+    # What is left of the old version also fails (M7); never set for the Pre-check.
+    leftovers: LeftoverCheck | None = None
 
 
 class VerifyResult(BaseModel):
@@ -302,9 +306,12 @@ def _skipped(name: VerifyName, command: str, why: str) -> CommandOutcome:
     )
 
 
+_SOURCE_ORDER = (*VERIFY_ORDER, "migration")
+
+
 def _order(f: Failure) -> tuple[int, str, int, str, str, str]:
     return (
-        VERIFY_ORDER.index(f.source),
+        _SOURCE_ORDER.index(f.source),
         f.file or "",
         f.line or 0,
         f.test_file or "",
@@ -331,6 +338,19 @@ def verify(inp: VerifyInput, runner: CommandRunner) -> VerifyResult:
         suites = cmd_suites if cmd_suites is not None else suites
         for failure in failures:
             (seen_again if failure.key() in known else charged).append(failure)
+    if inp.leftovers is not None:
+        found = find_leftovers(inp.workspace, inp.leftovers, inp.related_to)
+        outcomes.append(
+            CommandOutcome(
+                name="leftovers",
+                command="(the Migrator's own check)",
+                exit_code=1 if found else 0,
+                duration_s=0.0,
+                failures=len(found),
+                parsed_with="leftovers",
+            )
+        )
+        charged += found
     return VerifyResult(
         commands=outcomes,
         # Sorted: Jest runs suites in parallel and reports them in finishing order.

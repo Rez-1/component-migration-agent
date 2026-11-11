@@ -22,12 +22,67 @@ WINDOW = 15  # otherwise, this many lines either side of each failure
 MAX_SIGNATURE_CHARS = 300
 
 
+# An Angular component's own files (M7): `templateUrl: './a.html'`, `styleUrls: [...]`,
+# `styleUrl: '...'`.
+_COMPONENT_FILE = re.compile(r"""\b(?:templateUrl|styleUrl)\s*:\s*(['"`])(?P<one>[^'"`]+)\1""")
+_STYLE_URLS = re.compile(r"\bstyleUrls\s*:\s*\[(?P<list>[^\]]*)\]")
+_QUOTED = re.compile(r"""(['"`])([^'"`]+)\1""")
+ANGULAR_ASSETS = (".html", ".scss", ".sass", ".css", ".less")
+
+
+def component_files(path: str, text: str, files: Mapping[str, str]) -> list[str]:
+    """The template and stylesheets an Angular component's decorator names, if they exist."""
+    names = [m.group("one") for m in _COMPONENT_FILE.finditer(text)]
+    for m in _STYLE_URLS.finditer(text):
+        names += [q.group(2) for q in _QUOTED.finditer(m.group("list"))]
+    folder = PurePosixPath(path).parent
+    found = []
+    for name in names:
+        rel = PurePosixPath(*(folder / name).parts)
+        resolved = _normalise(rel.as_posix())
+        if resolved in files and resolved not in found:
+            found.append(resolved)
+    return found
+
+
+def _normalise(path: str) -> str:
+    parts: list[str] = []
+    for part in path.split("/"):
+        if part == "..":
+            if parts:
+                parts.pop()
+        elif part not in ("", "."):
+            parts.append(part)
+    return "/".join(parts)
+
+
+def owning_components(asset: str, files: Mapping[str, str]) -> list[str]:
+    """The components whose decorator names this template or stylesheet."""
+    return sorted(
+        other
+        for other, text in files.items()
+        if other.endswith(".ts")
+        and ("templateUrl" in text or "styleUrl" in text)
+        and asset in component_files(other, text, files)
+    )
+
+
 def local_imports(path: str, files: Mapping[str, str]) -> list[str]:
-    """The local files ``path`` imports directly (relative imports that resolve)."""
+    """The local files ``path`` imports directly (relative imports that resolve). For an
+    Angular component also its template and stylesheets; for a template or stylesheet,
+    the component that owns it, that component's other files and the files that import
+    it (its NgModule, where an unknown element is fixed) (M7)."""
     text = files.get(path)
-    if text is None or not path.endswith(CODE_EXTENSIONS):
+    if text is None:
         return []
-    found: list[str] = []
+    if path.endswith(ANGULAR_ASSETS):
+        found = []
+        for owner in owning_components(path, files):
+            found += [owner, *component_files(owner, files[owner], files), *importers(owner, files)]
+        return sorted({f for f in found if f != path})
+    if not path.endswith(CODE_EXTENSIONS):
+        return []
+    found = [f for f in component_files(path, text, files) if f != path]
     tree = parse_tree(text.encode("utf-8"), path)
     for stmt in tree.root_node.children:
         if stmt.type not in ("import_statement", "export_statement"):
