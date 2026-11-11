@@ -166,7 +166,7 @@ def test_the_top_up_stops_at_what_the_run_can_spend(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        graph, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
+        checker, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
     )
     g = Graph(tmp_path, run_cap=1.5)
     out = g.recheck_node(state([BUILD, TYPE], [fixed()]))  # $1.80 asked, the run stops at $1.50

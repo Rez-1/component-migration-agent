@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 import migrator.graph as graph
+import migrator.verify.checker as checker
 from migrator.cost import (
     Budget,
     CostCapError,
@@ -148,7 +149,7 @@ def test_the_recheck_tops_up_through_the_budget(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        graph, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
+        checker, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
     )
     g = Graph(tmp_path)
     Budget("recheck-test", g.d.caps, g.d.ledger).reserve(["a", "b", "c"])  # the first $1.35
