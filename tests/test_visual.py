@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -189,8 +190,17 @@ def test_two_captures_of_the_fixture_are_identical(tmp_path: Path) -> None:
     case = load_case(CASES / "fixture-mui4" / "case.toml")
     assert case.repo.visual is not None
     cfg = case.repo.visual.model_copy(update={"hide": [".MuiTouchRipple-root"]})
-    fixture = Path(__file__).resolve().parent.parent / "fixtures" / "mui4-app"
+    # A fresh copy, installed here: a checkout has no node_modules in the fixture (CI),
+    # and a developer's leftover one would hide that.
+    fixture = tmp_path / "app"
+    shutil.copytree(
+        Path(__file__).resolve().parent.parent / "fixtures" / "mui4-app",
+        fixture,
+        ignore=shutil.ignore_patterns("node_modules"),
+    )
     runner = DockerRunner(ensure_browser_image())
+    installed = runner.run(["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"], fixture)
+    assert installed.ok, installed.output[-800:]
     tools = ensure_visual_tools(runner)
     one = capture(
         fixture, cfg, tmp_path / "one", build_runner=runner, browser_runner=runner, tools=tools
