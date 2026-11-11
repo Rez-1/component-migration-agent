@@ -126,6 +126,9 @@ def describe_failure(f: Failure, path: str) -> str:
     if f.source == "lint":
         where = f", line {f.line}" if f.line else ""
         return f"**Lint error** {f.code or ''}{where}: {f.message}".replace("  ", " ")
+    if f.source == "migration":  # M7: what is left of the old version
+        where = f", line {f.line}" if f.line else ""
+        return f"**Not migrated yet**{where}: {f.message}"
     attributed = "" if f.test_file is None or f.file != path else " (This test imports this file.)"
     name = f.test_name or "(suite)"
     return f'**Failing test** `{f.test_file}` › "{name}": {f.message}{attributed}'
@@ -140,7 +143,9 @@ def failure_list(failures: Sequence[Failure], path: str) -> str:
 def failure_elsewhere(f: Failure, files: Mapping[str, str]) -> str:
     if f.source == "test":
         return f'Failing test `{f.test_file}` › "{f.test_name}": {f.message}'
-    kind = "Type error" if f.source == "typecheck" else "Lint error"
+    kind = {"typecheck": "Type error", "lint": "Lint error", "migration": "Not migrated yet"}[
+        f.source
+    ]
     where = f"`{f.file}` line {f.line}" if f.line else f"`{f.file}`"
     text = f"{kind} {f.code or ''}, {where}: {f.message}".replace("  ", " ")
     if f.file and f.line and f.file in files:

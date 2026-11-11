@@ -339,7 +339,9 @@ def verify(inp: VerifyInput, runner: CommandRunner) -> VerifyResult:
         for failure in failures:
             (seen_again if failure.key() in known else charged).append(failure)
     if inp.leftovers is not None:
-        found = find_leftovers(inp.workspace, inp.leftovers, inp.related_to)
+        # Always the whole workspace, like the type-check: a narrow verify's result replaces
+        # the known failures that aren't tests (repair.tools.update_known).
+        found = find_leftovers(inp.workspace, inp.leftovers)
         outcomes.append(
             CommandOutcome(
                 name="leftovers",

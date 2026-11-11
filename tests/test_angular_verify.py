@@ -325,3 +325,22 @@ def test_angular_guardrails_allow_templates_and_styles_and_block_its_configs_and
         "src/app/a.component.html", "<p>{{ x.y }}</p>", "<p>{{ $any(x).y }}</p>"
     ) == ["a template `$any(...)` cast"]
     assert added_escape_hatches("src/a.scss", ".a{}", "::ng-deep .mat-mdc-button{}") == []
+
+
+def test_a_leftover_is_described_to_the_agent_as_not_migrated_yet() -> None:
+    from migrator.repair.prompt import describe_failure, failure_elsewhere
+    from migrator.verify.parsers import Failure
+
+    f = Failure(
+        source="migration",
+        file="src/a.ts",
+        line=3,
+        code="leftover-import",
+        message="still imports @angular/material/legacy-button",
+    )
+    assert describe_failure(f, "src/a.ts") == (
+        "**Not migrated yet**, line 3: still imports @angular/material/legacy-button"
+    )
+    assert failure_elsewhere(f, {}).startswith(
+        "Not migrated yet leftover-import, `src/a.ts` line 3"
+    )
