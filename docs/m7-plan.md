@@ -35,6 +35,8 @@ From [`m7-notes.md`](m7-notes.md):
 - **Every model needs a price**, or the Migrator refuses to run it. **Provider features are declared**: effort, prompt caching, strict tool schemas. A missing feature is turned off and reported, never a mid-run failure.
 - **Proved with unit tests and a fake provider.** A paid run on another provider is a stretch goal, and needs the owner's key and approval.
 - **The judge moves to Sonnet 5.5.** It is re-checked on the 20 OpossumUI items the owner already rated blind, with the labels shown (as in round 2). Opus agreed on 10 of 17. If Sonnet agrees on 8 or fewer, the owner sees the disagreements before it judges anything in M7. M6's README numbers stay on the Opus judge.
+  - **Result (11 November, $0.12):** Sonnet agreed on 7 of 17, Opus on 10. But on *wrong* vs *not wrong*, the split that decides silent misses, Sonnet agreed on 14 of 17 and Opus on 11. Seven of Sonnet's ten disagreements are *matches* vs *other valid fix*. Its real miss: it called the two `describeChild` test-fitting patches harmless.
+  - **The owner's decision:** Sonnet is the M7 judge, with the j2 prompt unchanged (no tuning on the 17 check items). Every M7 result reports the judge's agreement with the owner on *wrong* vs *not wrong* next to the four-way count. The README names the `describeChild` weakness.
 
 ## Spec tooling
 
