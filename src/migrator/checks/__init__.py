@@ -38,7 +38,8 @@ Severity = Literal["fail", "warning"]
 # Files the checks read: code and Jest snapshots. Never node_modules or git data.
 CODE_EXTENSIONS = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
 SNAPSHOT_EXTENSIONS = (".snap",)
-SKIP_DIRS = frozenset({"node_modules", ".git", ".migrator", "coverage"})
+# dist and .angular: build output (M7: `ng build` is the type-check), never source.
+SKIP_DIRS = frozenset({"node_modules", ".git", ".migrator", "coverage", "dist", ".angular"})
 
 FileSet = dict[str, str]  # repo-relative POSIX path -> text; a missing key = no file
 

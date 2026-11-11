@@ -207,6 +207,7 @@ class RunState(TypedDict, total=False):
     commits: list[dict[str, Any]]  # StageCommit, one per stage that changed files (real runs)
     snapshot_updates: list[dict[str, Any]]  # SnapshotUpdate: snapshots the Migrator rewrote
     shared_causes: list[dict[str, Any]]  # SharedCause (M6): one task per shared definition
+    rechecked: bool  # M7: the full verify after a first pass that no spec could run in
 
 
 class RunDeps:
@@ -885,6 +886,87 @@ class RunGraph:
         return {}
 
     def route_next_file(self, state: RunState) -> str:
+        if state.get("queue"):
+            return "start_file"
+        return "recheck" if self.needs_recheck(state) else "commit_agent"
+
+    def needs_recheck(self, state: RunState) -> bool:
+        """The Verify after Rules ran no spec (a Karma bundle that didn't compile hides
+        every test) and repair changed something: check the whole project once more."""
+        if state.get("rechecked") or not self.d.repair_on or not state.get("verify"):
+            return False
+        first = VerifyResult.model_validate(state["verify"])
+        if not any(f.source == "test" and f.test_name == "(build)" for f in first.failures):
+            return False
+        report = self.report_of(state)
+        return not report.stopped_by_cost_cap and any(f.touched for f in report.files)
+
+    def recheck_node(self, state: RunState) -> RunState:
+        """M7: the failures the first Verify couldn't see. Files that fail only now join
+        the queue for one more pass; the worst case is reserved first, like the first."""
+        t0 = time.monotonic()
+        d = self.d
+        pre = PrecheckResult.model_validate(state["precheck"])
+        d.say("Verify", "recheck: the first verify ran no spec; type-check, lint, tests")
+        result = verify(
+            VerifyInput(
+                workspace=self.workspace(state),
+                commands=d.config.verify,
+                runner=d.config.runner,
+                log_dir=self.logs(state),
+                label="recheck",
+                pre_existing=pre.pre_existing_failures,
+                leftovers=d.config.leftovers,
+                stale_rules=self.stale_rules(state),
+            ),
+            d.runner,
+        )
+        report = self.report_of(state)
+        tried = {f.path for f in report.files}
+        after = self.after_rules(state)
+        new = [p for p in result.failing_files() if p in after and p not in tried]
+        updates: RunState = {
+            "rechecked": True,
+            "known_failures": _dump_failures(result.failures),
+            "timings": self.timed(state, "recheck", t0),
+        }
+        if not new:
+            d.say("Repair", "recheck: no new failing files")
+            return updates
+        order = repair_order(new, after)
+        tests = state.get("test_files") or {}
+        reserve = d.configuration.cost.reserve_attempt_usd
+        if reserve is not None:
+            paid = [p for p in order if p not in tests]
+            extra = round(len(paid) * d.configuration.repair.max_attempts * reserve, 2)
+            # The new total stays under the same run cap (this run's spend counts twice
+            # against the month: on the safe side).
+            worst = round((report.reserved_usd or 0.0) + extra, 2)
+            ok, available = reserve_run(
+                state["run_id"], worst, d.run_cap_usd, d.month_cap_usd, d.ledger
+            )
+            if not ok:
+                d.say(
+                    "Repair",
+                    f"recheck: {len(order)} new failing files, but the worst case "
+                    f"(${worst:.2f} in all) is more than the ${available:.2f} available; "
+                    "not attempted",
+                )
+                for path in order:
+                    report.files.append(
+                        FileRepair(
+                            path=path, outcome="Unmigrated", reason="cost cap: not attempted"
+                        )
+                    )
+                updates["repair"] = report.model_dump(mode="json")
+                return updates
+            report.reserved_usd = worst
+            updates["repair"] = report.model_dump(mode="json")
+        d.say("Repair", f"recheck: {len(order)} new failing files: {', '.join(order)}")
+        updates["queue"] = order
+        return updates
+
+    def route_recheck(self, state: RunState) -> str:
         return "start_file" if state.get("queue") else "commit_agent"
 
     def start_file_node(self, state: RunState) -> RunState:
@@ -1580,6 +1662,7 @@ class RunGraph:
         g.add_node("verify", self.verify_node)
         g.add_node("plan_repair", self.plan_repair_node)
         g.add_node("next_file", self.next_file_node)
+        g.add_node("recheck", self.recheck_node)
         g.add_node("start_file", self.start_file_node)
         g.add_node("agent", self.agent_node)
         g.add_node("tools", self.tools_node)
@@ -1598,7 +1681,10 @@ class RunGraph:
         g.add_edge("commit_rules", "verify")
         g.add_edge("verify", "plan_repair")
         g.add_edge("plan_repair", "next_file")
-        g.add_conditional_edges("next_file", self.route_next_file, ["start_file", "commit_agent"])
+        g.add_conditional_edges(
+            "next_file", self.route_next_file, ["start_file", "recheck", "commit_agent"]
+        )
+        g.add_conditional_edges("recheck", self.route_recheck, ["start_file", "commit_agent"])
         g.add_edge("commit_agent", "prepare_review")
         g.add_conditional_edges("start_file", self.route_start_file, ["agent", "file_end"])
         g.add_conditional_edges("agent", self.route_agent, ["tools", "file_end"])
