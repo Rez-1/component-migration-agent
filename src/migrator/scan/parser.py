@@ -17,7 +17,8 @@ import tree_sitter_typescript as tsts
 from pydantic import BaseModel, ConfigDict
 from tree_sitter import Language, Node, Parser, Tree
 
-UsageKind = Literal["import", "jsx", "call"]
+# element / attribute: an Angular template (M7); style: a stylesheet pattern (M7).
+UsageKind = Literal["import", "jsx", "call", "element", "attribute", "style"]
 
 
 class Usage(BaseModel):

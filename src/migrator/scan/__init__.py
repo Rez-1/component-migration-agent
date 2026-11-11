@@ -17,6 +17,13 @@ from pydantic import BaseModel, ConfigDict
 
 from migrator.migrations import MigrationSpec
 from migrator.migrations.guide import GuideChange, changes_for_symbol, load_guide
+from migrator.scan.assets import (
+    STYLE_EXTENSIONS,
+    TEMPLATE_EXTENSIONS,
+    inline_template_usages,
+    style_usages,
+    template_usages,
+)
 from migrator.scan.parser import ParsedFile, Usage, parse_file
 from migrator.scan.teams import TeamSource, load_teams
 from migrator.workspace import list_files
@@ -48,6 +55,8 @@ class FileUsages(BaseModel):
     new_usages: list[Usage]
     expected_repair: list[str]  # guide change ids
     has_syntax_errors: bool = False
+    # Library elements and attributes in templates (M7): reported, not old or new.
+    template_usages: list[Usage] = []
 
     @property
     def affected(self) -> bool:
@@ -111,7 +120,25 @@ def scan_sources(repo: Path, spec: MigrationSpec, paths: list[str]) -> dict[str,
     def wanted(module: str) -> bool:
         return usage.is_old(module) or usage.is_new(module)
 
-    return {p: parse_file((repo / p).read_bytes(), p, wanted) for p in paths}
+    def one(path: str) -> ParsedFile:
+        source = (repo / path).read_bytes()
+        prefix = spec.template_prefix
+        if path.endswith(TEMPLATE_EXTENSIONS + STYLE_EXTENSIONS):  # M7: Angular
+            text = source.decode("utf-8", "replace")
+            found = (
+                (template_usages(text, prefix) if prefix else [])
+                if path.endswith(TEMPLATE_EXTENSIONS)
+                else style_usages(text, usage.old_styles)
+            )
+            return ParsedFile(usages=found, comments=[], has_syntax_errors=False)
+        parsed = parse_file(source, path, wanted)
+        if prefix and b"template" in source:  # an Angular inline template
+            extra = inline_template_usages(source.decode("utf-8", "replace"), prefix)
+            if extra:
+                parsed = parsed.model_copy(update={"usages": [*parsed.usages, *extra]})
+        return parsed
+
+    return {p: one(p) for p in paths}
 
 
 def repo_name(repo: Path) -> str:
@@ -161,7 +188,8 @@ def scan(inp: ScanInput) -> UsageReport:
         result = parsed[path]
         old = [u for u in result.usages if spec.usage.is_old(u.module)]
         new = [u for u in result.usages if spec.usage.is_new(u.module)]
-        if not old and not new:
+        templates = [u for u in result.usages if u.module == "template"]
+        if not old and not new and not templates:
             continue
         repair_ids = sorted(
             {
@@ -180,6 +208,7 @@ def scan(inp: ScanInput) -> UsageReport:
                 new_usages=new,
                 expected_repair=repair_ids,
                 has_syntax_errors=result.has_syntax_errors,
+                template_usages=templates,
             )
         )
 

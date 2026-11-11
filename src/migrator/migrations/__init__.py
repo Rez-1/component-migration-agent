@@ -54,7 +54,8 @@ class UsagePatterns(_Model):
         return patterns
 
     def is_old(self, module: str) -> bool:
-        return any(re.search(p, module) for p in self.old_modules)
+        """An old module specifier, or an old stylesheet usage (its token is its module)."""
+        return any(re.search(p, module) for p in [*self.old_modules, *self.old_styles])
 
     def is_new(self, module: str) -> bool:
         return any(re.search(p, module) for p in self.new_modules)
@@ -180,6 +181,9 @@ class MigrationSpec(_Model):
     # old modules and old stylesheet patterns (M7; for a migration whose old code still
     # compiles). With todos_fail, the Codemod TODOs left in the source fail too.
     leftovers_fail: bool = False
+    # The library's element and attribute prefix in Angular templates (M7: "mat"); None
+    # for a library without templates. Template usages are reported, not counted as old.
+    template_prefix: str | None = None
     todos_fail: bool = False
     # Selectors the visual check hides in every screenshot (M7): animated decorations
     # of the library, such as a click ripple, that would differ between two captures.
