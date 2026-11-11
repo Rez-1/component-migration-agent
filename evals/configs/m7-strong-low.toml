@@ -1,0 +1,27 @@
+# M7: the repair agent at the strong level (Claude: Opus 5.5) at low effort, the M6
+# winner's settings (m6-opus-low-v4) named by level. The reviewer is the balanced level
+# (Claude: Sonnet 5.5), never the repair model. Caps per docs/m7-plan.md: $8 a run,
+# $50 a month, a $2 hard stop per run, and each run reserves its whole worst case.
+schema_version = 1
+name = "m7-strong-low"
+description = "Repair at the strong level (Opus 5.5), low effort, prompt v3; balanced reviewer; M7 caps."
+
+[repair]
+enabled = true
+attempt_models = ["strong", "strong", "strong"]
+effort = "low"
+prompt_version = "v3"
+retrieval = "keyword"
+max_attempts = 3
+shared_causes = true
+test_fitting_hand_off = true
+reviewer_model = "balanced"
+
+[cost]
+max_run_usd = 8.0
+max_month_usd = 50.0
+reserve_attempt_usd = 0.15
+stop_run_usd = 2.0
+
+[rules]
+skip = []
