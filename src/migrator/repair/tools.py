@@ -22,8 +22,7 @@ from langchain_core.messages import ToolCall, ToolMessage
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
-from migrator.config import ResolvedRepoConfig
-from migrator.execs import CommandRunner, RunTimeoutError
+from migrator.execs import RunTimeoutError
 from migrator.repair.context import PatchSize, is_code, numbered
 from migrator.repair.guardrails import (
     Blocked,
@@ -36,8 +35,8 @@ from migrator.repair.prompt import PromptTemplates, attempt_result, describe_fai
 from migrator.repair.records import AttemptRecord, FileRepair
 from migrator.repair.retriever import GuideRetriever, render_section
 from migrator.scan.parser import parse_tree
-from migrator.verify import Failure, VerifyInput, verify
-from migrator.verify.leftovers import rules_under_todos
+from migrator.verify import Failure
+from migrator.verify.checker import Checker
 
 TOOL_ORDER = ("read_file", "search_guide", "apply_edit", "run_verify", "hand_off")
 MAX_READ_LINES = 2000
@@ -116,10 +115,7 @@ class RepairSession:
         after_rules: Mapping[str, str],
         test_files: Mapping[str, str],
         known_failures: list[Failure],
-        pre_existing: list[Failure],
-        config: ResolvedRepoConfig,
-        runner: CommandRunner,
-        log_dir: Path,
+        checker: Checker,
         templates: PromptTemplates,
         retriever: GuideRetriever,
         link_base: str | None,
@@ -129,10 +125,7 @@ class RepairSession:
         self.after_rules = after_rules
         self.test_files = test_files
         self.known_failures = known_failures
-        self.pre_existing = pre_existing
-        self.config = config
-        self.runner = runner
-        self.log_dir = log_dir
+        self.checker = checker
         self.templates = templates
         self.retriever = retriever
         self.link_base = link_base
@@ -268,26 +261,9 @@ class RepairSession:
         """(failures in the failing file, new failures elsewhere, test files that ran)."""
         targets = set(self.state.target_keys)
         related = sorted({self.state.path, *self.record.touched, *(f for f, _ in targets)})
-        result = verify(
-            VerifyInput(
-                workspace=self.workspace,
-                commands=self.config.verify,
-                runner=self.config.runner,
-                log_dir=self.log_dir,
-                label=label,
-                pre_existing=self.pre_existing,
-                related_to=related,
-                leftovers=self.config.leftovers,
-                stale_rules=(
-                    rules_under_todos(self.after_rules, self.config.leftovers.todo_markers)
-                    if self.config.leftovers is not None
-                    else []
-                ),
-            ),
-            self.runner,
-        )
+        result = self.checker.narrow(label, related)
         ran = result.test_files_run
-        if ran is None and self.config.runner == "jest":
+        if ran is None and self.checker.config.runner == "jest":
             ran = []  # the report did not say which tests ran: assume none were refreshed
         self.known_failures[:] = update_known(self.known_failures, result.failures, ran)
         baseline = set(self.state.baseline_keys)

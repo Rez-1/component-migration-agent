@@ -10,6 +10,7 @@ from typing import Any, cast
 import pytest
 
 import migrator.graph as graph
+import migrator.verify.checker as checker
 from migrator.checks import read_files
 from migrator.config import VerifyCommands
 from migrator.cost import Ledger, release_run
@@ -53,9 +54,6 @@ class Graph(graph.RunGraph):
 
     def logs(self, state: Any) -> Path:
         return self.tmp
-
-    def stale_rules(self, state: Any) -> list[tuple[str, str]]:
-        return []
 
     def after_rules(self, state: Any) -> dict[str, str]:
         return {
@@ -119,7 +117,7 @@ def test_the_recheck_keeps_queued_files_that_still_fail_and_drops_the_rest(
 ) -> None:
     still = Failure(source="migration", file="src/app/a.component.scss", message="stale rule")
     monkeypatch.setattr(
-        graph, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[still, SPEC])
+        checker, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[still, SPEC])
     )
     g = Graph(tmp_path)
     queued = ["src/app/b.component.scss", "src/app/a.component.scss"]
@@ -131,7 +129,7 @@ def test_the_files_that_fail_only_now_are_queued_and_reserved(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        graph, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
+        checker, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
     )
     g = Graph(tmp_path)
     out = g.recheck_node(state([BUILD, TYPE], [fixed()]))
@@ -144,7 +142,7 @@ def test_a_file_already_tried_is_not_queued_again(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        graph, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
+        checker, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
     )
     tried = [fixed(), FileRepair(path="src/app/search.component.ts", outcome="Handed off")]
     out = Graph(tmp_path).recheck_node(state([BUILD, TYPE], tried))
@@ -155,7 +153,7 @@ def test_new_files_over_the_cap_are_left_unmigrated(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        graph, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
+        checker, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
     )
     out = Graph(tmp_path, run_cap=1.5).recheck_node(state([BUILD, TYPE], [fixed()]))
     assert out["queue"] == []

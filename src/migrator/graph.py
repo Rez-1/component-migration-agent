@@ -133,13 +133,10 @@ from migrator.verify import (
     Failure,
     PrecheckInput,
     PrecheckResult,
-    VerifyInput,
     VerifyResult,
     precheck,
-    update_snapshots,
-    verify,
 )
-from migrator.verify.leftovers import rules_under_todos
+from migrator.verify.checker import Checker
 from migrator.visual import VisualError, capture, ensure_browser_image, ensure_visual_tools
 from migrator.visual.compare import VisualReport, new_page_errors
 from migrator.visual.compare import compare as compare_captures
@@ -388,12 +385,17 @@ class RunGraph:
     def after_rules(self, state: RunState) -> FileSet:
         return _load_files(self.snapshots(state) / "after-rules.json")
 
-    def stale_rules(self, state: RunState) -> list[tuple[str, str]]:
-        """Stylesheet rules under the Rules stage's failing TODOs (M7)."""
-        check = self.d.config.leftovers
-        if check is None or not check.todo_markers:
-            return []
-        return rules_under_todos(self.after_rules(state), check.todo_markers)
+    def checker(self, state: RunState, after_rules: FileSet | None = None) -> Checker:
+        """The run's Checker, rebuilt from its state (it keeps none between steps);
+        ``after_rules``: the after-Rules snapshot, when the caller has it already."""
+        return Checker(
+            workspace=self.workspace(state),
+            config=self.d.config,
+            pre_existing=PrecheckResult.model_validate(state["precheck"]).pre_existing_failures,
+            after_rules=lambda: self.after_rules(state) if after_rules is None else after_rules,
+            runner=self.d.runner,
+            log_dir=self.logs(state),
+        )
 
     def timed(self, state: RunState, stage: str, t0: float) -> dict[str, float]:
         timings = dict(state.get("timings") or {})
@@ -740,21 +742,8 @@ class RunGraph:
     def verify_node(self, state: RunState) -> RunState:
         t0 = time.monotonic()
         d = self.d
-        pre = PrecheckResult.model_validate(state["precheck"])
         d.say("Verify", "type-check, lint, tests")
-        result = verify(
-            VerifyInput(
-                workspace=self.workspace(state),
-                commands=d.config.verify,
-                runner=d.config.runner,
-                log_dir=self.logs(state),
-                label="verify",
-                pre_existing=pre.pre_existing_failures,
-                leftovers=d.config.leftovers,
-                stale_rules=self.stale_rules(state),
-            ),
-            d.runner,
-        )
+        result = self.checker(state).check("verify")
         d.say("Verify", f"{len(result.failures)} failures in {len(result.failing_files())} files")
         updates: list[dict[str, Any]] = []
         if d.config.update_snapshots:
@@ -778,17 +767,8 @@ class RunGraph:
         """The snapshot policy (M6): rewrite snapshot-only failures, list each one."""
         d = self.d
         workspace = self.workspace(state)
-        result, run = update_snapshots(
-            VerifyInput(
-                workspace=workspace,
-                commands=d.config.verify,
-                runner=d.config.runner,
-                log_dir=self.logs(state),
-                label=stage,
-            ),
-            result,
-            d.runner,
-            lambda: snapshot_hashes(workspace),
+        result, run = self.checker(state).update_snapshots(
+            stage, result, lambda: snapshot_hashes(workspace)
         )
         if run is None:
             return result, []
@@ -921,21 +901,8 @@ class RunGraph:
         the queue for one more pass; the worst case is reserved first, like the first."""
         t0 = time.monotonic()
         d = self.d
-        pre = PrecheckResult.model_validate(state["precheck"])
         d.say("Verify", "recheck: the first verify ran no spec; type-check, lint, tests")
-        result = verify(
-            VerifyInput(
-                workspace=self.workspace(state),
-                commands=d.config.verify,
-                runner=d.config.runner,
-                log_dir=self.logs(state),
-                label="recheck",
-                pre_existing=pre.pre_existing_failures,
-                leftovers=d.config.leftovers,
-                stale_rules=self.stale_rules(state),
-            ),
-            d.runner,
-        )
+        result = self.checker(state).check("recheck")
         report = self.report_of(state)
         tried = {f.path for f in report.files}
         after = self.after_rules(state)
@@ -1131,17 +1098,14 @@ class RunGraph:
         messages = list(state.get("messages") or [])
         last = messages[-1] if messages else None
         known = _failures(state.get("known_failures"))
-        pre = PrecheckResult.model_validate(state["precheck"])
+        after = self.after_rules(state)
         session = RepairSession(
             session_state,
             workspace=self.workspace(state),
-            after_rules=self.after_rules(state),
+            after_rules=after,
             test_files=state.get("test_files") or {},
             known_failures=known,
-            pre_existing=pre.pre_existing_failures,
-            config=d.config,
-            runner=d.runner,
-            log_dir=self.logs(state),
+            checker=self.checker(state, after),
             templates=d.templates,
             retriever=d.retriever,
             link_base=d.spec.guide.link_base,
@@ -1383,7 +1347,7 @@ class RunGraph:
             queue.pop(0)
         else:  # edit: the human changed files; check the file again with the narrow verify
             assert d.templates is not None and d.retriever is not None
-            pre = PrecheckResult.model_validate(state["precheck"])
+            after_rules = self.after_rules(state)
             session = RepairSession(
                 SessionState(
                     path=payload.path,
@@ -1393,13 +1357,10 @@ class RunGraph:
                     ),
                 ),
                 workspace=workspace,
-                after_rules=self.after_rules(state),
+                after_rules=after_rules,
                 test_files=state.get("test_files") or {},
                 known_failures=known,
-                pre_existing=pre.pre_existing_failures,
-                config=d.config,
-                runner=d.runner,
-                log_dir=self.logs(state),
+                checker=self.checker(state, after_rules),
                 templates=d.templates,
                 retriever=d.retriever,
                 link_base=d.spec.guide.link_base,
@@ -1484,19 +1445,7 @@ class RunGraph:
             final = VerifyResult.model_validate(state["verify"])
         else:
             d.say("Verify", "final: type-check, lint, tests")
-            final = verify(
-                VerifyInput(
-                    workspace=workspace,
-                    commands=d.config.verify,
-                    runner=d.config.runner,
-                    log_dir=self.logs(state),
-                    label="final",
-                    pre_existing=pre.pre_existing_failures,
-                    leftovers=d.config.leftovers,
-                    stale_rules=self.stale_rules(state),
-                ),
-                d.runner,
-            )
+            final = self.checker(state).check("final")
         final_snapshots: list[dict[str, Any]] = []
         if d.config.update_snapshots:
             final, final_snapshots = self.update_snapshots(state, final, "final")
