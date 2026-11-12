@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Literal
+
 from migrator.checks import FileSet, find_test_files, import_graph, read_test_rules
+from migrator.cost import Budget, Reservation, RunCaps
 from migrator.repair.records import FileRepair, RepairReport
 from migrator.repair.shared import SharedCause, find_shared_causes
 from migrator.run.context import RunContext
@@ -53,16 +58,61 @@ def repair_order(failing: list[str], files: FileSet) -> list[str]:
     return ordered
 
 
+@dataclass(frozen=True)
+class ReservationOutcome:
+    """What reserving a queue's worst case came to. ``unreserved``: the caps set no
+    reserve per attempt (or there is nothing to repair), so nothing is held."""
+
+    status: Literal["unreserved", "held", "refused"]
+    reservation: Reservation | None = None
+
+
+def reserve_queue(budget: Budget, order: list[str], tests: Mapping[str, str]) -> ReservationOutcome:
+    """Reserve the worst case of repairing ``order`` before its first call (M6: runs
+    must finish). Failing test files are handed off without a model call, so they cost
+    nothing. The first pass and the recheck's top-up share the run's caps."""
+    held = budget.reserve([p for p in order if p not in tests]) if order else None
+    if held is None:
+        return ReservationOutcome("unreserved")
+    return ReservationOutcome("held" if held.held else "refused", held)
+
+
 def plan_repair_node(ctx: RunContext, state: RunState) -> RunState:
-    d = ctx.deps
     result = VerifyResult.model_validate(state["verify"])
-    untouched = ctx.files.untouched()
     after = ctx.files.start_of_repair()
-    tests = find_test_files(untouched, after.keys(), read_test_rules(ctx.workspace(state)))
-    failing = [p for p in result.failing_files() if p in after]
-    if not d.repair_on:
+    tests = find_test_files(
+        ctx.files.untouched(), after.keys(), read_test_rules(ctx.workspace(state))
+    )
+    if not ctx.deps.repair_on:
         return {"test_files": tests, "queue": [], "review_queue": []}
-    order = repair_order(failing, after)
+    order, causes = _order(ctx, result, after, tests)
+    updates: RunState = {
+        "test_files": tests,
+        "queue": order,
+        "review_queue": [],
+        "messages": [],
+        "shared_causes": [c.model_dump(mode="json") for c in causes],
+    }
+    held = reserve_queue(ctx.budget(state), order, tests).reservation
+    if held is not None:
+        report = ctx.report(state)
+        report.reserved_usd = held.total_usd
+        if held.held:
+            ctx.deps.say("Repair", _reserved(held))
+        else:
+            report.stopped_by_cost_cap = True
+            report.cost_cap_reason = _repair_did_not_start(held, ctx.deps.caps)
+            ctx.deps.say("Repair", report.cost_cap_reason)
+        updates["repair"] = report.model_dump(mode="json")
+    return updates
+
+
+def _order(
+    ctx: RunContext, result: VerifyResult, after: FileSet, tests: dict[str, str]
+) -> tuple[list[str], list[SharedCause]]:
+    """The failing files in repair order, a shared cause's definition first (M6)."""
+    d = ctx.deps
+    order = repair_order([p for p in result.failing_files() if p in after], after)
     causes: list[SharedCause] = []
     if d.configuration.repair.shared_causes:
         causes = find_shared_causes(result.failures, after, tests)
@@ -75,49 +125,26 @@ def plan_repair_node(ctx: RunContext, state: RunState) -> RunState:
                 f"{len(c.callers)} files; repairing {c.source} first",
             )
     d.say("Repair", f"{len(order)} failing files to repair: {', '.join(order) or 'none'}")
-    # Runs must finish (M6): reserve the whole worst case before the first call.
-    # Failing test files are handed off without a model call, so they cost nothing.
-    held = ctx.budget(state).reserve([p for p in order if p not in tests]) if order else None
-    if held is not None:
-        caps = d.caps
-        report = ctx.report(state)
-        report.reserved_usd = held.total_usd
-        if not held.held:
-            capped = (
-                f", ${held.total_usd:.2f} at most, what the run can spend"
-                if held.total_usd < held.added_usd
-                else ""
-            )
-            why = (
-                f"the worst case ({held.files} files x {caps.max_attempts} attempts x "
-                f"${caps.reserve_attempt_usd:.2f} = ${held.added_usd:.2f}{capped}) is more "
-                f"than the ${held.available_usd:.2f} available (run cap "
-                f"${caps.run_usd:.2f}, less what this month and other running runs have "
-                "spent or reserved), so repair did not start"
-            )
-            report.stopped_by_cost_cap = True
-            report.cost_cap_reason = why
-            d.say("Repair", why)
-        else:
-            d.say(
-                "Repair",
-                f"reserved ${held.total_usd:.2f} of ${held.available_usd:.2f} available",
-            )
-        return {
-            "test_files": tests,
-            "queue": order,
-            "review_queue": [],
-            "messages": [],
-            "repair": report.model_dump(mode="json"),
-            "shared_causes": [c.model_dump(mode="json") for c in causes],
-        }
-    return {
-        "test_files": tests,
-        "queue": order,
-        "review_queue": [],
-        "messages": [],
-        "shared_causes": [c.model_dump(mode="json") for c in causes],
-    }
+    return order, causes
+
+
+def _reserved(held: Reservation) -> str:
+    return f"reserved ${held.total_usd:.2f} of ${held.available_usd:.2f} available"
+
+
+def _repair_did_not_start(held: Reservation, caps: RunCaps) -> str:
+    capped = (
+        f", ${held.total_usd:.2f} at most, what the run can spend"
+        if held.total_usd < held.added_usd
+        else ""
+    )
+    return (
+        f"the worst case ({held.files} files x {caps.max_attempts} attempts x "
+        f"${caps.reserve_attempt_usd:.2f} = ${held.added_usd:.2f}{capped}) is more "
+        f"than the ${held.available_usd:.2f} available (run cap "
+        f"${caps.run_usd:.2f}, less what this month and other running runs have "
+        "spent or reserved), so repair did not start"
+    )
 
 
 def next_file_node(ctx: RunContext, state: RunState) -> RunState:
@@ -187,21 +214,20 @@ def recheck_node(ctx: RunContext, state: RunState) -> RunState:
         d.say("Repair", "recheck: no new failing files")
         return updates
     order = repair_order(new, after)
-    tests = state.get("test_files") or {}
     # The top-up stays under the same run cap as the first pass's Reservation.
-    held = ctx.budget(state).reserve([p for p in order if p not in tests])
-    if held is not None:
-        if not held.held:
-            d.say(
-                "Repair",
-                f"recheck: {len(order)} new failing files, but the worst case "
-                f"(${held.total_usd:.2f} in all) is more than the "
-                f"${held.available_usd:.2f} available; not attempted",
-            )
-            not_attempted(report, order)
-            updates["repair"] = report.model_dump(mode="json")
-            return updates
-        report.reserved_usd = held.total_usd
+    out = reserve_queue(ctx.budget(state), order, state.get("test_files") or {})
+    if out.status == "refused" and (held := out.reservation) is not None:
+        d.say(
+            "Repair",
+            f"recheck: {len(order)} new failing files, but the worst case "
+            f"(${held.total_usd:.2f} in all) is more than the "
+            f"${held.available_usd:.2f} available; not attempted",
+        )
+        not_attempted(report, order)
+        updates["repair"] = report.model_dump(mode="json")
+        return updates
+    if out.status == "held" and out.reservation is not None:
+        report.reserved_usd = out.reservation.total_usd
         updates["repair"] = report.model_dump(mode="json")
     d.say("Repair", f"recheck: {len(order)} new failing files: {', '.join(order)}")
     updates["queue"] = [*kept, *order]
