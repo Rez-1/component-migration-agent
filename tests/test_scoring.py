@@ -26,7 +26,7 @@ from migrator.config import Trap, TrapList, TrapLocation
 from migrator.migrations import MigrationSpec
 from migrator.repair.records import FileRepair, RepairReport
 from migrator.rules import RulesResult, RuleStepResult
-from migrator.run.stages.report import EVIDENCE_FILE
+from migrator.run.evidence import EVIDENCE_FILE
 from migrator.scan import ScanInput, UsageReport, scan
 from migrator.scoring import (
     AgentChanges,
