@@ -1,5 +1,7 @@
 # M5 experiments: hill-climbing on the dev split
 
+A record of M5, measured at commit [`0eddf6e`](https://github.com/Rez-1/component-migration-agent/tree/0eddf6e). The commands it names (`eval climb`, `eval retrieval`) and the configurations it tried (the advisor, the cascade, the retrieval and prompt-v2 candidates) were removed after that commit; check it out to reproduce a round.
+
 ## Purpose
 
 M5 tunes the repair agent's configuration against the eval, with two targets (the user's decision, 9 November 2026):
@@ -78,7 +80,7 @@ Retrieval and tools changes are written on top of opus-low. If a cheaper model o
 
 ### Offline retrieval metric (free)
 
-`migrator eval retrieval .claude/hillclimb/dev/baseline/runs/fixture-mui4_rep0` rebuilds, for each repair trap whose file fails after Rules, the guide ranking the first message would show, and checks whether the trap's guide section is among the top 3 (shown in full). The trap labels only score the ranking; the retriever never sees them. Measured on the committed Baseline run of `fixture-mui4` (dev):
+`migrator eval retrieval .claude/hillclimb/dev/baseline/runs/fixture-mui4_rep0` rebuilds, for each repair trap whose file fails after Rules, the guide ranking the first message would show, and checks whether the trap's guide section is among the top 3 (shown in full). The trap labels only score the ranking; the retriever never sees them. Measured on the committed Baseline run of `fixture-mui4` (dev), at commit [`0eddf6e`](https://github.com/Rez-1/component-migration-agent/tree/0eddf6e), the last with `eval retrieval` and the `keyword-imports` and `keyword-context` modes (reproduce the table from there):
 
 | Trap | File | keyword | keyword-imports | keyword-context |
 |---|---|---|---|---|
