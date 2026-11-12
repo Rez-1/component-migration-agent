@@ -80,6 +80,7 @@ from migrator.rules import tools_cache_root
 from migrator.scan import ScanInput, UsageReport, scan
 from migrator.scan.render import render_usage_report
 from migrator.scoring import Scorecard
+from migrator.verify.runners import adapter_for
 from migrator.workspace import (
     RUN_FILES_DIR,
     GitError,
@@ -344,8 +345,8 @@ def sandbox_runner(
     tag = re.sub(r"[^A-Za-z0-9.]+", "-", image.split("@")[0])
     cache = (tools_cache or tools_cache_root() / "docker" / tag).resolve()
     browser = None
-    if config.runner == "karma":
-        # Karma runs the tests in Chrome: the same Node, with Debian's Chromium (M7).
+    if adapter_for(config.runner).needs_browser:
+        # The tests run in Chrome (Karma): the same Node, with Debian's Chromium (M7).
         from migrator.visual import ensure_browser_image
 
         try:

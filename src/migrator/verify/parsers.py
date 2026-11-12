@@ -20,6 +20,20 @@ from pydantic import BaseModel, ConfigDict
 FailureSource = Literal["typecheck", "lint", "test", "migration"]
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
+# How a failing test is named, as stored in every result and scorecard. Only this
+# module spells them; everyone else asks a Failure (``ran_no_spec`` and the rest).
+TEST_NAME_JOINER = " › "  # between a test's describe blocks and its title
+NO_SPEC_RAN = "(build)"  # the test bundle didn't compile, so no spec ran (Karma)
+WHOLE_SUITE = "(suite)"  # a test file that failed outside any test
+
+
+def split_test_check(check: str) -> tuple[str, str]:
+    """A Trap's test check (the test file and the test name, joined as in a failing
+    test's name) as (test file, test name). Trap checks are hand-written in this format;
+    this is the one place that reads it."""
+    test_file, _, name = check.partition(TEST_NAME_JOINER)
+    return test_file.strip(), name.strip()
+
 
 class Failure(BaseModel):
     """One problem reported by verification, with its file, line and message.
@@ -44,6 +58,36 @@ class Failure(BaseModel):
         if self.source == "test":
             return (self.source, self.test_file, self.test_name, None)
         return (self.source, self.file, self.code, self.message)
+
+    @property
+    def ran_no_spec(self) -> bool:
+        """The test bundle didn't compile, so no test ran at all (Karma, M7)."""
+        return self.source == "test" and self.test_name == NO_SPEC_RAN
+
+    @property
+    def whole_suite_failed(self) -> bool:
+        """A test file failed outside any test (a compile error, a crash on import)."""
+        return self.source == "test" and self.test_name == WHOLE_SUITE
+
+    @property
+    def test_title(self) -> str:
+        """The failing test's name to show; a failure with none reads as its suite."""
+        return self.test_name or WHOLE_SUITE
+
+    def matches_test_check(self, check: str) -> bool:
+        """This failure is the test a Trap's check names (``split_test_check``): that
+        test, by its full name or its title, or its whole suite failing."""
+        test_file, name = split_test_check(check)
+        return (
+            self.source == "test"
+            and self.test_file == test_file
+            and self.test_name is not None
+            and (
+                self.test_name == name
+                or self.whole_suite_failed
+                or self.test_name.endswith(f"{TEST_NAME_JOINER}{name}")
+            )
+        )
 
 
 class TestTotals(BaseModel):
@@ -362,7 +406,8 @@ def parse_jest_json(
             # Cleaned too: a test can name a path (kubeflow: "should be in sync with
             # <path>"), and the name is part of the failure's key across verifies.
             name = clean(
-                " › ".join([*test.get("ancestorTitles", []), test.get("title", "")]), workspace
+                TEST_NAME_JOINER.join([*test.get("ancestorTitles", []), test.get("title", "")]),
+                workspace,
             )
             message = first_line(clean("\n".join(test.get("failureMessages", [])), workspace))
             location = test.get("location") or {}
@@ -388,7 +433,7 @@ def parse_jest_json(
                     file=subject,
                     message=message or "test suite failed to run",
                     test_file=test_file,
-                    test_name="(suite)",
+                    test_name=WHOLE_SUITE,
                 )
             )
     snap = data.get("snapshot", {})

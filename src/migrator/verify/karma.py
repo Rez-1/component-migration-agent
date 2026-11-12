@@ -22,7 +22,14 @@ import re
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
-from migrator.verify.parsers import Failure, TestTotals, clean, first_line, subject_file
+from migrator.verify.parsers import (
+    TEST_NAME_JOINER,
+    Failure,
+    TestTotals,
+    clean,
+    first_line,
+    subject_file,
+)
 
 KARMA_CONFIGS = ("karma.conf.js", "karma.conf.cjs", "karma.conf.mjs", "src/karma.conf.js")
 # Console errors in a spec that count as failures: Angular's "not a known element /
@@ -149,7 +156,7 @@ def parse_karma_json(
     suites: dict[str, bool] = {}
     for spec in specs:
         suite = [str(s) for s in spec.get("suite") or []]
-        name = " › ".join([*suite, str(spec.get("description", ""))])
+        name = TEST_NAME_JOINER.join([*suite, str(spec.get("description", ""))])
         log = clean("\n".join(str(x) for x in spec.get("log") or []), workspace)
         console = [
             clean(str(c), workspace)
