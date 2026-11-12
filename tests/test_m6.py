@@ -459,7 +459,7 @@ def _test_failure_in(path: str) -> Failure:
 
 
 def test_a_flagged_passing_patch_becomes_a_test_fitting_hand_off() -> None:
-    from migrator.run.stages.file_loop import test_fitting_reason
+    from migrator.repair.outcome import test_fitting_reason
 
     icon = "src/Frontend/Components/IconButton/IconButton.tsx"
     why = test_fitting_reason(

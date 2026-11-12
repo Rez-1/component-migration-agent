@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from functools import partial
 from pathlib import Path
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
+from migrator.checks import FileSet
 from migrator.cost import CallRecord, CostCapError
 from migrator.repair.context import local_imports
-from migrator.repair.guardrails import added_escape_hatches
-from migrator.repair.prompt import describe_failure, first_message, system_prompt
+from migrator.repair.outcome import EndPolicy, FileFailures, RepairWorkspace, end_file
+from migrator.repair.prompt import first_message, system_prompt
 from migrator.repair.records import AttemptRecord, FileRepair
 from migrator.repair.retriever import render_section
 from migrator.repair.reviewer import (
@@ -25,11 +26,9 @@ from migrator.repair.reviewer import (
 from migrator.repair.reviewer import default_model as default_review_model
 from migrator.repair.shared import SharedCause, shared_cause_section
 from migrator.repair.tools import RepairSession, SessionState, failure_key
-from migrator.review_aids import test_fitting_flags
 from migrator.run.context import RunContext
 from migrator.run.state import RunState, dump_failures, failures_of
 from migrator.scan import UsageReport
-from migrator.verify import Failure
 
 MAX_TOOL_CALLS = 15
 NUDGE = (
@@ -242,13 +241,17 @@ def route_tools(ctx: RunContext, state: RunState) -> str:
 
 
 def review_flagged(
-    ctx: RunContext, state: RunState, record: FileRepair, flagged: str, model: str
+    ctx: RunContext,
+    state: RunState,
+    start: FileSet,
+    record: FileRepair,
+    flagged: str,
+    model: str,
 ) -> Review | None:
     """The test-fitting reviewer on one flagged patch (M6 option D); None when its
     call doesn't fit the caps or fails (the flag then decides, as without it)."""
     d = ctx.deps
     workspace = ctx.workspace(state)
-    after = ctx.files.start_of_repair()
     current = {rel: (workspace / rel).read_text("utf-8") for rel in record.touched}
     failures = failing_tests_of(record.path, failures_of(state.get("file_start_failures")))
     tests = read_tests(workspace, failures)
@@ -260,7 +263,7 @@ def review_flagged(
         else []
     )
     prompt = review_prompt(
-        record.path, patch_diff(record.touched, after, current), lines, failures, tests, guide
+        record.path, patch_diff(record.touched, start, current), lines, failures, tests, guide
     )
     try:
         return review_patch(
@@ -278,120 +281,45 @@ def review_flagged(
 
 def file_end_node(ctx: RunContext, state: RunState) -> RunState:
     d = ctx.deps
-    session = SessionState.model_validate(state["current"])
-    record = session.record
-    report = ctx.report(state)
+    start = ctx.files.start_of_repair()
     workspace = ctx.workspace(state)
+    out = end_file(
+        SessionState.model_validate(state["current"]),
+        FileFailures(
+            at_start=failures_of(state.get("file_start_failures")),
+            now=failures_of(state.get("known_failures")),
+        ),
+        RepairWorkspace(workspace, start),
+        EndPolicy(
+            cheating_hand_off=d.mode == "cli",
+            test_fitting_hand_off=d.configuration.repair.test_fitting_hand_off,
+            reviewer_model=d.configuration.repair.reviewer_model,
+        ),
+        partial(review_flagged, ctx, state, start),
+    )
+    for rel, text in out.roll_back.items():
+        (workspace / rel).write_text(text, "utf-8")
+    record = out.record
+    if messages := list(state.get("messages") or []):
+        record.conversation = ctx.files.save_conversation(record.path, messages)
+    report = ctx.report(state)
+    report.files.append(record)
     review_queue = list(state.get("review_queue") or [])
-    updates: RunState = {}
-    if session.ended == "cost_cap":
-        # No half-done patch lands: put the file back as this repair found it.
-        for rel, text in session.originals.items():
-            (workspace / rel).write_text(text, "utf-8")
-        record.touched = []
-        record.patch_lines = {}
-        updates["known_failures"] = state.get("file_start_failures") or []
-    elif session.ended == "passed" and d.mode == "cli":
-        after = ctx.files.start_of_repair()
-        hits = [
-            f"{rel}: {', '.join(found)}"
-            for rel in record.touched
-            if (
-                found := added_escape_hatches(
-                    rel, after.get(rel, ""), (workspace / rel).read_text("utf-8")
-                )
-            )
-        ]
-        if hits:  # in real use a cheating-check hit is a hand-off, not a migrated file
-            record.outcome = "Handed off"
-            record.reason = "cheating check: " + "; ".join(hits)
-    if (
-        session.ended == "passed"
-        and record.outcome == "Migrated by agent"
-        and d.configuration.repair.test_fitting_hand_off
-    ):
-        # M6: a passing patch that changes what a failing test looks at (accessibility
-        # props, the rendered element) goes to a human instead of counting as migrated.
-        why = test_fitting_reason(
-            record.path,
-            record.touched,
-            ctx.files.start_of_repair(),
-            {rel: (workspace / rel).read_text("utf-8") for rel in record.touched},
-            failures_of(state.get("file_start_failures")),
-        )
-        reviewer = d.configuration.repair.reviewer_model
-        if why is not None and reviewer is not None:
-            review = review_flagged(ctx, state, record, why, reviewer)
-            if review is not None:
-                updates["calls"] = [
-                    *(state.get("calls") or []),
-                    review.call.model_dump(mode="json"),
-                ]
-                record.reviewed_by = review.model
-                record.review_verdict = review.verdict
-                record.review_reason = review.reason
-                if review.verdict == "v5_required":
-                    d.say("Repair", f"{record.path}: flagged, reviewed as v5_required")
-                    why = None  # stays migrated; the review is a note for a human
-        if why is not None:
-            record.outcome = "Handed off"
-            record.test_fitting_hand_off = True
-            record.reason = why + (
-                f" (reviewed by {record.reviewed_by}: {record.review_reason})"
-                if record.reviewed_by
-                else ""
-            )
-    if record.outcome == "Handed off":
+    if out.handed_off:
         review_queue.append(record.path)
         report.review_list.append(record.path)
-        if session.originals:
-            # Set the patch aside until Review: the next files are repaired in a
-            # workspace without it (a broken patch must not fail their tests).
-            known = failures_of(state.get("known_failures"))
-            record.failures_at_hand_off = [
-                describe_failure(f, record.path) for f in known if f.file == record.path
-            ]
-            record.originals = dict(session.originals)
-            record.set_aside = {
-                rel: (workspace / rel).read_text("utf-8") for rel in session.originals
-            }
-            for rel, text in session.originals.items():
-                (workspace / rel).write_text(text, "utf-8")
-            updates["known_failures"] = state.get("file_start_failures") or []
-    messages = list(state.get("messages") or [])
-    if messages:
-        record.conversation = ctx.files.save_conversation(record.path, messages)
-    report.files.append(record)
-    d.say(
-        "Repair",
-        f"{record.path}: {record.outcome}" + (f" ({record.reason})" if record.reason else ""),
-    )
-    return {
-        **updates,
+    for note in out.notes:
+        d.say("Repair", note)
+    reason = f" ({record.reason})" if record.reason else ""
+    d.say("Repair", f"{record.path}: {record.outcome}{reason}")
+    updates: RunState = {
         "current": None,
         "messages": [],
         "repair": report.model_dump(mode="json"),
         "review_queue": review_queue,
     }
-
-
-def test_fitting_reason(
-    path: str,
-    touched: list[str],
-    after_rules: Mapping[str, str],
-    current: Mapping[str, str],
-    start_failures: list[Failure],
-) -> str | None:
-    """The hand-off reason when a passing patch for a file that failed a test changed
-    accessibility props or the rendered element (M6), else None."""
-    flags = test_fitting_flags(
-        dict(after_rules),
-        dict(current),
-        [(path, touched)],
-        {f.file for f in start_failures if f.source == "test" and f.file},
-    )
-    if not flags:
-        return None
-    return "possible test-fitting: " + "; ".join(
-        f"{fl.file}: {', '.join(fl.lines[:3])}" for fl in flags
-    )
+    if out.restart_failures:
+        updates["known_failures"] = state.get("file_start_failures") or []
+    if out.review_call is not None:
+        updates["calls"] = [*(state.get("calls") or []), out.review_call.model_dump(mode="json")]
+    return updates
