@@ -9,12 +9,14 @@ from typing import Any, cast
 
 import pytest
 
-import migrator.graph as graph
 import migrator.verify.checker as checker
 from migrator.checks import read_files
 from migrator.config import VerifyCommands
 from migrator.cost import Budget, Ledger, LedgerRow, Reservation, RunCaps, Usage, now_utc
 from migrator.repair.records import FileRepair, RepairReport
+from migrator.run.context import RunContext
+from migrator.run.stages import queue
+from migrator.run.state import RunState
 from migrator.verify import VerifyResult
 from migrator.verify.parsers import Failure
 
@@ -29,12 +31,15 @@ SPEC = Failure(
 )
 
 
-class Graph(graph.RunGraph):
-    """The run graph with its file-system helpers replaced."""
+class Graph(RunContext):
+    """The run context with its file-system helpers replaced."""
 
     def __init__(self, tmp: Path, reserve: float | None = 0.15, run_cap: float = 8.0):
         self.said: list[str] = []
-        self.d = SimpleNamespace(  # type: ignore[assignment]
+        self.files = SimpleNamespace(  # type: ignore[assignment]
+            logs=tmp, start_of_repair=self.after_rules, untouched=self.untouched
+        )
+        self.d = self.deps = SimpleNamespace(  # type: ignore[assignment]
             repair_on=True,
             say=lambda stage, text: self.said.append(text),
             config=SimpleNamespace(verify=VerifyCommands(), runner="karma", leftovers=None),
@@ -48,10 +53,10 @@ class Graph(graph.RunGraph):
     def workspace(self, state: Any) -> Path:
         return self.tmp
 
-    def logs(self, state: Any) -> Path:
-        return self.tmp
+    def untouched(self) -> dict[str, str]:
+        return {}
 
-    def after_rules(self, state: Any) -> dict[str, str]:
+    def after_rules(self) -> dict[str, str]:
         return {
             "src/app/list.component.ts": "",
             "src/app/search.component.ts": "",
@@ -60,10 +65,10 @@ class Graph(graph.RunGraph):
         }
 
 
-def state(first: list[Failure], tried: list[FileRepair], **extra: Any) -> graph.RunState:
+def state(first: list[Failure], tried: list[FileRepair], **extra: Any) -> RunState:
     report = RepairReport(enabled=True, files=tried, reserved_usd=1.35)
     return cast(
-        graph.RunState,
+        RunState,
         {
             "run_id": "recheck-test",
             "precheck": {"status": "ok"},
@@ -82,12 +87,12 @@ def fixed(path: str = "src/app/list.component.ts") -> FileRepair:
 
 def test_a_recheck_only_when_no_spec_ran_and_repair_changed_something(tmp_path: Path) -> None:
     g = Graph(tmp_path)
-    assert g.needs_recheck(state([BUILD, TYPE], [fixed()]))
-    assert not g.needs_recheck(state([TYPE, SPEC], [fixed()]))  # the specs ran
-    assert not g.needs_recheck(state([BUILD, TYPE], []))  # nothing changed
-    assert not g.needs_recheck(state([BUILD, TYPE], [fixed()], rechecked=True))  # once
-    assert g.route_next_file(state([BUILD, TYPE], [fixed()])) == "recheck"
-    assert g.route_next_file(state([TYPE, SPEC], [fixed()])) == "commit_agent"
+    assert queue.needs_recheck(g, state([BUILD, TYPE], [fixed()]))
+    assert not queue.needs_recheck(g, state([TYPE, SPEC], [fixed()]))  # the specs ran
+    assert not queue.needs_recheck(g, state([BUILD, TYPE], []))  # nothing changed
+    assert not queue.needs_recheck(g, state([BUILD, TYPE], [fixed()], rechecked=True))  # once
+    assert queue.route_next_file(g, state([BUILD, TYPE], [fixed()])) == "recheck"
+    assert queue.route_next_file(g, state([TYPE, SPEC], [fixed()])) == "commit_agent"
 
 
 def test_the_recheck_comes_as_soon_as_the_build_compiles(tmp_path: Path) -> None:
@@ -95,11 +100,11 @@ def test_the_recheck_comes_as_soon_as_the_build_compiles(tmp_path: Path) -> None
     queued = ["src/app/confirm.component.scss"]
     # the type-check still fails: the specs can't run yet, so repair goes on
     still = state([BUILD, TYPE], [fixed()], queue=queued, known_failures=[TYPE.model_dump()])
-    assert not g.needs_recheck(still)
-    assert g.route_next_file(still) == "start_file"
+    assert not queue.needs_recheck(g, still)
+    assert queue.route_next_file(g, still) == "start_file"
     # the build compiles: check every spec before the next file's repair is charged
     clean = state([BUILD, TYPE], [fixed()], queue=queued, known_failures=[])
-    assert g.route_next_file(clean) == "recheck"
+    assert queue.route_next_file(g, clean) == "recheck"
 
 
 def test_the_recheck_keeps_queued_files_that_still_fail_and_drops_the_rest(
@@ -111,7 +116,7 @@ def test_the_recheck_keeps_queued_files_that_still_fail_and_drops_the_rest(
     )
     g = Graph(tmp_path, reserve=None)  # no Reservation: this test is about the queue
     queued = ["src/app/b.component.scss", "src/app/a.component.scss"]
-    out = g.recheck_node(state([BUILD, TYPE], [fixed()], queue=queued))
+    out = queue.recheck_node(g, state([BUILD, TYPE], [fixed()], queue=queued))
     assert out["queue"] == ["src/app/a.component.scss", "src/app/search.component.ts"]
 
 
@@ -122,10 +127,10 @@ def test_the_files_that_fail_only_now_are_queued_and_reserved(
         checker, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
     )
     g = Graph(tmp_path)
-    out = g.recheck_node(state([BUILD, TYPE], [fixed()]))
+    out = queue.recheck_node(g, state([BUILD, TYPE], [fixed()]))
     assert out["rechecked"] and out["queue"] == ["src/app/search.component.ts"]
     assert RepairReport.model_validate(out["repair"]).reserved_usd == 1.8  # 1.35 + 3 x 0.15
-    assert g.route_recheck(out) == "start_file"
+    assert queue.route_recheck(g, out) == "start_file"
     # The top-up is held in the shared book: another run has $50 - $1.80 of the month.
     other = Budget("other", RunCaps(run_usd=99, month_usd=50, reserve_attempt_usd=20), g.d.ledger)
     assert other.reserve(["x"]) == Reservation(
@@ -141,7 +146,7 @@ def test_a_file_already_tried_is_not_queued_again(
         checker, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
     )
     tried = [fixed(), FileRepair(path="src/app/search.component.ts", outcome="Handed off")]
-    out = Graph(tmp_path).recheck_node(state([BUILD, TYPE], tried))
+    out = queue.recheck_node(Graph(tmp_path), state([BUILD, TYPE], tried))
     assert out["rechecked"] and out["queue"] == []
 
 
@@ -156,7 +161,7 @@ def test_new_files_over_the_cap_are_left_unmigrated(
         LedgerRow(at=now_utc(), run_id="earlier", model="m", requested_model="m", usage=Usage(),
                   cost_usd=49.0)
     )  # fmt: skip
-    out = g.recheck_node(state([BUILD, TYPE], [fixed()]))  # $1.80 > $50 - $49 of the month
+    out = queue.recheck_node(g, state([BUILD, TYPE], [fixed()]))  # $1.80 > $50 - $49 of the month
     assert out["queue"] == []
     files = RepairReport.model_validate(out["repair"]).files
     assert files[-1].path == "src/app/search.component.ts" and files[-1].outcome == "Unmigrated"
@@ -169,7 +174,9 @@ def test_the_top_up_stops_at_what_the_run_can_spend(
         checker, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
     )
     g = Graph(tmp_path, run_cap=1.5)
-    out = g.recheck_node(state([BUILD, TYPE], [fixed()]))  # $1.80 asked, the run stops at $1.50
+    out = queue.recheck_node(
+        g, state([BUILD, TYPE], [fixed()])
+    )  # $1.80 asked, the run stops at $1.50
     assert out["queue"] == ["src/app/search.component.ts"]
     assert RepairReport.model_validate(out["repair"]).reserved_usd == 1.5
     Budget("recheck-test", g.d.caps, g.d.ledger).release()

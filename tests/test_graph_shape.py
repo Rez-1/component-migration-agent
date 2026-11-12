@@ -12,7 +12,7 @@ from typing import Any, cast
 
 from langgraph.graph.state import CompiledStateGraph
 
-from migrator.graph import RunGraph
+from migrator.run.build import build
 
 NODES = [
     "__end__",
@@ -107,7 +107,7 @@ STATE_KEYS = [
 
 def compiled() -> CompiledStateGraph[Any, Any, Any, Any]:
     """The run graph, compiled without a checkpointer; building it runs no node."""
-    return RunGraph(cast(Any, None)).build().compile()
+    return build(cast(Any, None)).compile()
 
 
 def test_the_node_names_are_pinned() -> None:

@@ -16,11 +16,12 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from migrator.configuration import Configuration
 from migrator.cost import Ledger
-from migrator.graph import EVIDENCE_FILE, repair_order
 from migrator.migrations import MigrationSpec
 from migrator.pipeline import PausedRun, RunOptions, RunResult, resume_run, start_run
 from migrator.repair.records import ReviewAnswer
 from migrator.review import ReviewPayload
+from migrator.run.stages.queue import repair_order
+from migrator.run.stages.report import EVIDENCE_FILE
 from migrator.scoring import Evidence, FileRepairSummary, score, stable_view
 from tests.conftest import FakeRunner
 from tests.fakes import (

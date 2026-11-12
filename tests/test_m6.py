@@ -20,8 +20,8 @@ from migrator.evals.reference import (
     render_reference_score,
     select_items,
 )
-from migrator.graph import snapshot_belongs
 from migrator.rules import apply_extra_dependencies
+from migrator.run.stages.verify import snapshot_belongs
 from migrator.verify import (
     Failure,
     VerifyResult,
@@ -459,7 +459,7 @@ def _test_failure_in(path: str) -> Failure:
 
 
 def test_a_flagged_passing_patch_becomes_a_test_fitting_hand_off() -> None:
-    from migrator.graph import test_fitting_reason
+    from migrator.run.stages.file_loop import test_fitting_reason
 
     icon = "src/Frontend/Components/IconButton/IconButton.tsx"
     why = test_fitting_reason(

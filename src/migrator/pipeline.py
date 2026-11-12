@@ -1,4 +1,4 @@
-"""Starting, driving and resuming a run's graph (``migrator.graph``).
+"""Starting, driving and resuming a run's graph (``migrator.run``).
 
 Every run is one LangGraph graph with a checkpointer and one ``thread_id`` (the run
 id). CLI runs use ``SqliteSaver`` with the database in the run folder, so a run paused
@@ -59,15 +59,6 @@ from migrator.execs import (
     node_image,
     node_major,
 )
-from migrator.graph import (
-    RECURSION_LIMIT,
-    Mode,
-    RunDeps,
-    RunGraph,
-    StageCallback,
-    code_hashes,
-    initial_state,
-)
 from migrator.migrations import MigrationSpec, find_spec
 from migrator.precheck_cache import PrecheckCache
 from migrator.repair.model import GuardedModel, ModelFactory, provider_model
@@ -77,6 +68,11 @@ from migrator.repair.tools import RepairTools
 from migrator.report import write_json
 from migrator.review import AutoReviewer, Reviewer, ReviewPayload
 from migrator.rules import tools_cache_root
+from migrator.run.build import RECURSION_LIMIT, build
+from migrator.run.context import Mode, RunContext, RunDeps, StageCallback
+from migrator.run.files import RunFiles
+from migrator.run.stages.review import code_hashes
+from migrator.run.state import initial_state
 from migrator.scan import ScanInput, UsageReport, scan
 from migrator.scan.render import render_usage_report
 from migrator.scoring import Scorecard
@@ -617,7 +613,7 @@ def start_run(
     )
     write_run_record(run_dir, record)
     reviewer = reviewer or AutoReviewer()
-    builder = RunGraph(deps).build()
+    builder = build(RunContext(deps, RunFiles(run_dir)))
     config_ = _graph_config(run_id, opts, callbacks)
     use_sqlite = durable if durable is not None else checkpointer is None and opts.mode == "cli"
     durability: Literal["sync", "async"] = "sync" if use_sqlite else "async"
@@ -758,8 +754,8 @@ def _resume(
     now: dict[str, str],
     callbacks: list[BaseCallbackHandler] | None,
 ) -> RunResult | PausedRun:
-    run_graph = RunGraph(deps)
-    builder = run_graph.build()
+    ctx = RunContext(deps, RunFiles(run_dir))
+    builder = build(ctx)
     config_ = _graph_config(record.run_id, opts, callbacks)
     with sqlite_checkpointer(run_dir) as saver:
         graph = builder.compile(checkpointer=saver)
@@ -769,7 +765,7 @@ def _resume(
             raise RunError(f"run {record.run_id} has no pending review in its checkpoint")
         # The run's Reservation is held again, less what it has spent (resume_run
         # releases it). Without room, nothing is held: any later call is still checked.
-        if not run_graph.budget(snapshot.values).reopen():
+        if not ctx.budget(snapshot.values).reopen():
             deps.say("Review", "the month has no room to hold this run's Reservation again")
         payload = ReviewPayload.model_validate(pending[0].value)
         answer = reviewer.review(payload)
