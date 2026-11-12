@@ -38,7 +38,9 @@ from migrator.model_table import (
 
 SCHEMA_VERSION = 1
 
-Effort = Literal["low", "medium", "high", "xhigh", "max"]
+# The efforts a configuration may ask for. No configuration ever asked for xhigh or max
+# (the model table still lists them where a model accepts them).
+Effort = Literal["low", "medium", "high"]
 # keyword: BM25 over the guide (M3). M5's keyword-imports and keyword-context lost their
 # rounds and were removed after 0eddf6e (see experiments.md).
 Retrieval = Literal["keyword"]
