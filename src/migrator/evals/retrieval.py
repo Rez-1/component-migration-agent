@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from migrator.config import Trap, TrapList
 from migrator.migrations import MigrationSpec
 from migrator.migrations.guide import load_guide, slug
-from migrator.repair.prompt import GUIDE_FULL, rank_sections, section_query
+from migrator.repair.prompt import GUIDE_FULL, guide_query, rank_sections
 from migrator.repair.retriever import GuideRetriever
 from migrator.scan import UsageReport
 from migrator.verify import Failure
@@ -96,7 +96,7 @@ def measure(
     verify = card.get("verify") or {}
     failures = [Failure.model_validate(f) for f in verify.get("failures") or []]
     usage = UsageReport.model_validate_json(usage_path.read_text("utf-8"))
-    retriever = GuideRetriever.from_spec(spec, mode=mode)
+    retriever = GuideRetriever.from_spec(spec)
     rows: list[TrapRetrieval] = []
     skipped: list[str] = []
     for trap in traps.traps:
@@ -117,12 +117,8 @@ def measure(
             if file_usages
             else []
         )
-        query, _shown, imports = section_query(
-            spec, retriever, path=target, symbols=symbols, failures=mine, text=after[target]
-        )
-        ranked = [
-            str(d.metadata["id"]) for d in rank_sections(spec, retriever, symbols, query, imports)
-        ]
+        query, _shown = guide_query(symbols, mine, after[target])
+        ranked = [str(d.metadata["id"]) for d in rank_sections(spec, retriever, symbols, query)]
         expected = expected_change(trap, spec)
         rank = ranked.index(expected) + 1 if expected in ranked else None
         rows.append(

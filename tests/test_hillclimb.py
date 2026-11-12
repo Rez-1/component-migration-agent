@@ -24,7 +24,6 @@ from migrator.evals.hillclimb import (
 from migrator.evals.retrieval import measure, render
 from migrator.evals.summary import CostSummary, ExperimentSummary, MetricSummary
 from migrator.migrations import MigrationSpec
-from migrator.repair.prompt import enclosing_props, library_imports
 from tests.conftest import REPO_ROOT
 
 FLOW = REPO_ROOT / ".claude" / "hillclimb" / "dev"
@@ -270,37 +269,11 @@ def test_climb_runs_under_the_same_harness_settings_as_eval_run(
 # --------------------------------------------------------------------------- retrieval
 
 
-def test_library_imports_and_enclosing_props() -> None:
-    text = (
-        "import Autocomplete from '@mui/material/Autocomplete';\n"
-        "import { TextField, Typography as T } from '@mui/material';\n"
-        "import { useState } from 'react';\n"
-        "export const S = () => (\n"
-        "  <Autocomplete\n"
-        "    renderOption={(o) => (\n"
-        "      <span>{o.label}</span>\n"
-        "    )}\n"
-        "  />\n"
-        ");\n"
-    )
-    assert library_imports(text, ["@mui/material"]) == ["Autocomplete", "TextField", "Typography"]
-    assert enclosing_props(text, "src/S.tsx", [7]) == ["renderOption"]
-    assert enclosing_props(text, "src/S.tsx", [1]) == []
-
-
 def test_offline_retrieval_hit_rate_on_the_dev_fixture(spec: MigrationSpec) -> None:
-    """The measured miss: Search's renderOption section is not in keyword's top 3; the
-    context variant (the JSX prop around the failing line) puts it first."""
+    """The measured miss: Search's renderOption section is not in keyword's top 3."""
     traps = load_traps(TRAPS)
-    reports = [
-        measure(BASELINE_RUN, traps, spec, m)
-        for m in ("keyword", "keyword-imports", "keyword-context")
-    ]
-    hits = [r.hits for r in reports]
-    assert [len(r.traps) for r in reports] == [9, 9, 9]
-    assert hits == [5, 5, 6]
-    search = [next(t for t in r.traps if t.trap == "autocomplete-render-option") for r in reports]
-    assert [t.hit for t in search] == [False, False, True]
-    assert search[2].rank == 1
-    table = render(reports)
-    assert "**5 of 9**" in table and "**6 of 9**" in table
+    report = measure(BASELINE_RUN, traps, spec, "keyword")
+    assert len(report.traps) == 9 and report.hits == 5
+    search = next(t for t in report.traps if t.trap == "autocomplete-render-option")
+    assert not search.hit and search.rank == 14
+    assert "**5 of 9**" in render([report])

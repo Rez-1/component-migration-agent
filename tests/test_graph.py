@@ -339,7 +339,6 @@ def test_every_run_option_survives_run_json(spec: MigrationSpec, tmp_path: Path)
         branch="migrate/x",
         precheck_cache=True,
         run_container=True,
-        node_modules_volume=True,
         incremental_typecheck=True,
     )
     record = RunRecord(

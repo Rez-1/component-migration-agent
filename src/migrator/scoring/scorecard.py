@@ -208,7 +208,9 @@ class FileRepairSummary(BaseModel):
     edits_rejected: dict[str, int]
     review: str | None
     conversation: str | None
-    parse_warnings: int = 0  # prompt v2's apply_edit warnings (M5)
+    # Prompt v2's apply_edit warnings (M5); always 0 since prompt v2 was removed after
+    # 0eddf6e. Kept so the Scorecard's shape, and every stored scorecard, stay the same.
+    parse_warnings: int = 0
     suggested_test_change: str | None = None  # prompt v3: for a human, never applied (M6)
     test_fitting_hand_off: bool = False  # handed off because the test-fitting flag fired
     reviewed_by: str | None = None  # the reviewer model on a flagged patch (M6 option D)

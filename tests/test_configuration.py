@@ -33,7 +33,6 @@ def test_shipped_configurations_load() -> None:
         "baseline",
         "cascade-haiku-opus",
         "haiku-advisor-opus",
-        "haiku-debug",
         "haiku-high",
         "m6-baseline",
         "m6-opus-low",
@@ -43,9 +42,6 @@ def test_shipped_configurations_load() -> None:
         "m7-baseline",
         "m7-strong-low",
         "opus-low",
-        "opus-low-context",
-        "opus-low-imports",
-        "opus-low-tools-v2",
         "sonnet-medium",
     ]
     baseline = find_configuration("baseline", CONFIGS)
@@ -64,7 +60,7 @@ def test_the_baseline_file_matches_the_built_in_baseline() -> None:
 
 
 def test_repair_configurations_are_runnable_from_m3() -> None:
-    for name in ("baseline", "opus-low", "haiku-debug"):
+    for name in ("baseline", "opus-low", "haiku-high"):
         ensure_runnable(find_configuration(name, CONFIGS))
 
 

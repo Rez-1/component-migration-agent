@@ -570,13 +570,6 @@ def eval_run(
             "new container per command."
         ),
     ] = EVAL_HARNESS.run_container,
-    node_modules_volume: Annotated[
-        bool,
-        typer.Option(
-            help="With --run-container: node_modules in a Docker volume instead of on the "
-            "file share with the host."
-        ),
-    ] = EVAL_HARNESS.node_modules_volume,
     incremental_typecheck: Annotated[
         bool,
         typer.Option(help="Run the type-check's tsc with --incremental (build info kept per run)."),
@@ -614,7 +607,6 @@ def eval_run(
             parallel=parallel,
             precheck_cache=precheck_cache,
             run_container=run_container,
-            node_modules_volume=node_modules_volume,
             incremental_typecheck=incremental_typecheck,
         )
     except (ConfigurationError, ConfigError, EvalError) as exc:
@@ -1054,7 +1046,7 @@ def eval_retrieval(
 
         traps = load_traps(traps_path)
         spec = next(s for s in available_specs() if s.id == case_config.migration)
-        modes = mode or ["keyword", "keyword-imports", "keyword-context"]
+        modes = mode or ["keyword"]
         reports = [measure_retrieval(run, traps, spec, m) for m in modes]
     except (ConfigError, RetrievalError, StopIteration) as exc:
         raise _fail(str(exc)) from exc

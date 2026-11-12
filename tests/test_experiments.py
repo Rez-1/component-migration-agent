@@ -1,6 +1,6 @@
 """M5's candidate configurations, on the fake model: per-attempt effort (a cascade), cost
-per model, the cascade's cost cap and pre-flight, the advisor tool's accounting and
-prompt v2's parse warning. No test calls a real model."""
+per model, the cascade's cost cap and pre-flight and the advisor tool's accounting. No test calls
+a real model."""
 
 from __future__ import annotations
 
@@ -40,11 +40,10 @@ from migrator.migrations import MigrationSpec
 from migrator.pipeline import RunOptions, start_run
 from migrator.repair.model import GuardedModel, advisor_tool, price_message
 from migrator.repair.prompt import PROMPTS_DIR, load_templates
-from migrator.repair.tools import new_parse_error
 from migrator.report import render_scorecard
 from tests.conftest import REPO_ROOT, FakeRunner
 from tests.fakes import FakeToolchain, ScriptedChatModel, ai, call, make_mini_repo
-from tests.test_graph import CARD, DASH, GOOD, THEME, card_of, configuration, conversation, run
+from tests.test_graph import CARD, DASH, GOOD, THEME, card_of, configuration
 
 CONFIGS = REPO_ROOT / "evals" / "configs"
 
@@ -55,7 +54,6 @@ def test_configurations_written_before_m5_keep_their_digests() -> None:
     """New fields are left out of the digest while unset, so M2-M4 results stay
     resumable and comparable."""
     assert find_configuration("baseline", CONFIGS).digest() == "73a3262d088d"
-    assert find_configuration("haiku-debug", CONFIGS).digest() == "b46cc8b4c918"
     assert find_configuration("opus-low", CONFIGS).digest() == "d81d48a907d0"
 
 
@@ -63,9 +61,6 @@ CANDIDATES = (
     "haiku-high",
     "sonnet-medium",
     "cascade-haiku-opus",
-    "opus-low-imports",
-    "opus-low-context",
-    "opus-low-tools-v2",
     "haiku-advisor-opus",
 )
 
@@ -110,16 +105,11 @@ def test_a_cascade_names_a_model_and_an_effort_per_attempt() -> None:
 
 def test_prompt_versions_are_frozen() -> None:
     """A wording change must be a new prompt version: v1's files (the prompt of every
-    M3/M4 result) are pinned by digest, and v2 / v1-advisor differ only as stated."""
+    M3/M4 result) are pinned by digest, and v1-advisor differs only as stated."""
     folder = PROMPTS_DIR / "v1"
     blob = b"".join(p.name.encode() + p.read_bytes() for p in sorted(folder.iterdir()))
     assert hashlib.sha256(blob).hexdigest()[:12] == "e1749bdb2941"
-    assert load_templates("v1").options == {}
-    v2, advisor = load_templates("v2"), load_templates("v1-advisor")
-    assert v2.options == {"apply_edit_parse_warning": True}
-    assert advisor.options == {"advisor_note": True}
-    assert v2.system == load_templates("v1").system
-    assert "no longer parses" in v2.tools["apply_edit"]["description"]
+    advisor = load_templates("v1-advisor")
     assert "advisor" in advisor.system and advisor.tools == load_templates("v1").tools
 
 
@@ -390,8 +380,6 @@ def test_the_advisor_needs_its_prompt_and_its_prompt_needs_the_advisor(
         run_with(tmp_path / "a", spec, {}, wrong)
     with pytest.raises(ConfigurationError, match="needs \\[repair"):
         ensure_runnable(plain_config(prompt_version="v1-advisor"))
-    with pytest.raises(ConfigurationError, match="not built"):
-        ensure_runnable(plain_config(retrieval="embeddings"))
     unpriced = advised.model_copy(
         update={
             "repair": advised.repair.model_copy(
@@ -404,52 +392,6 @@ def test_the_advisor_needs_its_prompt_and_its_prompt_needs_the_advisor(
         run_with(tmp_path / "b", spec, {}, unpriced)
 
 
-# --------------------------------------------------------------------------- tools v2
-
-
-def test_parse_error_detection_only_flags_new_errors() -> None:
-    good = "export const a = 1;\nexport const b = 2;\n"
-    broken = "export const a = 1;\nexport const b = (2;\n"
-    assert new_parse_error("src/a.ts", good, broken) == 2
-    assert new_parse_error("src/a.ts", good, good.replace("2", "3")) is None
-    assert new_parse_error("src/a.ts", broken, broken + "\n") is None  # already broken
-    assert new_parse_error("README.md", good, broken) is None
-
-
 def plain_config(**repair: Any) -> Configuration:
     base = configuration()
     return base.model_copy(update={"repair": base.repair.model_copy(update=repair)})
-
-
-def v2_config() -> Configuration:
-    base = configuration()
-    return base.model_copy(
-        update={"repair": base.repair.model_copy(update={"prompt_version": "v2"})}
-    )
-
-
-BREAK_THEN_FIX = [
-    ai(
-        call("apply_edit", path=THEME, old_text="label: {", new_text="root: {{"),
-        call("apply_edit", path=THEME, old_text="root: {{", new_text="root: {"),
-        call("run_verify", note="root slot"),
-    )
-]
-
-
-def tool_results(result: Any, path: str) -> list[str]:
-    return [str(m["data"]["content"]) for m in conversation(result, path) if m["type"] == "tool"]
-
-
-def test_tools_v2_warns_when_an_edit_breaks_the_syntax_and_keeps_it(
-    tmp_path: Path, spec: MigrationSpec
-) -> None:
-    script = {**GOOD, THEME: [*BREAK_THEN_FIX, ai(call("hand_off", reason="unused"))]}
-    result, _, _, _ = run(tmp_path, spec, script, config=v2_config())
-    results = tool_results(result, THEME)
-    assert "no longer parses (syntax error at line" in results[0]
-    assert results[1].startswith("Applied.") and "no longer parses" not in results[1]
-    card = card_of(result)
-    assert next(f for f in card.repair.files if f.path == THEME).parse_warnings == 1
-    plain, _, _, _ = run(tmp_path / "v1", spec, script)
-    assert all("no longer parses" not in t for t in tool_results(plain, THEME))

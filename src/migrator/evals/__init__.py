@@ -415,7 +415,6 @@ class HarnessSettings(BaseModel):
     parallel: int = 2  # repeat runs of one case at the same time (speed-up 1)
     precheck_cache: bool = True  # speed-up 2
     run_container: bool = True  # speed-up 3
-    node_modules_volume: bool = False  # speed-up 4 failed its gate
     incremental_typecheck: bool = True  # speed-up 5
 
 
@@ -444,8 +443,6 @@ class ExperimentPlan(BaseModel):
     precheck_cache: bool = False
     # One long-lived container per run (M6 speed-up 3).
     run_container: bool = False
-    # node_modules in a Docker volume of that container (M6 speed-up 4).
-    node_modules_volume: bool = False
     # tsc --incremental in the type-check (M6 speed-up 5).
     incremental_typecheck: bool = False
 
@@ -575,7 +572,6 @@ def run_experiment(
             sandbox=plan.sandbox,
             precheck_cache=plan.precheck_cache,
             run_container=plan.run_container,
-            node_modules_volume=plan.node_modules_volume,
             incremental_typecheck=plan.incremental_typecheck,
         )
         started = time.monotonic()

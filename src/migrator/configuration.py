@@ -6,7 +6,8 @@ configuration with repair turned off. Configurations live in ``evals/configs/`` 
 also what a normal run is configured by (its caps and models).
 
 From M3 a configuration with repair on runs the repair agent with the models it
-names, one per attempt. ``ensure_runnable`` still guards the M2 refusal path.
+names, one per attempt. ``ensure_runnable`` refuses one this version can't run
+faithfully (an unknown prompt, a missing provider package) before anything runs.
 
 From M7 a configuration names model **levels** (``strong``, ``balanced``, ``fast``)
 wherever it named a model, and its ``[models]`` table says which model fills each level
@@ -38,12 +39,9 @@ from migrator.model_table import (
 SCHEMA_VERSION = 1
 
 Effort = Literal["low", "medium", "high", "xhigh", "max"]
-# keyword: BM25 over the guide (M3). keyword-imports: the same, plus a boost for the
-# guide sections of the components the failing file uses, and less weight on sections
-# about components it doesn't (M5). keyword-context: keyword-imports, plus the JSX props
-# around the failing lines in the query (M5). embeddings: reserved for a later
-# experiment; refused at run time (see experiments.md).
-Retrieval = Literal["keyword", "keyword-imports", "keyword-context", "embeddings"]
+# keyword: BM25 over the guide (M3). M5's keyword-imports and keyword-context lost their
+# rounds and were removed after 0eddf6e (see experiments.md).
+Retrieval = Literal["keyword"]
 
 # Fields added after configurations were first digested (M5). They are left out of the
 # digest while they hold their "off" value, so every configuration written before them
@@ -268,14 +266,6 @@ class ConfigurationError(ValueError):
     pass
 
 
-class NeedsRepairLoopError(ConfigurationError):
-    """The configuration turns repair on, which needs the repair loop (M3)."""
-
-
-# The repair loop exists from M3.
-REPAIR_LOOP_AVAILABLE = True
-
-
 def ensure_runnable(config: Configuration) -> None:
     """Refuse a configuration this version of the Migrator cannot run faithfully, before
     anything runs (an experiment would otherwise fail run by run)."""
@@ -283,16 +273,11 @@ def ensure_runnable(config: Configuration) -> None:
     if repair.enabled:
         from migrator.repair.prompt import UnknownPromptVersionError, load_templates
 
-        if repair.retrieval == "embeddings":
-            raise ConfigurationError(
-                f"configuration {config.name!r}: retrieval 'embeddings' is not built (it "
-                "needs a local embedding model or a paid API; see experiments.md)"
-            )
         try:
             templates = load_templates(repair.prompt_version or "v1")
         except UnknownPromptVersionError as exc:
             raise ConfigurationError(f"configuration {config.name!r}: {exc}") from exc
-        if bool(repair.advisor) != templates.options.get("advisor_note", False):
+        if bool(repair.advisor) != (templates.version == "v1-advisor"):
             raise ConfigurationError(
                 f"configuration {config.name!r}: an advisor needs prompt 'v1-advisor', and "
                 "that prompt needs [repair.advisor]"
@@ -314,13 +299,6 @@ def ensure_runnable(config: Configuration) -> None:
                 f"configuration {config.name!r} needs {', '.join(missing)}; install it "
                 "(uv add ...) before running"
             )
-    if config.repair.enabled and not REPAIR_LOOP_AVAILABLE:
-        models = ", ".join(dict.fromkeys(config.repair.attempt_models))
-        raise NeedsRepairLoopError(
-            f"configuration {config.name!r} turns repair on ({models}, effort "
-            f"{config.repair.effort}), which needs the repair loop (M3). Only rules-only "
-            "configurations such as 'baseline' can run in this version; nothing was run."
-        )
 
 
 def load_configuration(path: Path) -> Configuration:

@@ -75,7 +75,6 @@ from migrator.cost import (
 from migrator.execs import (
     CommandRunner,
     DockerRunner,
-    RunContainerRunner,
     SandboxError,
     node_image,
 )
@@ -475,7 +474,6 @@ class RunGraph:
                     create_dry_run_workspace(d.repo, workspace)
                     node_version, npm_version, pre = self.run_precheck(state, workspace)
                     if pre.status == "ok":
-                        volume = self.snapshot_node_modules(key)
                         cache.put(
                             key,
                             workspace,
@@ -484,15 +482,11 @@ class RunGraph:
                                 precheck=pre,
                                 node_version=node_version,
                                 npm_version=npm_version,
-                                node_modules_volume=volume,
                             ),
                             untouched,
                         )
                 else:
                     d.say("Pre-check", "reusing this case's cached install and Pre-check")
-                    run_box = _base_runner(d.runner)
-                    if hit.node_modules_volume and isinstance(run_box, RunContainerRunner):
-                        run_box.seed_node_modules(hit.node_modules_volume)
                     clone_tree(cache.workspace(key), workspace)
                     restore_logs(cache, key, self.logs(state))
                     untouched.parent.mkdir(parents=True, exist_ok=True)
@@ -673,20 +667,7 @@ class RunGraph:
         d = self.d
         if d.sandbox != "docker":
             return "local"
-        box = _base_runner(d.runner)
-        volume = isinstance(box, RunContainerRunner) and box.node_modules_volume
-        return f"docker:{node_image(d.config.node)}" + (":node_modules-volume" if volume else "")
-
-    def snapshot_node_modules(self, key: str) -> str | None:
-        """With node_modules in the run's volume (speed-up 4): copy it to a cache volume."""
-        box = _base_runner(self.d.runner)
-        if not isinstance(box, RunContainerRunner) or box.volume is None:
-            return None
-        name = f"migrator-nm-cache-{key}"
-        box._docker("volume", "rm", "-f", name, timeout_s=60)
-        box.new_volume(name)
-        box.copy_volume(box.volume, name)
-        return name
+        return f"docker:{node_image(d.config.node)}"
 
     def run_precheck(
         self, state: RunState, workspace: Path
@@ -726,8 +707,6 @@ class RunGraph:
         else:
             rules = apply_rules(
                 RulesInput(
-                    probe_bins=isinstance(_base_runner(d.runner), RunContainerRunner)
-                    and _base_runner(d.runner).node_modules_volume,
                     workspace=workspace,
                     spec=d.spec,
                     config=d.config,
