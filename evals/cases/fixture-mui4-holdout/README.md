@@ -19,7 +19,7 @@ As for fixture 1, this README, `traps.yaml` and `reference/` live outside the fi
 - `src/theme.ts`, `src/App.tsx` (with `AppProviders`, the theme shell, and `Tabs` navigation), `src/index.tsx`, `src/data/`.
 - `src/screens/__tests__/`: one Testing Library behaviour test file per screen (15 tests).
 - `src/test-utils.tsx`: test helpers (`renderScreen` in the app shell, `mockViewportWidth`). Imported only by tests, so a **Test file**.
-- `CODEOWNERS`: teams for the usage report.
+- `CODEOWNERS`: teams for the usage report's By team section until 0eddf6e (kept, so the fixture is unchanged).
 
 Configs (`tsconfig.json`, `jest.config.js`, `.eslintrc.cjs`, `babel.config.js`) and the dev dependencies are copied from fixture 1.
 

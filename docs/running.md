@@ -30,7 +30,7 @@ Evals only make dry runs; `start_run` refuses a real run in eval mode.
 
 ```sh
 cd my-app                     # the repo root, with a clean working tree
-migrator migrate . --from mui@4 --to mui@5 --config opus-low --max-cost 2
+migrator migrate . --from mui@4 --to mui@5 --config m7-strong-low --max-cost 2
 ```
 
 **It refuses to start** when the folder is not the root of a git repo, the repo has no commits, the working tree has uncommitted changes or untracked files (the migration starts from the last commit, so they would silently be left out), or the branch already exists (delete it, or pick another with `--branch`). The Migrator's own `.migrator/` folder never counts as a change.
@@ -88,7 +88,7 @@ Three rules hold before anything runs:
 
 - **Every model has a price.** The cost cap prices each call's worst case first, so a model with no price is refused. Prices and features live in the model table, [`src/migrator/models.toml`](../src/migrator/models.toml), checked against the provider's pricing page.
 - **No model reviews or judges its own work.** balanced must differ from strong, the reviewer from every repair model, and `migrator eval score-reference --judge` (balanced by default) from every model that wrote the runs' code.
-- **Provider features are declared, not assumed.** Each model lists what it supports: effort levels, prompt caching, strict tool schemas, structured output and the advisor tool. What a configuration asks for and its model lacks is turned off before the run, printed as `Turned off: ...` and recorded in the scorecard's `meta.features_off`. The one exception is the advisor tool, which is refused, because turning it off would change what the configuration measures.
+- **Provider features are declared, not assumed.** Each model lists what it supports: effort levels, prompt caching, strict tool schemas and structured output. What a configuration asks for and its model lacks is turned off before the run, printed as `Turned off: ...` and recorded in the scorecard's `meta.features_off`.
 
 To use another provider, add its models to your own table, `~/.config/migrator/models.toml` (or the file `MIGRATOR_MODELS` names), in LangChain's `provider:model` form, with their prices. Then install its LangChain package (`uv add langchain-openai`, for example) and set its API key in the environment:
 

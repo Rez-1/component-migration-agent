@@ -30,7 +30,7 @@ uv run migrator migrate path/to/repo --from mui@4 --to mui@5 --dry-run   # codem
 With an Anthropic API key in the environment:
 
 ```sh
-uv run migrator migrate path/to/repo --from mui@4 --to mui@5 --config opus-low --max-cost 2
+uv run migrator migrate path/to/repo --from mui@4 --to mui@5 --config m7-strong-low --max-cost 2
 uv run migrator pr path/to/repo/.migrator/runs/<run-id>                  # shows the push and PR it would make
 ```
 
@@ -174,7 +174,7 @@ Evals from the command line:
 
 ```sh
 uv run migrator eval run --split dev --config baseline                   # codemods only, free
-uv run migrator eval run --split dev --config opus-low --max-cost 1.5
+uv run migrator eval run --split dev --config m7-strong-low --max-cost 1.5
 uv run migrator eval summary dev/<experiment>
 ```
 

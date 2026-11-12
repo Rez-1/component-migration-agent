@@ -1,7 +1,7 @@
 """The per-run metrics: one list, read from a Scorecard.
 
-The experiment summary shows every metric, ``grade()`` (each results.jsonl row) keeps
-the ones with a viewer column, and the hill-climb keep rule reads their means.
+The experiment summary shows every metric, and ``grade()`` (each results.jsonl row)
+keeps the ones with a viewer column.
 """
 
 from __future__ import annotations

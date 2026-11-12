@@ -10,7 +10,7 @@ As for `fixture-mui4`, this README and `traps.yaml` live here, outside the fixtu
 - `src/components/`: the shared pieces those screens import: `LabelPicker`, `personPicker` (shared Autocomplete props), `DurationInput` (a custom `inputComponent`), `dialogFocus` (a helper that spreads Dialog props), `RangeSlider` (a Slider wrapper), `StatusChip` (a `withStyles` Chip).
 - `src/theme.ts` (with v4 `props`/`overrides`), `src/App.tsx` (`AppProviders`), `src/data/`.
 - `src/screens/__tests__/`: one Testing Library behaviour test file per screen, 16 tests. `src/test-utils.tsx` is a Test file (imported only by tests).
-- `CODEOWNERS` for the usage report.
+- `CODEOWNERS`: teams for the usage report's By team section until 0eddf6e (kept, so the fixture is unchanged).
 
 ## Traps
 
