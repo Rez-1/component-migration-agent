@@ -13,11 +13,11 @@ from migrator.repair.records import RepairReport
 from migrator.report import write_json
 from migrator.rules import RulesInput, RulesResult, ToolsError, apply_rules, ensure_tools
 from migrator.run.context import RunContext
-from migrator.run.stages.visual import visual_capture
 from migrator.run.state import RunState, now
 from migrator.scan import ScanInput, UsageReport, scan
 from migrator.scan.render import render_usage_report
 from migrator.verify import PrecheckInput, PrecheckResult, precheck
+from migrator.visual.check import VisualSetup, capture_workspace
 from migrator.workspace import create_dry_run_workspace
 
 
@@ -89,7 +89,12 @@ def precheck_node(ctx: RunContext, state: RunState) -> RunState:
             create_dry_run_workspace(d.repo, workspace)
         node_version, npm_version, pre = run_precheck(ctx, workspace)
     d.say("Pre-check", pre.status if pre.status == "ok" else f"rejected: {pre.reason}")
-    before = visual_capture(ctx, workspace, "before") if pre.status == "ok" else None
+    visual = visual_setup(ctx)
+    before = (
+        capture_workspace(visual, workspace, ctx.files.folder / "visual" / "before")
+        if visual is not None and pre.status == "ok"
+        else None
+    )
     return {
         "visual_before": before,
         "workspace": str(workspace),
@@ -97,6 +102,21 @@ def precheck_node(ctx: RunContext, state: RunState) -> RunState:
         "npm_version": npm_version,
         "precheck": pre.model_dump(mode="json"),
     }
+
+
+def visual_setup(ctx: RunContext) -> VisualSetup | None:
+    """The run's visual check (M7); None when the repo has no [visual] section."""
+    d = ctx.deps
+    cfg = d.config.visual
+    if cfg is None:
+        return None
+    return VisualSetup(
+        cfg=cfg.model_copy(update={"hide": [*d.spec.visual_hide, *cfg.hide]}),
+        sandbox=d.sandbox,
+        runner=d.runner,
+        tools_cache=d.tools_cache,
+        say=d.say,
+    )
 
 
 def where(ctx: RunContext) -> str:

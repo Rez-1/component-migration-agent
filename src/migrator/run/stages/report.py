@@ -14,12 +14,14 @@ from migrator.report import render_pr_body, render_scorecard, write_json
 from migrator.review_aids import repeated_edits, test_fitting_flags
 from migrator.rules import RulesResult
 from migrator.run.context import RunContext
+from migrator.run.stages.prepare import visual_setup
 from migrator.run.stages.verify import final_layers, migrator_snapshots
-from migrator.run.stages.visual import visual_report
 from migrator.run.state import RunState
 from migrator.scan import UsageReport
 from migrator.scoring import Evidence, MigratorChanges, RunMeta, SnapshotUpdate, score
 from migrator.verify import PrecheckResult, VerifyResult
+from migrator.visual.check import reference_capture, visual_report
+from migrator.visual.compare import VisualReport
 from migrator.workspace import StageCommit, remove_worktree
 
 # The run's Scoring evidence, in its run folder: written before the Scorecard is built,
@@ -38,6 +40,22 @@ def write_evidence(evidence: Evidence, path: Path) -> None:
             record.pop(key, None)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", "utf-8")
+
+
+def _visual(ctx: RunContext, state: RunState, finished: bool) -> VisualReport | None:
+    """The visual check's report (M7); against the reference PR only in an eval."""
+    d = ctx.deps
+    setup = visual_setup(ctx)
+    if setup is None:
+        return None
+    case = d.case if d.mode == "eval" else None
+    return visual_report(
+        setup,
+        state.get("visual_before"),
+        ctx.workspace(state) if finished else None,
+        ctx.files.folder / "visual",
+        lambda: reference_capture(setup, case, d.config) if case is not None else None,
+    )
 
 
 def report_node(ctx: RunContext, state: RunState) -> RunState:
@@ -83,7 +101,7 @@ def report_node(ctx: RunContext, state: RunState) -> RunState:
             report,
             migrator_snapshots(state),
         )
-    visual = visual_report(
+    visual = _visual(
         ctx,
         state,
         finished=bool(state.get("workspace"))
