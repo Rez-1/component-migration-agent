@@ -23,8 +23,8 @@ from migrator.cost import Ledger
 from migrator.migrations import MigrationSpec
 from migrator.pipeline import RunOptions, RunResult, dry_run, start_run
 from migrator.repair.records import ReviewAnswer
-from migrator.report import stable_view
 from migrator.review import ReviewPayload
+from migrator.scoring import stable_view
 from tests.conftest import REPO_ROOT
 from tests.fakes import ScriptedChatModel, ai, call, factory_for
 from tests.test_graph import configuration

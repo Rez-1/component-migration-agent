@@ -1,0 +1,282 @@
+{
+  "schema_version": 3,
+  "migration": "mui@4->mui@5",
+  "target_repo": "before",
+  "configuration": "synthetic-repair",
+  "configuration_digest": null,
+  "case": "t",
+  "status": "completed",
+  "reason": null,
+  "headline": {
+    "clean_run": false,
+    "failures": 2,
+    "failing_files": 2,
+    "migrated_without_human": {
+      "count": 1,
+      "total": 3,
+      "share": 0.3333
+    },
+    "outcomes": {
+      "Migrated by rules": 0,
+      "Migrated by agent": 1,
+      "Migrated by human": 0,
+      "Handed off": 0,
+      "Unmigrated": 2
+    },
+    "hand_offs": 0,
+    "regressions": 1,
+    "cheating_check_hits": 0,
+    "cheating_check_warnings": 0,
+    "codemod_todos": 0,
+    "traps": {
+      "expected": 3,
+      "other_layer": 0,
+      "missed": 3,
+      "not_scored": 1,
+      "silent": 0
+    }
+  },
+  "files": [
+    {
+      "path": "src/Broken.tsx",
+      "outcome": "Migrated by agent",
+      "layer": "agent",
+      "failures": 0,
+      "old_usages_left": 0,
+      "note": "0 attempt(s)"
+    },
+    {
+      "path": "src/Clean.tsx",
+      "outcome": "Unmigrated",
+      "layer": "agent",
+      "failures": 1,
+      "old_usages_left": 0,
+      "note": "regression: 1 lint; changed while repairing src/Broken.tsx"
+    },
+    {
+      "path": "src/Tested.tsx",
+      "outcome": "Unmigrated",
+      "layer": "rules",
+      "failures": 1,
+      "old_usages_left": 0,
+      "note": "1 test"
+    }
+  ],
+  "changed_not_affected": [
+    "package.json"
+  ],
+  "precheck": {
+    "status": "ok",
+    "reason": null,
+    "commands": [],
+    "pre_existing_failures": [],
+    "test_totals": null
+  },
+  "rules": {
+    "status": "ok",
+    "reason": null,
+    "steps": [
+      {
+        "kind": "codemod",
+        "name": "preset-safe",
+        "status": "ok",
+        "changed_files": [
+          "src/Broken.tsx",
+          "src/Clean.tsx",
+          "src/Tested.tsx"
+        ],
+        "detail": ""
+      }
+    ],
+    "changed_files": [
+      "package.json",
+      "src/Broken.tsx",
+      "src/Clean.tsx",
+      "src/Tested.tsx"
+    ],
+    "codemod_todos": []
+  },
+  "verify": {
+    "commands": [],
+    "failures": [
+      {
+        "source": "test",
+        "file": "src/Tested.tsx",
+        "line": null,
+        "column": null,
+        "code": null,
+        "message": "Cannot find module",
+        "test_file": "src/__tests__/Tested.test.tsx",
+        "test_name": "(suite)"
+      },
+      {
+        "source": "lint",
+        "file": "src/Clean.tsx",
+        "line": 1,
+        "column": null,
+        "code": "no-unused",
+        "message": "unused",
+        "test_file": null,
+        "test_name": null
+      }
+    ],
+    "pre_existing_excluded": 0,
+    "test_totals": null
+  },
+  "traps": [
+    {
+      "id": "grid-rename",
+      "title": "grid-rename",
+      "expected_layer": "rules",
+      "file": "src/Broken.tsx",
+      "result": "Expected",
+      "checks": [],
+      "evidence": []
+    },
+    {
+      "id": "grid-types",
+      "title": "grid-types",
+      "expected_layer": "agent",
+      "file": "src/Broken.tsx",
+      "result": "Expected",
+      "checks": [
+        {
+          "check": "typecheck",
+          "fired": false
+        }
+      ],
+      "evidence": []
+    },
+    {
+      "id": "dialog-backdrop",
+      "title": "dialog-backdrop",
+      "expected_layer": "agent",
+      "file": "src/Tested.tsx",
+      "result": "Missed",
+      "checks": [
+        {
+          "check": "src/__tests__/Tested.test.tsx › stays open",
+          "fired": true
+        }
+      ],
+      "evidence": [
+        "test (suite): Cannot find module"
+      ]
+    },
+    {
+      "id": "never-caught",
+      "title": "never-caught",
+      "expected_layer": "agent",
+      "file": "src/Clean.tsx",
+      "result": "Expected",
+      "checks": [
+        {
+          "check": "typecheck",
+          "fired": false
+        }
+      ],
+      "evidence": []
+    },
+    {
+      "id": "dialog-human",
+      "title": "dialog-human",
+      "expected_layer": "human",
+      "file": "src/Tested.tsx",
+      "result": "Missed",
+      "checks": [
+        {
+          "check": "src/__tests__/Tested.test.tsx › stays open",
+          "fired": true
+        }
+      ],
+      "evidence": [
+        "test (suite): Cannot find module"
+      ]
+    },
+    {
+      "id": "helper-spread",
+      "title": "helper-spread",
+      "expected_layer": "agent",
+      "file": "src/helper.ts",
+      "result": "Missed",
+      "checks": [
+        {
+          "check": "src/__tests__/Tested.test.tsx › focus",
+          "fired": true
+        }
+      ],
+      "evidence": [
+        "test (suite): Cannot find module"
+      ]
+    },
+    {
+      "id": "colour",
+      "title": "colour",
+      "expected_layer": "visual-only",
+      "file": "src/Clean.tsx",
+      "result": "Not scored",
+      "checks": [],
+      "evidence": []
+    }
+  ],
+  "cheating": null,
+  "repair": {
+    "files": [
+      {
+        "path": "src/Broken.tsx",
+        "outcome": "Migrated by agent",
+        "reason": null,
+        "attempts": [],
+        "tool_calls": 0,
+        "touched": [
+          "src/Broken.tsx",
+          "src/Clean.tsx"
+        ],
+        "patch_lines": {},
+        "edits_applied": 0,
+        "edits_rejected": {},
+        "review": null,
+        "conversation": null,
+        "parse_warnings": 0,
+        "suggested_test_change": null,
+        "test_fitting_hand_off": false,
+        "reviewed_by": null,
+        "review_verdict": null,
+        "review_reason": null
+      }
+    ],
+    "review_list": [],
+    "attempts": 0,
+    "tool_calls": 0,
+    "edits_rejected": {},
+    "stopped_by_cost_cap": false,
+    "cost_cap_reason": null,
+    "human_changed": [],
+    "reserved_usd": null
+  },
+  "regressions": [
+    "src/Clean.tsx"
+  ],
+  "cost": {
+    "total_usd": 0.0,
+    "output_usd": 0.0,
+    "input_usd": 0.0,
+    "cache_read_usd": 0.0,
+    "cache_write_usd": 0.0,
+    "cache_read_share": null,
+    "model_calls": 0,
+    "models": [],
+    "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_creation_1h_input_tokens": 0
+    },
+    "run_cap_usd": 5.0,
+    "month_cap_usd": 20.0,
+    "month_spent_usd": null,
+    "stopped_by_cap": false,
+    "warnings": []
+  }
+}

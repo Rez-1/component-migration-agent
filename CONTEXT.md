@@ -78,7 +78,7 @@ _Avoid_: error, issue, problem (as the general term)
 A file with at least one failure.
 
 **Regression**:
-A failure in a file that had none before, caused by a change to another file during the run.
+A failure in a file that had none before, caused by a change to another file during the run. "Before" is the Verify after Rules; for a workspace with no Rules stage (a general coding agent's), it is the Pre-check.
 _Avoid_: side effect, collateral failure
 
 **Attempt**:
@@ -190,6 +190,10 @@ _Avoid_: passing run, green run, verify pass
 **Scorecard**:
 The measured results of one run, including the count of each outcome.
 _Avoid_: report card, results
+
+**Scoring**:
+Turning the evidence of a finished run into its Scorecard; the same rules whatever changed the workspace (the Migrator or a general coding agent).
+_Avoid_: grading, report (for this part)
 
 **Experiment summary**:
 The aggregate of an experiment's scorecards, with mean and spread.

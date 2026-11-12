@@ -252,7 +252,7 @@ def test_a_shared_cause_groups_one_error_on_one_wrapper() -> None:
 
 
 def test_repeated_edits_flag_a_line_added_to_three_files() -> None:
-    from migrator.report import repeated_edits
+    from migrator.review_aids import repeated_edits
 
     after = {f"src/{n}.tsx": "<IconButton\n/>\n" for n in "ABCD"}
     final = {p: '<IconButton\n  size="medium"\n/>\n' for p in after}
@@ -282,7 +282,7 @@ ICON_BUTTON_FINAL = ICON_BUTTON_AFTER_RULES.replace(
 
 
 def test_the_opossum_describe_child_edit_is_flagged_as_possible_test_fitting() -> None:
-    from migrator.report import test_fitting_flags
+    from migrator.review_aids import test_fitting_flags
 
     path = "src/Frontend/Components/IconButton/IconButton.tsx"
     flags = test_fitting_flags(
@@ -299,7 +299,7 @@ def test_the_opossum_describe_child_edit_is_flagged_as_possible_test_fitting() -
 
 
 def test_test_fitting_flags_aria_props_and_a_changed_element_but_not_other_edits() -> None:
-    from migrator.report import test_fitting_flags
+    from migrator.review_aids import test_fitting_flags
 
     old = "<Button onClick={go}>\n  Go\n</Button>\n"
     flags = test_fitting_flags(

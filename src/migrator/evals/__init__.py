@@ -44,34 +44,19 @@ from migrator.evals.upstream import case_repo
 from migrator.execs import CommandRunner, RunTimeoutError, Sandbox
 from migrator.migrations import MigrationSpec, available_specs
 from migrator.pipeline import RunError, RunOptions, RunResult, dry_run, new_run_id
-from migrator.report import Scorecard, is_silent_miss
+from migrator.scoring import METRICS as RUN_METRICS
+from migrator.scoring import Scorecard, run_metrics
 
 MANIFEST_VERSION = 1
 DEFAULT_REPEATS = 2
 DEFAULT_CEILING_S = 1800.0
 Split = Literal["dev", "held-out"]
 
-# Viewer declarations (build-eval _state.json). The first binary metric is the
-# viewer's headline, so clean_run comes first (ticket #10).
+# Viewer declarations (build-eval _state.json): the per-run metrics with a viewer column,
+# in Scoring's order. The first binary metric is the viewer's headline, so clean_run
+# comes first (ticket #10).
 METRICS: list[dict[str, Any]] = [
-    {"id": "clean_run", "label": "Clean run", "kind": "binary"},
-    {"id": "migrated_share", "label": "Migrated share", "kind": "float", "scale": 1},
-    {"id": "repair_traps_expected", "label": "Repair traps", "kind": "float", "scale": 1},
-    {
-        "id": "cheating_hits",
-        "label": "Cheating hits",
-        "kind": "float",
-        "scale": 10,
-        "better": "lower",
-    },
-    {"id": "regressions", "label": "Regressions", "kind": "float", "scale": 10, "better": "lower"},
-    {
-        "id": "silent_misses",
-        "label": "Silent misses",
-        "kind": "float",
-        "scale": 10,
-        "better": "lower",
-    },
+    {"id": m.id, **m.viewer.model_dump(exclude_none=True)} for m in RUN_METRICS if m.viewer
 ]
 PERF_FIELDS: list[dict[str, str]] = [
     {"id": "cost_usd", "label": "Cost", "unit": "$"},
@@ -174,22 +159,10 @@ class ErrorRow(_Model):
 
 
 def grade(card: Scorecard) -> dict[str, float]:
-    """The run's grade dict: clean_run first (the viewer's headline), then the rest."""
-    h = card.headline
-    out: dict[str, float] = {
-        "clean_run": 1.0 if h.clean_run else 0.0,
-        "migrated_share": h.migrated_without_human.share,
-    }
-    if card.traps is not None:
-        agent = [t for t in card.traps if t.expected_layer == "agent"]
-        if agent:
-            expected = sum(t.result == "Expected" for t in agent)
-            out["repair_traps_expected"] = round(expected / len(agent), 4)
-    out["cheating_hits"] = float(h.cheating_check_hits)
-    out["regressions"] = float(h.regressions)
-    if card.traps is not None:
-        out["silent_misses"] = float(sum(is_silent_miss(t) for t in card.traps))
-    return out
+    """The run's grade dict: the per-run metrics with a viewer column, clean_run first
+    (the viewer's headline)."""
+    values = run_metrics(card)
+    return {m["id"]: values[m["id"]] for m in METRICS if m["id"] in values}
 
 
 def _stop_reason(card: Scorecard, run_dir: Path | None) -> str | None:

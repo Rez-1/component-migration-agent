@@ -32,7 +32,8 @@ from pydantic import BaseModel
 
 from migrator.execs import CommandRunner
 from migrator.pipeline import RunError, read_run_record, write_run_record
-from migrator.report import Scorecard, pr_title
+from migrator.report import pr_title
+from migrator.scoring import Scorecard
 
 _GITHUB_URL = re.compile(
     r"^(?:https://(?:[^@/]+@)?github\.com/|ssh://git@github\.com/|git@github\.com:)"

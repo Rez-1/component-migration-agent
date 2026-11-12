@@ -15,7 +15,7 @@ import pytest
 from migrator.config import load_case
 from migrator.migrations import MigrationSpec
 from migrator.pipeline import RunOptions, dry_run
-from migrator.report import stable_view
+from migrator.scoring import stable_view
 from tests.conftest import FIXTURE, FIXTURE_CASE, REPO_ROOT
 
 EXPECTED = REPO_ROOT / "docs" / "results" / "baseline" / "scorecard.json"

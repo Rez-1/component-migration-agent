@@ -74,11 +74,12 @@ from migrator.repair.model import GuardedModel, ModelFactory, provider_model
 from migrator.repair.prompt import load_templates, tool_text
 from migrator.repair.retriever import GuideRetriever
 from migrator.repair.tools import RepairTools
-from migrator.report import Scorecard, write_json
+from migrator.report import write_json
 from migrator.review import AutoReviewer, Reviewer, ReviewPayload
 from migrator.rules import tools_cache_root
 from migrator.scan import ScanInput, UsageReport, scan
 from migrator.scan.render import render_usage_report
+from migrator.scoring import Scorecard
 from migrator.workspace import (
     RUN_FILES_DIR,
     GitError,

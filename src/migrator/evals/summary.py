@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, SerializerFunctionWrapHandler, model_serializer
 
@@ -28,11 +28,10 @@ from migrator.evals import (
     read_manifest,
     read_rows,
 )
-from migrator.report import Scorecard, is_silent_miss, usd
+from migrator.report import usd
+from migrator.scoring import METRICS, Scorecard, Unit, run_metrics
 
 SCHEMA_VERSION = 1
-
-Unit = Literal["yes/no", "share", "count", "usd"]
 
 
 class MetricSummary(BaseModel):
@@ -115,60 +114,6 @@ class ExperimentSummary(BaseModel):
     meta: SummaryMeta | None = None  # None in a committed (stable) summary
 
 
-METRIC_LABELS: list[tuple[str, str, Unit]] = [
-    ("clean_run", "Clean runs", "yes/no"),
-    ("migrated_share", "Migrated without a human", "share"),
-    ("hand_offs", "Hand-offs", "count"),
-    ("regressions", "Regressions", "count"),
-    ("cheating_hits", "Cheating-check hits", "count"),
-    ("cheating_warnings", "Cheating-check warnings", "count"),
-    ("repair_traps_expected", "Repair traps expected", "count"),
-    ("silent_misses", "Silent misses (a human should look)", "count"),
-    ("test_fitting", "Possible test-fitting edits (a human should look)", "count"),
-    ("codemod_false_positives", "Codemod false positives undone by Rules", "count"),
-    ("test_fitting_hand_offs", "Hand-offs for possible test-fitting", "count"),
-    ("codemod_todos", "Codemod TODOs left", "count"),
-    ("failures", "Failures (final verify)", "count"),
-    ("cost_usd", "Cost per run", "usd"),
-]
-
-
-def _per_run_values(row: ResultRow, card: Scorecard) -> dict[str, float]:
-    h = card.headline
-    agent_expected = (
-        sum(t.result == "Expected" for t in card.traps if t.expected_layer == "agent")
-        if card.traps is not None
-        else None
-    )
-    values = {
-        # Headline numbers come from the row's grade, the rest from the scorecard.
-        "clean_run": row.grade["clean_run"],
-        "migrated_share": row.grade["migrated_share"],
-        "hand_offs": float(h.hand_offs),
-        "regressions": row.grade["regressions"],
-        "cheating_hits": row.grade["cheating_hits"],
-        "cheating_warnings": float(h.cheating_check_warnings),
-        "codemod_todos": float(h.codemod_todos),
-        "failures": float(h.failures),
-        "cost_usd": row.cost_usd,
-    }
-    if agent_expected is not None:
-        values["repair_traps_expected"] = float(agent_expected)
-    if card.traps is not None:
-        values["silent_misses"] = float(sum(is_silent_miss(t) for t in card.traps))
-    if card.test_fitting is not None:
-        values["test_fitting"] = float(len(card.test_fitting))
-    if card.repair is not None and any(f.test_fitting_hand_off for f in card.repair.files):
-        values["test_fitting_hand_offs"] = float(
-            sum(f.test_fitting_hand_off for f in card.repair.files)
-        )
-    elif card.repair is not None and card.test_fitting is not None:
-        values["test_fitting_hand_offs"] = 0.0
-    if card.rules is not None and card.status == "completed":
-        values["codemod_false_positives"] = float(len(card.codemod_false_positives or []))
-    return values
-
-
 def _mean(values: list[float]) -> float | None:
     return round(sum(values) / len(values), 4) if values else None
 
@@ -211,7 +156,9 @@ def build_summary(
     for err in read_errors(variant):
         if (err.prompt_id, err.rep) not in scored:
             latest[(err.prompt_id, err.rep)] = err.failure_class
-    per_run = [_per_run_values(r, c) for r, c in zip(rows, cards, strict=True)]
+    # Every value from the scorecard, never from the row: rows written before the
+    # metric list moved to Scoring keep the Repair traps share under the count's key.
+    per_run = [run_metrics(c) for c in cards]
 
     base: ExperimentSummary | None = None
     if against is not None and against.resolve() != variant.resolve():
@@ -219,7 +166,8 @@ def build_summary(
     base_means = {m.id: m.mean for m in base.metrics} if base else {}
 
     metrics: list[MetricSummary] = []
-    for metric_id, label, unit in METRIC_LABELS:
+    for metric in METRICS:
+        metric_id, label, unit = metric.id, metric.label, metric.unit
         values = [v[metric_id] for v in per_run if metric_id in v]
         if not values:
             continue
