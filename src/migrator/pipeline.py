@@ -66,12 +66,11 @@ from migrator.repair.prompt import load_templates, tool_text
 from migrator.repair.retriever import GuideRetriever
 from migrator.repair.tools import RepairTools
 from migrator.report import write_json
-from migrator.review import AutoReviewer, Reviewer, ReviewPayload
+from migrator.review import AutoReviewer, Reviewer, ReviewPayload, code_hashes
 from migrator.rules import tools_cache_root
 from migrator.run.build import RECURSION_LIMIT, build
 from migrator.run.context import Mode, RunContext, RunDeps, StageCallback
 from migrator.run.files import RunFiles
-from migrator.run.stages.review import code_hashes
 from migrator.run.state import initial_state
 from migrator.scan import ScanInput, UsageReport, scan
 from migrator.scan.render import render_usage_report

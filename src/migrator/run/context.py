@@ -22,9 +22,9 @@ from migrator.repair.model import GuardedModel
 from migrator.repair.prompt import PromptTemplates
 from migrator.repair.records import RepairReport
 from migrator.repair.retriever import GuideRetriever
-from migrator.repair.tools import RepairTools
+from migrator.repair.tools import RepairSession, RepairTools, SessionState
 from migrator.run.files import RunFiles
-from migrator.run.state import RunState
+from migrator.run.state import RunState, failures_of
 from migrator.verify import PrecheckResult
 from migrator.verify.checker import Checker
 from migrator.workspace import Worktree
@@ -126,6 +126,24 @@ class RunContext:
             self.deps.ledger,
             spent_usd=spent,
             reserved_usd=repair.get("reserved_usd"),
+        )
+
+    def repair_session(self, state: RunState, file: SessionState) -> RepairSession:
+        """One file's RepairSession over the workspace as the state has it, for the
+        agent's tools or for the narrow verify of a human's edit at Review."""
+        d = self.deps
+        assert d.templates is not None and d.retriever is not None
+        start = self.files.start_of_repair()
+        return RepairSession(
+            file,
+            workspace=self.workspace(state),
+            after_rules=start,
+            test_files=state.get("test_files") or {},
+            known_failures=failures_of(state.get("known_failures")),
+            checker=self.checker(state, start),
+            templates=d.templates,
+            retriever=d.retriever,
+            link_base=d.spec.guide.link_base,
         )
 
     def report(self, state: RunState) -> RepairReport:

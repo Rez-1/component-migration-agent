@@ -11,6 +11,8 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
@@ -20,7 +22,10 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.syntax import Syntax
 
-from migrator.repair.records import ReviewAnswer
+from migrator.checks import read_files
+from migrator.repair.records import FileRepair, ReviewAnswer
+from migrator.verify import Failure
+from migrator.workspace import hash_file
 
 
 class ReviewPayload(BaseModel):
@@ -34,6 +39,60 @@ class ReviewPayload(BaseModel):
     workspace: str
     hashes: dict[str, str]  # code files' hashes when the run paused here
     remaining: int  # hand-offs still to review after this one
+
+
+def code_hashes(workspace: Path) -> dict[str, str]:
+    """Hashes of the workspace's code files (the same set the cheating checks read)."""
+    return {p: hash_file(workspace / p) for p in sorted(read_files(workspace))}
+
+
+def changed_files(before: dict[str, str], now: dict[str, str]) -> list[str]:
+    """Code files whose hash differs between two ``code_hashes``, sorted."""
+    return sorted(p for p in now.keys() | before.keys() if now.get(p) != before.get(p))
+
+
+# The narrow verify of a human's edit: the files to check -> (the file's failures, new
+# failures elsewhere, the run's known failures after it).
+NarrowVerify = Callable[[list[str]], tuple[list[Failure], list[Failure], list[Failure]]]
+
+
+@dataclass
+class ReviewResult:
+    """What one answer at Review comes to; the run applies it."""
+
+    record: FileRepair  # the hand-off's repair record, with the answer in it
+    done: bool  # the hand-off leaves the review queue (an edit that still fails stays)
+    revert: list[str] = field(default_factory=list)  # put back as before the agent's patch
+    known_failures: list[Failure] | None = None  # after an edit's narrow verify
+    note: str | None = None  # for the run's log
+
+
+def apply_answer(
+    payload: ReviewPayload,
+    answer: ReviewAnswer,
+    record: FileRepair,
+    human_changed: list[str],
+    narrow_verify: NarrowVerify,
+) -> ReviewResult:
+    """Revert undoes the agent's patch, except in files a human changed while the run
+    was paused (theirs wins); Keep keeps it, still handed off; Edit checks the human's
+    edit with the narrow verify, and a clean one makes the file migrated by a human."""
+    record = record.model_copy(deep=True)
+    record.review = answer.choice
+    if answer.choice == "revert":
+        revert = [rel for rel in record.touched if rel not in human_changed]
+        record.touched = [rel for rel in record.touched if rel in human_changed]
+        return ReviewResult(record, done=True, revert=revert)
+    if answer.choice == "keep":
+        return ReviewResult(record, done=True)
+    left, elsewhere, known = narrow_verify(sorted({*record.touched, *human_changed}))
+    if not left and not elsewhere:
+        record.migrated_by_human = True
+        return ReviewResult(
+            record, done=True, known_failures=known, note=f"{payload.path}: fixed by a human"
+        )
+    still = f"{payload.path}: still {len(left) + len(elsewhere)} failures after the edit"
+    return ReviewResult(record, done=False, known_failures=known, note=still)
 
 
 class Reviewer(Protocol):

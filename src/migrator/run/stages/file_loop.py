@@ -25,7 +25,7 @@ from migrator.repair.reviewer import (
 )
 from migrator.repair.reviewer import default_model as default_review_model
 from migrator.repair.shared import SharedCause, shared_cause_section
-from migrator.repair.tools import RepairSession, SessionState, failure_key
+from migrator.repair.tools import SessionState, failure_key
 from migrator.run.context import RunContext
 from migrator.run.state import RunState, dump_failures, failures_of
 from migrator.scan import UsageReport
@@ -176,19 +176,7 @@ def tools_node(ctx: RunContext, state: RunState) -> RunState:
     session_state = SessionState.model_validate(state["current"])
     messages = list(state.get("messages") or [])
     last = messages[-1] if messages else None
-    known = failures_of(state.get("known_failures"))
-    after = ctx.files.start_of_repair()
-    session = RepairSession(
-        session_state,
-        workspace=ctx.workspace(state),
-        after_rules=after,
-        test_files=state.get("test_files") or {},
-        known_failures=known,
-        checker=ctx.checker(state, after),
-        templates=d.templates,
-        retriever=d.retriever,
-        link_base=d.spec.guide.link_base,
-    )
+    session = ctx.repair_session(state, session_state)
     d.tools.session = session
     new: list[BaseMessage] = []
     try:
