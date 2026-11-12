@@ -17,6 +17,10 @@ served them, never from an assumed flat rate.
   model) and refuses to send it if spend so far plus that worst case would pass the
   run cap or the month cap. Caps are on by default ($5 a run, $20 a month) and there
   is no unlimited mode: ``--max-cost`` sets the run cap to a number, never removes it.
+- **Budget** (``Budget``): one Run's Cost caps, spend so far and Reservation. It
+  reserves the Run's worst case before Repair (in a book shared by every run in the
+  process, so parallel runs can't pass the month cap together), checks every model
+  call through the hard cap, and releases the Reservation when the run ends.
 - **Pre-flight** (``LedgerPreflight``): before an experiment starts, its cost is
   estimated from the ledger's average cost per attempt, and it is refused if the
   estimate exceeds ``--max-cost`` or what is left of the month.
@@ -29,7 +33,7 @@ import math
 import os
 import threading
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -467,45 +471,6 @@ class Ledger:
         return {k: v for k, v in per.items() if first[k] == model}
 
 
-# --------------------------------------------------------------------------- reservations
-
-# Runs must finish (M6), also when several run at once in one process (parallel repeat
-# runs): each run's worst-case reservation is held here until it ends, and a run may
-# only reserve what the month cap leaves after the other runs' outstanding reservations
-# (what each has reserved, less what it has already spent, which month_spent counts).
-_RESERVED: dict[str, float] = {}
-_RESERVE_LOCK = threading.Lock()
-
-
-def reserve_run(
-    run_id: str, worst_usd: float, run_cap_usd: float, month_cap_usd: float, ledger: Ledger
-) -> tuple[bool, float]:
-    """Reserve ``worst_usd`` for ``run_id`` if it fits; (reserved, what was available)."""
-    with _RESERVE_LOCK:
-        rows = ledger.rows()
-        month = _month(now_utc())
-        spent_by: dict[str, float] = defaultdict(float)
-        for r in rows:
-            if _month(r.at) == month:
-                spent_by[r.run_id] += r.cost_usd
-        others = sum(
-            max(0.0, usd - spent_by.get(rid, 0.0))
-            for rid, usd in _RESERVED.items()
-            if rid != run_id
-        )
-        month_left = month_cap_usd - sum(spent_by.values()) - others
-        available = round(min(run_cap_usd, month_left), 2)
-        if worst_usd > available:
-            return False, available
-        _RESERVED[run_id] = worst_usd
-        return True, available
-
-
-def release_run(run_id: str) -> None:
-    with _RESERVE_LOCK:
-        _RESERVED.pop(run_id, None)
-
-
 # --------------------------------------------------------------------------- the cap
 
 
@@ -579,6 +544,140 @@ class CostGuard:
                 cap="month",
             )
         return worst
+
+
+# --------------------------------------------------------------------------- the budget
+
+# Runs must finish (M6), also when several run at once in one process (parallel repeat
+# runs): each run's Reservation is held in this shared book until the run ends, and a
+# run may only reserve what the month cap leaves after the other runs' outstanding
+# Reservations (what each has reserved, less what it has already spent, which
+# month_spent counts). Only the Budget touches it.
+_RESERVED: dict[str, float] = {}
+_RESERVE_LOCK = threading.Lock()
+
+
+class RunCaps(BaseModel):
+    """One Run's Cost caps, and what its Reservation is made of.
+
+    ``stop_usd`` is the hard stop: a lower per-call limit a Configuration may set (M6,
+    $2). ``reserve_attempt_usd`` is the worst case set aside per Attempt; None reserves
+    nothing."""
+
+    model_config = ConfigDict(frozen=True)
+
+    run_usd: float
+    month_usd: float
+    stop_usd: float | None = None
+    reserve_attempt_usd: float | None = None
+    max_attempts: int = 3
+
+    @property
+    def call_cap_usd(self) -> float:
+        """What the check before each model call stops at: the run cap, or the lower
+        hard stop."""
+        return min(self.run_usd, self.stop_usd) if self.stop_usd is not None else self.run_usd
+
+
+class Reservation(BaseModel):
+    """What one ``Budget.reserve`` asked for, and whether the shared book took it."""
+
+    held: bool
+    files: int  # the files reserved for (failing Test files cost nothing)
+    added_usd: float  # their worst case: files x attempts x reserve per attempt
+    total_usd: float  # the Run's whole Reservation with them, at most what it can spend
+    available_usd: float  # what the run cap and the month left had room for
+
+
+class Budget:
+    """One Run's money: its Cost caps, its spend so far and its Reservation.
+
+    It keeps nothing between steps: each step builds it again from the checkpointed
+    state (the run's recorded spend and ``reserved_usd``), and its only lasting part is
+    the run's entry in the shared book. ``pipeline.start_run`` and ``resume_run`` open
+    it and release it in their ``finally``, so a run that crashes, times out or pauses
+    never leaves a Reservation behind."""
+
+    def __init__(
+        self,
+        run_id: str,
+        caps: RunCaps,
+        ledger: Ledger,
+        *,
+        spent_usd: float = 0.0,
+        reserved_usd: float | None = None,
+    ):
+        self.run_id = run_id
+        self.caps = caps
+        self.ledger = ledger
+        self.spent_usd = spent_usd
+        self.reserved_usd = reserved_usd
+        self._guard = CostGuard(caps.call_cap_usd, caps.month_usd, ledger)
+
+    def check(
+        self, model: str, input_tokens: int, max_tokens: int, *, extra_worst_usd: float = 0.0
+    ) -> float:
+        """Before a model call: raise ``CostCapError`` if its worst case could pass a
+        cap, else return the worst case. ``extra_worst_usd`` is spend the call can cause
+        on another model (the advisor's consultations)."""
+        return self._guard.check(
+            model, input_tokens, max_tokens, self.spent_usd, extra_worst_usd=extra_worst_usd
+        )
+
+    def reserve(self, files: Collection[str]) -> Reservation | None:
+        """Add the worst case of ``files`` to the Reservation, if the run cap
+        and the month (less other runs' Reservations) have room: the first pass reserves
+        for its queue, the recheck tops up for the files it adds. None when the caps
+        reserve nothing. The new total counts this run's spend twice against the month:
+        on the safe side.
+
+        Never more than the run can spend: the total stops at the lower of the run cap
+        and the hard stop, since the check before each call ends the run there anyway."""
+        per = self.caps.reserve_attempt_usd
+        if per is None:
+            return None
+        added = round(len(files) * self.caps.max_attempts * per, 2)
+        total = min(round((self.reserved_usd or 0.0) + added, 2), self.caps.call_cap_usd)
+        held, available = self._book(total, need=total)
+        if held:
+            self.reserved_usd = total
+        return Reservation(
+            held=held, files=len(files), added_usd=added, total_usd=total, available_usd=available
+        )
+
+    def reopen(self) -> bool:
+        """On resume: hold the recorded Reservation again, less what is already spent,
+        so a resumed run keeps the guarantee of a fresh one. False when the month has
+        no room left for it (nothing is held then)."""
+        if not self.reserved_usd:
+            return True
+        need = max(0.0, round(self.reserved_usd - self.spent_usd, 6))
+        return self._book(self.reserved_usd, need=need)[0]
+
+    def release(self) -> None:
+        """End this run's Reservation."""
+        with _RESERVE_LOCK:
+            _RESERVED.pop(self.run_id, None)
+
+    def _book(self, total: float, *, need: float) -> tuple[bool, float]:
+        """Hold ``total`` for this run if ``need`` fits; (held, what was available)."""
+        with _RESERVE_LOCK:
+            month = _month(now_utc())
+            spent_by: dict[str, float] = defaultdict(float)
+            for r in self.ledger.rows():
+                if _month(r.at) == month:
+                    spent_by[r.run_id] += r.cost_usd
+            others = sum(
+                max(0.0, usd - spent_by.get(rid, 0.0))
+                for rid, usd in _RESERVED.items()
+                if rid != self.run_id
+            )
+            month_left = self.caps.month_usd - sum(spent_by.values()) - others
+            available = round(min(self.caps.run_usd, month_left), 2)
+            if need > available:
+                return False, available
+            _RESERVED[self.run_id] = total
+            return True, available
 
 
 # --------------------------------------------------------------------------- pre-flight

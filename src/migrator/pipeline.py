@@ -47,7 +47,7 @@ from migrator.config import (
     read_package_json,
 )
 from migrator.configuration import BASELINE, Configuration, ensure_runnable
-from migrator.cost import CostGuard, Ledger, UnknownModelPriceError, price_for
+from migrator.cost import Budget, Ledger, RunCaps, UnknownModelPriceError, price_for
 from migrator.detection import resolve_repo_config
 from migrator.execs import (
     CommandRunner,
@@ -80,6 +80,7 @@ from migrator.rules import tools_cache_root
 from migrator.scan import ScanInput, UsageReport, scan
 from migrator.scan.render import render_usage_report
 from migrator.scoring import Scorecard
+from migrator.verify.runners import adapter_for
 from migrator.workspace import (
     RUN_FILES_DIR,
     GitError,
@@ -344,8 +345,8 @@ def sandbox_runner(
     tag = re.sub(r"[^A-Za-z0-9.]+", "-", image.split("@")[0])
     cache = (tools_cache or tools_cache_root() / "docker" / tag).resolve()
     browser = None
-    if config.runner == "karma":
-        # Karma runs the tests in Chrome: the same Node, with Debian's Chromium (M7).
+    if adapter_for(config.runner).needs_browser:
+        # The tests run in Chrome (Karma): the same Node, with Debian's Chromium (M7).
         from migrator.visual import ensure_browser_image
 
         try:
@@ -419,12 +420,14 @@ def build_deps(
 ) -> RunDeps:
     configuration = opts.configuration
     spec = configuration.apply_to(opts.spec)
-    run_cap = opts.max_run_usd if opts.max_run_usd is not None else configuration.cost.max_run_usd
-    month_cap = configuration.cost.max_month_usd
-    # The per-call guard stops at the lower of the run cap and the hard stop (M6, $2);
-    # the worst-case reservation is still checked against the run cap.
-    stop = configuration.cost.stop_run_usd
-    guard_cap = min(run_cap, stop) if stop is not None else run_cap
+    cost = configuration.cost
+    caps = RunCaps(
+        run_usd=opts.max_run_usd if opts.max_run_usd is not None else cost.max_run_usd,
+        month_usd=cost.max_month_usd,
+        stop_usd=cost.stop_run_usd,
+        reserve_attempt_usd=cost.reserve_attempt_usd,
+        max_attempts=configuration.repair.max_attempts,
+    )
     model: GuardedModel | None = None
     tools: RepairTools | None = None
     retriever: GuideRetriever | None = None
@@ -442,7 +445,6 @@ def build_deps(
         retriever = GuideRetriever.from_spec(spec, mode=repair.retrieval or "keyword")
         model = GuardedModel(
             model_factory or provider_model,
-            CostGuard(guard_cap, month_cap, ledger),
             tools.tools,
             effort=repair.effort,
             run_id=run_id,
@@ -462,8 +464,7 @@ def build_deps(
         mode=opts.mode,
         keep_workspace=opts.keep_workspace,
         tools_cache=opts.tools_cache,
-        run_cap_usd=run_cap,
-        month_cap_usd=month_cap,
+        caps=caps,
         ledger=ledger,
         model=model,
         tools=tools,
@@ -472,7 +473,6 @@ def build_deps(
         on_stage=on_stage,
         worktree=worktree,
         sandbox=opts.sandbox,
-        guard_cap_usd=guard_cap,
         precheck_cache=PrecheckCache(tools_cache_root() / "precheck")
         if opts.precheck_cache and not opts.real
         else None,
@@ -637,6 +637,9 @@ def start_run(
     first = initial_state(run_id, run_dir)
     if worktree is not None:
         first["workspace"] = str(worktree.workspace)
+    # Opened here and released in the finally: a run that crashes, times out or pauses
+    # never leaves its Reservation in the shared book.
+    budget = Budget(run_id, deps.caps, ledger)
 
     def go(saver: BaseCheckpointSaver[Any]) -> RunResult | PausedRun:
         graph = builder.compile(checkpointer=saver)
@@ -651,6 +654,7 @@ def start_run(
                 return go(saver)
         return go(InMemorySaver())
     finally:
+        budget.release()
         close_runner(owned)
 
 
@@ -736,27 +740,24 @@ def resume_run(
     spec = opts.configuration.apply_to(opts.spec)
     config = resolve_config(opts.repo, spec, opts.case, opts.incremental_typecheck)
     run_runner, owned, opts = open_runner(opts, config, runner)
+    budget: Budget | None = None
     try:
-        return _resume(
-            record,
-            run_dir,
+        deps = build_deps(
             opts,
-            build_deps(
-                opts,
-                runner=run_runner,
-                config=config,
-                traps=traps,
-                run_id=record.run_id,
-                ledger=ledger or Ledger(),
-                model_factory=model_factory,
-                on_stage=on_stage,
-                worktree=record.worktree,
-            ),
-            reviewer,
-            now,
-            callbacks,
+            runner=run_runner,
+            config=config,
+            traps=traps,
+            run_id=record.run_id,
+            ledger=ledger or Ledger(),
+            model_factory=model_factory,
+            on_stage=on_stage,
+            worktree=record.worktree,
         )
+        budget = Budget(record.run_id, deps.caps, deps.ledger)
+        return _resume(record, run_dir, opts, deps, reviewer, now, callbacks)
     finally:
+        if budget is not None:
+            budget.release()
         close_runner(owned)
 
 
@@ -769,7 +770,8 @@ def _resume(
     now: dict[str, str],
     callbacks: list[BaseCallbackHandler] | None,
 ) -> RunResult | PausedRun:
-    builder = RunGraph(deps).build()
+    run_graph = RunGraph(deps)
+    builder = run_graph.build()
     config_ = _graph_config(record.run_id, opts, callbacks)
     with sqlite_checkpointer(run_dir) as saver:
         graph = builder.compile(checkpointer=saver)
@@ -777,6 +779,10 @@ def _resume(
         pending = [i for t in snapshot.tasks for i in t.interrupts]
         if not pending:
             raise RunError(f"run {record.run_id} has no pending review in its checkpoint")
+        # The run's Reservation is held again, less what it has spent (resume_run
+        # releases it). Without room, nothing is held: any later call is still checked.
+        if not run_graph.budget(snapshot.values).reopen():
+            deps.say("Review", "the month has no room to hold this run's Reservation again")
         payload = ReviewPayload.model_validate(pending[0].value)
         answer = reviewer.review(payload)
         if answer is None:

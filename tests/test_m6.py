@@ -537,15 +537,15 @@ class _FakeStructured:
 
 
 def test_the_reviewer_is_one_capped_ledgered_call_on_another_model(tmp_path: Path) -> None:
-    from migrator.cost import CostCapError, CostGuard, Ledger
+    from migrator.cost import Budget, CostCapError, Ledger, RunCaps
     from migrator.repair.reviewer import review_patch
 
     ledger = Ledger(tmp_path / "ledger.jsonl")
+    caps = RunCaps(run_usd=2.0, month_usd=50.0)
     fake = _FakeStructured("fits_old_test")
     review = review_patch(
-        "prompt", model="claude-sonnet-5-5", guard=CostGuard(2.0, 50.0, ledger), ledger=ledger,
-        run_id="r1", case="c", path="src/A.tsx", run_spent_usd=0.0,
-        factory=lambda m, e, t: fake,  # type: ignore[arg-type,return-value]
+        "prompt", model="claude-sonnet-5-5", budget=Budget("r1", caps, ledger), case="c",
+        path="src/A.tsx", factory=lambda m, e, t: fake,  # type: ignore[arg-type,return-value]
     )  # fmt: skip
     assert (review.verdict, review.model) == ("fits_old_test", "claude-sonnet-5-5")
     rows = ledger.rows()
@@ -553,8 +553,8 @@ def test_the_reviewer_is_one_capped_ledgered_call_on_another_model(tmp_path: Pat
     assert review.call.cost_usd == rows[0].cost_usd
     with pytest.raises(CostCapError):  # the guard runs before the call, as for repair
         review_patch(
-            "prompt", model="claude-sonnet-5-5", guard=CostGuard(2.0, 50.0, ledger),
-            ledger=ledger, run_id="r1", case="c", path="src/A.tsx", run_spent_usd=1.999,
+            "prompt", model="claude-sonnet-5-5",
+            budget=Budget("r1", caps, ledger, spent_usd=1.999), case="c", path="src/A.tsx",
             factory=lambda m, e, t: fake,  # type: ignore[arg-type,return-value]
         )  # fmt: skip
 

@@ -36,11 +36,6 @@ from migrator.verify import Failure
 # --------------------------------------------------------------------------- traps
 
 
-def _split_test_check(check: str) -> tuple[str, str]:
-    test_file, _, name = check.partition(" › ")
-    return test_file.strip(), name.strip()
-
-
 def _failures_for_check(check: str, trap: Trap, failures: list[Failure]) -> list[Failure]:
     """Failures that show a trap's check firing: a type error in its file, or its test."""
     if check == "typecheck":
@@ -49,21 +44,13 @@ def _failures_for_check(check: str, trap: Trap, failures: list[Failure]) -> list
         return [f for f in failures if f.source == "lint" and f.file == trap.location.file]
     if check == "leftovers":  # M7: what is left of the old version, in the trap's file
         return [f for f in failures if f.source == "migration" and f.file == trap.location.file]
-    test_file, name = _split_test_check(check)
     # A suite that failed to run (a crash on import) never ran the trap's test either,
     # so it counts as the check firing. So does a test bundle that didn't compile
     # (Karma, M7): no spec ran at all.
-    unbuilt = [f for f in failures if f.source == "test" and f.test_name == "(build)"]
+    unbuilt = [f for f in failures if f.ran_no_spec]
     if unbuilt:
         return unbuilt
-    return [
-        f
-        for f in failures
-        if f.source == "test"
-        and f.test_file == test_file
-        and f.test_name is not None
-        and (f.test_name in (name, "(suite)") or f.test_name.endswith(f" › {name}"))
-    ]
+    return [f for f in failures if f.matches_test_check(check)]
 
 
 def _describe(f: Failure) -> str:

@@ -21,12 +21,13 @@ from migrator.configuration import (
 )
 from migrator.cost import (
     PRICES,
+    Budget,
     CallRecord,
-    CostGuard,
     Ledger,
     LedgerPreflight,
     LedgerRow,
     PlannedExperiment,
+    RunCaps,
     RunCost,
     Usage,
     cost_usd,
@@ -352,31 +353,28 @@ def test_advisor_tokens_are_priced_at_the_advisor_model() -> None:
 
 def test_the_advisor_is_bound_and_its_worst_case_is_capped(tmp_path: Path) -> None:
     model = ScriptedChatModel(script={"?": [advised_reply()]})
-    guard = CostGuard(5, 20, Ledger(tmp_path / "ledger.jsonl"))
+    budget = Budget("r", RunCaps(run_usd=5, month_usd=20), Ledger(tmp_path / "ledger.jsonl"))
     guarded = GuardedModel(
-        lambda m, e, t: model, guard, [], effort="high", run_id="r", case=None, advisor=ADVISOR
+        lambda m, e, t: model, [], effort="high", run_id="r", case=None, advisor=ADVISOR
     )
     worst = guarded.advisor_worst_usd(10_000)
     assert worst == pytest.approx(2 * worst_case_usd("claude-opus-5-5", 26_000, 4000))
     _message, record = guarded.call(
-        "claude-haiku-5-5", "system", [], run_spent_usd=0, file="a.ts", attempt=1
+        "claude-haiku-5-5", "system", [], budget=budget, file="a.ts", attempt=1
     )
     assert advisor_tool(ADVISOR) in model._bound_tools
     assert record.advisor_calls == 1 and record.advisor_model == "claude-opus-5-5"
-    rows = guard.ledger.rows()
+    rows = budget.ledger.rows()
     assert [r.model for r in rows] == ["claude-haiku-5-5", "claude-opus-5-5"]
     assert round(sum(r.cost_usd for r in rows), 6) == record.cost_usd
     cost = run_cost([record], 5, 20)
     assert {m.model for m in cost.by_model} == {"claude-haiku-5-5", "claude-opus-5-5"}
     assert cost.total_usd == pytest.approx(record.cost_usd)
-    tight = CostGuard(0.2, 20, Ledger(tmp_path / "other.jsonl"))
-    capped = GuardedModel(
-        lambda m, e, t: model, tight, [], effort="high", run_id="r", case=None, advisor=ADVISOR
-    )
+    tight = Budget("r", RunCaps(run_usd=0.2, month_usd=20), Ledger(tmp_path / "other.jsonl"))
     from migrator.cost import CostCapError
 
     with pytest.raises(CostCapError):  # Haiku alone would fit; with two consultations not
-        capped.call("claude-haiku-5-5", "s", [], run_spent_usd=0, file=None, attempt=1)
+        guarded.call("claude-haiku-5-5", "s", [], budget=tight, file=None, attempt=1)
 
 
 def test_the_advisor_needs_its_prompt_and_its_prompt_needs_the_advisor(

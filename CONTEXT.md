@@ -77,6 +77,14 @@ _Avoid_: error, issue, problem (as the general term)
 **Failing file**:
 A file with at least one failure.
 
+**Test runner**:
+The tool that runs a target repo's tests (Jest, Vitest or Karma); Verify reads its report to name each failing test.
+_Avoid_: test framework
+
+**Narrow verify**:
+A Verify that runs only the tests related to some files (the repair agent's `run_verify`); the type-check, lint and leftovers still cover the whole workspace.
+_Avoid_: partial verify, quick check
+
 **Regression**:
 A failure in a file that had none before, caused by a change to another file during the run. "Before" is the Verify after Rules; for a workspace with no Rules stage (a general coding agent's), it is the Pre-check.
 _Avoid_: side effect, collateral failure
@@ -123,6 +131,20 @@ _Avoid_: codemod warning
 **Codemod false positive**:
 A codemod change to a component that comes from the repo's own code rather than from the library being migrated (the codemods match by name), which the Rules stage undoes and lists for a human. On OpossumUI: `size="large"` added to the repo's own `IconButton` wrapper.
 _Avoid_: codemod bug, wrong codemod change
+
+### Cost
+
+**Cost cap**:
+A limit on model spend: the run cap, the hard stop (a lower per-call limit a Configuration may set), and the month cap on this machine.
+_Avoid_: quota, limit (unqualified)
+
+**Reservation**:
+The worst case a Run sets aside before Repair starts, so it can finish under the month cap even while other runs are going.
+_Avoid_: hold, allocation
+
+**Budget**:
+One Run's cost caps, spend so far and Reservation, checked before every model call.
+_Avoid_: wallet, cost guard (for the whole)
 
 ### Evals
 
