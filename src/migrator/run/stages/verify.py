@@ -5,7 +5,15 @@ from __future__ import annotations
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from migrator.checks import CheckInput, FileSet, Layer, read_files, read_test_rules, run_checks
+from migrator.checks import (
+    CheatingReport,
+    CheckInput,
+    FileSet,
+    Layer,
+    read_files,
+    read_test_rules,
+    run_checks,
+)
 from migrator.repair.records import RepairReport
 from migrator.report import write_json
 from migrator.run.context import RunContext
@@ -65,16 +73,9 @@ def update_snapshots(
 
 def final_verify_node(ctx: RunContext, state: RunState) -> RunState:
     d = ctx.deps
-    pre = PrecheckResult.model_validate(state["precheck"])
     workspace = ctx.workspace(state)
     report = ctx.report(state)
-    repaired = any(f.touched for f in report.files) or bool(report.human_changed)
-    if state.get("verify") and not repaired:
-        # Nothing changed since the Verify after Rules: it is the final verify.
-        final = VerifyResult.model_validate(state["verify"])
-    else:
-        d.say("Verify", "final: type-check, lint, tests")
-        final = ctx.checker(state).check("final")
+    final = final_check(ctx, state, report)
     final_snapshots: list[dict[str, Any]] = []
     if d.config.update_snapshots:
         final, final_snapshots = update_snapshots(ctx, state, final, "final")
@@ -86,36 +87,55 @@ def final_verify_node(ctx: RunContext, state: RunState) -> RunState:
             exclude=d.config.exclude,
         )
     )
-    final_usage_path = ctx.files.final_usage_path
-    write_json(final_usage, final_usage_path)
+    write_json(final_usage, ctx.files.final_usage_path)
     final_files = read_files(workspace)
-    # The final code, for scoring against a reference PR afterwards (M6).
     ctx.files.save_final(final_files)
-    after = ctx.files.start_of_repair()
-    cheating = run_checks(
-        CheckInput(
-            before=ctx.files.untouched(),
-            after_rules=after,
-            final=final_files,
-            later_layers=final_layers(
-                after, final_files, report, migrator_snapshots(state, final_snapshots)
-            ),
-            test_rules=read_test_rules(workspace),
-            precheck_totals=pre.test_totals,
-            final_totals=final.test_totals,
-            rules_totals=VerifyResult.model_validate(state["verify"]).test_totals
-            if state.get("verify")
-            else None,
-        )
-    )
+    start = ctx.files.start_of_repair()
+    layers = final_layers(start, final_files, report, migrator_snapshots(state, final_snapshots))
+    cheating = cheating_checks(ctx, state, final, start, final_files, layers)
     d.say("Checks", f"{len(cheating.hits)} cheating-check hits, {len(cheating.notes)} notes")
     d.say("Verify", f"{len(final.failures)} failures in {len(final.failing_files())} files")
     return {
         "final": final.model_dump(mode="json"),
-        "final_usage_path": str(final_usage_path),
+        "final_usage_path": str(ctx.files.final_usage_path),
         "cheating": cheating.model_dump(mode="json"),
         "snapshot_updates": [*(state.get("snapshot_updates") or []), *final_snapshots],
     }
+
+
+def final_check(ctx: RunContext, state: RunState, report: RepairReport) -> VerifyResult:
+    """The final verify: the Verify after Rules again when nothing changed since."""
+    repaired = any(f.touched for f in report.files) or bool(report.human_changed)
+    if state.get("verify") and not repaired:
+        return VerifyResult.model_validate(state["verify"])
+    ctx.deps.say("Verify", "final: type-check, lint, tests")
+    return ctx.checker(state).check("final")
+
+
+def cheating_checks(
+    ctx: RunContext,
+    state: RunState,
+    final: VerifyResult,
+    start: FileSet,
+    final_files: FileSet,
+    layers: dict[str, Layer],
+) -> CheatingReport:
+    """The cheating checks on the final workspace, against the untouched one and the
+    Start of Repair; ``layers``: who changed each file after Rules."""
+    pre = PrecheckResult.model_validate(state["precheck"])
+    rules_verify = VerifyResult.model_validate(state["verify"]) if state.get("verify") else None
+    return run_checks(
+        CheckInput(
+            before=ctx.files.untouched(),
+            after_rules=start,
+            final=final_files,
+            later_layers=layers,
+            test_rules=read_test_rules(ctx.workspace(state)),
+            precheck_totals=pre.test_totals,
+            final_totals=final.test_totals,
+            rules_totals=rules_verify.test_totals if rules_verify else None,
+        )
+    )
 
 
 def migrator_snapshots(state: RunState, extra: list[dict[str, Any]] | None = None) -> set[str]:

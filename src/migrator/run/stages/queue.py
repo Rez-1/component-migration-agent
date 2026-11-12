@@ -197,19 +197,13 @@ def recheck_node(ctx: RunContext, state: RunState) -> RunState:
     d.say("Verify", "recheck: the first verify ran no spec; type-check, lint, tests")
     result = ctx.checker(state).check("recheck")
     report = ctx.report(state)
-    tried = {f.path for f in report.files}
     after = ctx.files.start_of_repair()
-    failing = set(result.failing_files())
-    queued = list(state.get("queue") or [])
-    kept = [p for p in queued if p in failing]  # a queued file may pass by now
-    new = [p for p in sorted(failing) if p in after and p not in tried and p not in kept]
+    kept, new = requeue(ctx, state, result, report, after)
     updates: RunState = {
         "rechecked": True,
         "known_failures": dump_failures(result.failures),
         "queue": kept,
     }
-    if gone := [p for p in queued if p not in kept]:
-        d.say("Repair", f"recheck: no longer failing, skipped: {', '.join(gone)}")
     if not new:
         d.say("Repair", "recheck: no new failing files")
         return updates
@@ -217,21 +211,36 @@ def recheck_node(ctx: RunContext, state: RunState) -> RunState:
     # The top-up stays under the same run cap as the first pass's Reservation.
     out = reserve_queue(ctx.budget(state), order, state.get("test_files") or {})
     if out.status == "refused" and (held := out.reservation) is not None:
-        d.say(
-            "Repair",
-            f"recheck: {len(order)} new failing files, but the worst case "
-            f"(${held.total_usd:.2f} in all) is more than the "
-            f"${held.available_usd:.2f} available; not attempted",
-        )
+        d.say("Repair", _top_up_refused(order, held))
         not_attempted(report, order)
-        updates["repair"] = report.model_dump(mode="json")
-        return updates
+        return {**updates, "repair": report.model_dump(mode="json")}
     if out.status == "held" and out.reservation is not None:
         report.reserved_usd = out.reservation.total_usd
         updates["repair"] = report.model_dump(mode="json")
     d.say("Repair", f"recheck: {len(order)} new failing files: {', '.join(order)}")
-    updates["queue"] = [*kept, *order]
-    return updates
+    return {**updates, "queue": [*kept, *order]}
+
+
+def requeue(
+    ctx: RunContext, state: RunState, result: VerifyResult, report: RepairReport, after: FileSet
+) -> tuple[list[str], list[str]]:
+    """After the recheck: (queued files that still fail, failing files never tried)."""
+    failing = set(result.failing_files())
+    tried = {f.path for f in report.files}
+    queued = list(state.get("queue") or [])
+    kept = [p for p in queued if p in failing]  # a queued file may pass by now
+    new = [p for p in sorted(failing) if p in after and p not in tried and p not in kept]
+    if gone := [p for p in queued if p not in kept]:
+        ctx.deps.say("Repair", f"recheck: no longer failing, skipped: {', '.join(gone)}")
+    return kept, new
+
+
+def _top_up_refused(order: list[str], held: Reservation) -> str:
+    return (
+        f"recheck: {len(order)} new failing files, but the worst case "
+        f"(${held.total_usd:.2f} in all) is more than the "
+        f"${held.available_usd:.2f} available; not attempted"
+    )
 
 
 def route_recheck(ctx: RunContext, state: RunState) -> str:

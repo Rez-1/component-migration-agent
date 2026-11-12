@@ -13,7 +13,7 @@ from migrator.cost import CallRecord, CostCapError
 from migrator.repair.context import local_imports
 from migrator.repair.outcome import EndPolicy, FileFailures, RepairWorkspace, end_file
 from migrator.repair.prompt import first_message, system_prompt
-from migrator.repair.records import AttemptRecord, FileRepair
+from migrator.repair.records import AttemptRecord, FileRepair, RepairReport
 from migrator.repair.retriever import render_section
 from migrator.repair.reviewer import (
     Review,
@@ -29,6 +29,7 @@ from migrator.repair.tools import RepairSession, RepairTools, SessionState, fail
 from migrator.run.context import RunContext
 from migrator.run.state import RunState, dump_failures, failures_of
 from migrator.scan import UsageReport
+from migrator.verify import Failure
 
 MAX_TOOL_CALLS = 15
 NUDGE = (
@@ -43,47 +44,82 @@ def attempt_model(ctx: RunContext, attempt: int) -> str:
 
 
 def start_file_node(ctx: RunContext, state: RunState) -> RunState:
-    d = ctx.deps
-    assert d.templates is not None and d.retriever is not None
+    assert ctx.deps.templates is not None and ctx.deps.retriever is not None
     queue = list(state.get("queue") or [])
     path = queue.pop(0)
-    workspace = ctx.workspace(state)
     after = ctx.files.start_of_repair()
     tests = state.get("test_files") or {}
     known = failures_of(state.get("known_failures"))
-    mine = [f for f in known if f.file == path]
     causes = [SharedCause.model_validate(c) for c in state.get("shared_causes") or []]
     owned = [c for c in causes if c.source == path]
     calling = [c for c in causes if path in c.callers and c.source != path]
+    mine, targets = file_failures(path, known, owned)
+    session = new_session(ctx, path, after, tests, known, targets)
+    ctx.deps.say("Repair", f"{path}: {len(mine)} failures")
+    started: RunState = {"queue": queue, "file_start_failures": state.get("known_failures") or []}
+    if path in tests:  # only a human may change a Test file: no model call
+        session.ended = "handed_off"
+        record = session.record
+        record.outcome, record.attempts = "Handed off", []
+        record.reason = (
+            f"the failure is in a Test file ({tests[path]}), which only a human may change"
+        )
+        return {**started, "current": session.model_dump(mode="json"), "messages": []}
+    text = first_file_message(ctx, state, session, mine, after, [*owned, *calling])
+    return {
+        **started,
+        "current": session.model_dump(mode="json"),
+        "messages": [HumanMessage(content=text)],
+    }
+
+
+def file_failures(
+    path: str, known: list[Failure], owned: list[SharedCause]
+) -> tuple[list[Failure], list[tuple[str, str]]]:
+    """The file's known failures, and with a shared cause it defines (M6), the callers'
+    failures it owns too: (failures, the owned callers' (file, code) keys)."""
+    mine = [f for f in known if f.file == path]
     target_keys: list[tuple[str, str]] = []
     for c in owned:
         still = [f for f in known if (f.file, f.code) in c.failure_keys()]
         mine += [f for f in still if f not in mine]
         target_keys += [(str(f.file), str(f.code)) for f in still]
-    first_model = d.configuration.repair.attempt_models[0]
-    record = FileRepair(path=path, attempts=[AttemptRecord(number=1, model=first_model)])
-    session = SessionState(
+    return mine, sorted(set(target_keys))
+
+
+def new_session(
+    ctx: RunContext,
+    path: str,
+    after: FileSet,
+    tests: dict[str, str],
+    known: list[Failure],
+    target_keys: list[tuple[str, str]],
+) -> SessionState:
+    """A file's repair as it starts: attempt 1, on the first attempt's model."""
+    repair = ctx.deps.configuration.repair
+    first = AttemptRecord(number=1, model=repair.attempt_models[0])
+    return SessionState(
         path=path,
-        max_attempts=d.configuration.repair.max_attempts,
+        max_attempts=repair.max_attempts,
         allowed_imports=[p for p in local_imports(path, after) if p not in tests],
         baseline_keys=[failure_key(f) for f in known],
-        record=record,
-        target_keys=sorted(set(target_keys)),
+        record=FileRepair(path=path, attempts=[first]),
+        target_keys=target_keys,
     )
-    d.say("Repair", f"{path}: {len(mine)} failures")
-    if path in tests:
-        session.ended = "handed_off"
-        record.outcome = "Handed off"
-        record.reason = (
-            f"the failure is in a Test file ({tests[path]}), which only a human may change"
-        )
-        record.attempts = []
-        return {
-            "queue": queue,
-            "current": session.model_dump(mode="json"),
-            "messages": [],
-            "file_start_failures": state.get("known_failures") or [],
-        }
+
+
+def first_file_message(
+    ctx: RunContext,
+    state: RunState,
+    session: SessionState,
+    failures: list[Failure],
+    after: FileSet,
+    causes: list[SharedCause],
+) -> str:
+    """The file's first message to the model, with its shared causes' sections."""
+    d = ctx.deps
+    assert d.templates is not None and d.retriever is not None
+    path, workspace = session.path, ctx.workspace(state)
     usage = UsageReport.model_validate_json(Path(state["usage_path"]).read_text("utf-8"))
     file_usages = usage.file(path)
     symbols = [u.symbol.split(".")[0] for u in file_usages.old_usages] if file_usages else []
@@ -93,25 +129,20 @@ def start_file_node(ctx: RunContext, state: RunState) -> RunState:
         d.retriever,
         path=path,
         max_attempts=session.max_attempts,
-        failures=mine,
+        failures=failures,
         untouched=ctx.files.untouched().get(path),
         after_rules=(workspace / path).read_text("utf-8"),
         files={
             **after,
             **{p: (workspace / p).read_text("utf-8") for p in after if (workspace / p).is_file()},
         },
-        test_files=tests,
+        test_files=state.get("test_files") or {},
         symbols=list(dict.fromkeys(s for s in symbols if s != "*")),
     )
-    if owned or calling:
-        sections = [shared_cause_section(c, path) for c in [*owned, *calling]]
+    if causes:
+        sections = [shared_cause_section(c, path) for c in causes]
         text += "\n\n### Shared cause\n\n" + "\n\n".join(sections)
-    return {
-        "queue": queue,
-        "current": session.model_dump(mode="json"),
-        "messages": [HumanMessage(content=text)],
-        "file_start_failures": state.get("known_failures") or [],
-    }
+    return text
 
 
 def route_start_file(ctx: RunContext, state: RunState) -> str:
@@ -123,8 +154,6 @@ def agent_node(ctx: RunContext, state: RunState) -> RunState:
     d = ctx.deps
     assert d.model is not None and d.templates is not None
     session = SessionState.model_validate(state["current"])
-    report = ctx.report(state)
-    calls = [CallRecord.model_validate(c) for c in state.get("calls") or []]
     model = attempt_model(ctx, session.attempt)
     record = session.record
     if not record.attempts or record.attempts[-1].number != session.attempt:
@@ -141,12 +170,8 @@ def agent_node(ctx: RunContext, state: RunState) -> RunState:
             attempt=session.attempt,
         )
     except CostCapError as exc:
-        session.ended = "cost_cap"
-        record.outcome = "Unmigrated"
-        record.reason = f"cost cap: {exc}"
-        record.attempts[-1].result = "cost_cap"
-        report.stopped_by_cost_cap = True
-        report.cost_cap_reason = str(exc)
+        report = ctx.report(state)
+        stop_at_cost_cap(session, report, str(exc))
         d.say("Repair", f"cost cap reached: {exc}")
         return {
             "current": session.model_dump(mode="json"),
@@ -161,8 +186,25 @@ def agent_node(ctx: RunContext, state: RunState) -> RunState:
     return {
         "current": session.model_dump(mode="json"),
         "messages": [*messages, message],
-        "calls": [*[c.model_dump(mode="json") for c in calls], call.model_dump(mode="json")],
+        "calls": [
+            *[
+                CallRecord.model_validate(c).model_dump(mode="json")
+                for c in state.get("calls") or []
+            ],
+            call.model_dump(mode="json"),
+        ],
     }
+
+
+def stop_at_cost_cap(session: SessionState, report: RepairReport, why: str) -> None:
+    """The cost cap ends this file's repair (Unmigrated) and Repair for every file."""
+    session.ended = "cost_cap"
+    record = session.record
+    record.outcome = "Unmigrated"
+    record.reason = f"cost cap: {why}"
+    record.attempts[-1].result = "cost_cap"
+    report.stopped_by_cost_cap = True
+    report.cost_cap_reason = why
 
 
 def route_agent(ctx: RunContext, state: RunState) -> str:
@@ -268,6 +310,15 @@ def review_flagged(
         return None
 
 
+def end_policy(ctx: RunContext) -> EndPolicy:
+    repair = ctx.deps.configuration.repair
+    return EndPolicy(
+        cheating_hand_off=ctx.deps.mode == "cli",  # real use, not an eval
+        test_fitting_hand_off=repair.test_fitting_hand_off,
+        reviewer_model=repair.reviewer_model,
+    )
+
+
 def file_end_node(ctx: RunContext, state: RunState) -> RunState:
     d = ctx.deps
     start = ctx.files.start_of_repair()
@@ -279,11 +330,7 @@ def file_end_node(ctx: RunContext, state: RunState) -> RunState:
             now=failures_of(state.get("known_failures")),
         ),
         RepairWorkspace(workspace, start),
-        EndPolicy(
-            cheating_hand_off=d.mode == "cli",
-            test_fitting_hand_off=d.configuration.repair.test_fitting_hand_off,
-            reviewer_model=d.configuration.repair.reviewer_model,
-        ),
+        end_policy(ctx),
         partial(review_flagged, ctx, state, start),
     )
     for rel, text in out.roll_back.items():

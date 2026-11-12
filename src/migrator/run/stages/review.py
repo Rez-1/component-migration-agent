@@ -8,7 +8,7 @@ from langgraph.types import interrupt
 
 from migrator.repair.context import unified_diff
 from migrator.repair.prompt import describe_failure
-from migrator.repair.records import FileRepair, ReviewAnswer
+from migrator.repair.records import AttemptRecord, FileRepair, ReviewAnswer
 from migrator.repair.tools import SessionState, failure_key
 from migrator.review import ReviewPayload, apply_answer, changed_files, code_hashes
 from migrator.run.context import RunContext
@@ -41,16 +41,10 @@ def prepare_review_node(ctx: RunContext, state: RunState) -> RunState:
         for rel in record.touched
         if (workspace / rel).is_file()
     )
-    attempts = [
-        f"attempt {a.number} ({a.model}, {a.tool_calls} tool calls): {a.result or '—'}"
-        + (f", {a.failures_left} failures left" if a.failures_left is not None else "")
-        + (f' — "{a.note}"' if a.note else "")
-        for a in record.attempts
-    ]
     payload = ReviewPayload(
         path=path,
         reason=record.reason or "handed off",
-        attempts=attempts,
+        attempts=[attempt_line(a) for a in record.attempts],
         failures=failures,
         diff=diff,
         workspace=str(workspace),
@@ -58,6 +52,15 @@ def prepare_review_node(ctx: RunContext, state: RunState) -> RunState:
         remaining=len(queue) - 1,
     )
     return {**updates, "review": payload.model_dump(mode="json")}
+
+
+def attempt_line(a: AttemptRecord) -> str:
+    """One attempt, as Review shows it."""
+    return (
+        f"attempt {a.number} ({a.model}, {a.tool_calls} tool calls): {a.result or '—'}"
+        + (f", {a.failures_left} failures left" if a.failures_left is not None else "")
+        + (f' — "{a.note}"' if a.note else "")
+    )
 
 
 def route_prepare_review(ctx: RunContext, state: RunState) -> str:
