@@ -21,11 +21,12 @@ from migrator.cost import (
 from migrator.migrations import MigrationSpec
 from migrator.pipeline import PausedRun, RunResult, resume_run
 from migrator.repair.records import RepairReport
+from migrator.run.context import RunContext
 from migrator.run.stages import queue
 from migrator.run.stages import verify as verify_stage
 from migrator.verify import VerifyResult
 from tests.test_graph import GOOD, Recorder, configuration, run
-from tests.test_recheck import BUILD, SPEC, TYPE, Graph, state
+from tests.test_recheck import BUILD, SPEC, START, TYPE, context, state
 
 CAPS = RunCaps(run_usd=8.0, month_usd=10.0, reserve_attempt_usd=0.5, max_attempts=3)
 
@@ -118,30 +119,35 @@ def test_resume_reserves_again_less_what_was_spent(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- the graph
 
 
-class FirstPass(Graph):
-    """test_recheck's graph, with what the first pass reads."""
-
-    def untouched(self) -> dict[str, str]:
-        return self.after_rules()
+def first_pass(tmp: Path) -> RunContext:
+    """test_recheck's context, with the untouched workspace the first pass reads."""
+    ctx = context(tmp)
+    ctx.files.save_untouched(START)
+    return ctx
 
 
 def test_the_first_pass_reserves_its_queue_through_the_budget(tmp_path: Path) -> None:
-    g = FirstPass(tmp_path)
-    first = state([TYPE, SPEC], [], repair=RepairReport(enabled=True).model_dump(mode="json"))
-    out = queue.plan_repair_node(g, first)
+    ctx = first_pass(tmp_path)
+    first = state(
+        [TYPE, SPEC],
+        [],
+        repair=RepairReport(enabled=True).model_dump(mode="json"),
+        workspace=str(tmp_path),
+    )
+    out = queue.plan_repair_node(ctx, first)
     assert out["queue"] == ["src/app/list.component.ts", "src/app/search.component.ts"]
     report = RepairReport.model_validate(out["repair"])
     assert report.reserved_usd == 0.9 and not report.stopped_by_cost_cap  # 2 x 3 x $0.15
-    assert held_by_others(g.d.ledger) == 0.9
-    Budget("recheck-test", g.d.caps, g.d.ledger).release()
+    assert held_by_others(ctx.deps.ledger) == 0.9
+    Budget("recheck-test", ctx.deps.caps, ctx.deps.ledger).release()
     # No room in the month: repair does not start, and every queued file ends not attempted.
-    g = FirstPass(tmp_path)
-    spend(g.d.ledger, "earlier", 49.5)
-    out = queue.plan_repair_node(g, first)
+    ctx = first_pass(tmp_path)
+    spend(ctx.deps.ledger, "earlier", 49.5)
+    out = queue.plan_repair_node(ctx, first)
     report = RepairReport.model_validate(out["repair"])
     assert report.stopped_by_cost_cap and "so repair did not start" in str(report.cost_cap_reason)
-    assert held_by_others(g.d.ledger) == 0.0
-    ended = queue.next_file_node(g, {**first, **out})
+    assert held_by_others(ctx.deps.ledger) == 0.0
+    ended = queue.next_file_node(ctx, {**first, **out})
     files = RepairReport.model_validate(ended["repair"]).files
     assert [f.reason for f in files] == ["cost cap: not attempted"] * 2
 
@@ -152,11 +158,13 @@ def test_the_recheck_tops_up_through_the_budget(
     monkeypatch.setattr(
         checker, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
     )
-    g = Graph(tmp_path)
-    Budget("recheck-test", g.d.caps, g.d.ledger).reserve(["a", "b", "c"])  # the first $1.35
-    queue.recheck_node(g, state([BUILD, TYPE], []))
-    assert held_by_others(g.d.ledger) == 1.8
-    Budget("recheck-test", g.d.caps, g.d.ledger).release()
+    ctx = context(tmp_path)
+    Budget("recheck-test", ctx.deps.caps, ctx.deps.ledger).reserve(
+        ["a", "b", "c"]
+    )  # the first $1.35
+    queue.recheck_node(ctx, state([BUILD, TYPE], [], workspace=str(tmp_path)))
+    assert held_by_others(ctx.deps.ledger) == 1.8
+    Budget("recheck-test", ctx.deps.caps, ctx.deps.ledger).release()
 
 
 def test_a_run_that_crashes_leaves_no_reservation_behind(
