@@ -47,7 +47,7 @@ from migrator.config import (
     read_package_json,
 )
 from migrator.configuration import BASELINE, Configuration, ensure_runnable
-from migrator.cost import Budget, Ledger, RunCaps, UnknownModelPriceError, price_for
+from migrator.cost import Budget, Ledger, RunCaps
 from migrator.detection import resolve_repo_config
 from migrator.execs import (
     CommandRunner,
@@ -430,12 +430,6 @@ def build_deps(
     if configuration.repair.enabled:
         repair = configuration.repair
         templates = load_templates(repair.prompt_version or "v1")
-        # ensure_runnable has refused an advisor without its prompt.
-        if repair.advisor is not None:
-            try:
-                price_for(repair.advisor.model)  # an unpriced advisor can't be capped
-            except UnknownModelPriceError as exc:
-                raise RunError(str(exc)) from exc
         tools = RepairTools(tool_text(templates, spec))
         retriever = GuideRetriever.from_spec(spec)
         model = GuardedModel(
@@ -446,7 +440,6 @@ def build_deps(
             case=opts.case.id if opts.case else None,
             tags=[f"config:{configuration.name}", *([f"case:{opts.case.id}"] if opts.case else [])],
             configuration=configuration.name,
-            advisor=repair.advisor,
         )
     return RunDeps(
         repo=opts.repo.resolve(),

@@ -549,3 +549,18 @@ def test_nothing_in_the_fixture_describes_the_traps() -> None:
         # traps.yaml and the case README live outside the fixture, so outside the workspace.
         assert not (fixture / "traps.yaml").exists()
     assert leaks == []
+
+
+def test_offline_retrieval_hit_rate_on_the_dev_fixture(spec: MigrationSpec) -> None:
+    """The measured miss: Search's renderOption section is not in keyword's top 3."""
+    from migrator.config import load_traps
+    from migrator.evals.retrieval import measure, render
+    from tests.conftest import REPO_ROOT
+
+    flow = REPO_ROOT / ".claude" / "hillclimb" / "dev" / "baseline" / "runs"
+    traps = load_traps(REPO_ROOT / "evals" / "cases" / "fixture-mui4" / "traps.yaml")
+    report = measure(flow / "fixture-mui4_rep0", traps, spec, "keyword")
+    assert len(report.traps) == 9 and report.hits == 5
+    search = next(t for t in report.traps if t.trap == "autocomplete-render-option")
+    assert not search.hit and search.rank == 14
+    assert "**5 of 9**" in render([report])

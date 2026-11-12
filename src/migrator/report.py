@@ -87,7 +87,7 @@ def _cost_head(cost: RunCost) -> str:
 
 
 def _models_part(cost: RunCost) -> str:
-    """The models with their share when there is more than one (a cascade, an advisor)."""
+    """The models with their share when there is more than one (a cascade, a reviewer)."""
     if len(cost.by_model) < 2:
         return ", ".join(cost.models)
     return "; ".join(

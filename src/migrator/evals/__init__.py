@@ -407,8 +407,7 @@ def _default_run(opts: RunOptions, runner: CommandRunner | None) -> RunResult:
 
 class HarnessSettings(BaseModel):
     """How an experiment's runs are executed (the M6 speed-ups that passed their gate),
-    not what they measure. One copy for every command that starts an experiment, so
-    ``eval run`` and ``eval climb`` can't run under different settings."""
+    not what they measure: the defaults of ``eval run``'s options."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -500,7 +499,6 @@ def run_experiment(
             max_cost_usd=plan.max_cost_usd,
             attempt_models=config.repair.attempt_models,
             month_cap_usd=config.cost.max_month_usd,
-            advisor_model=config.repair.advisor.model if config.repair.advisor else None,
         )
     )
     if not pre.ok:

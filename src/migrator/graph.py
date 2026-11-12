@@ -1036,7 +1036,6 @@ class RunGraph:
                 budget=self.budget(state),
                 file=session.path,
                 attempt=session.attempt,
-                effort=d.configuration.repair.effort_for(session.attempt),
             )
         except CostCapError as exc:
             session.ended = "cost_cap"

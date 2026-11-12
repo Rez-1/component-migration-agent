@@ -450,3 +450,27 @@ def test_deadline_runner_stops_a_run_past_its_ceiling(tmp_path: Path) -> None:
     with pytest.raises(RunTimeoutError, match="ceiling"):
         runner.run("npm ci", tmp_path)
     assert inner.commands == ["echo hi"]
+
+
+def test_eval_run_uses_the_harness_settings_by_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import migrator.cli as cli
+    from migrator.evals import EVAL_HARNESS, EvalError, HarnessSettings
+
+    plans: list[ExperimentPlan] = []
+
+    def capture(plan: ExperimentPlan, **_: object) -> None:
+        plans.append(plan)
+        raise EvalError("captured")
+
+    monkeypatch.setattr(cli, "run_experiment", capture)
+    CliRunner().invoke(
+        app,
+        ["eval", "run", "--root", str(REPO_ROOT), "--results-dir", str(tmp_path / "r"),
+         "--sandbox", "local"],
+        env={"COLUMNS": "300"},
+    )  # fmt: skip
+    assert len(plans) == 1
+    ran = plans[0].model_dump(include=set(HarnessSettings.model_fields))
+    assert ran == EVAL_HARNESS.model_dump()

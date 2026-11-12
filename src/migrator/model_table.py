@@ -11,7 +11,7 @@ tasks). A level maps to a model in the table, from any provider LangChain's
   model's work.
 
 Provider features (effort levels, prompt caching, strict tool schemas, structured
-output, the advisor tool) are declared per model in the table. ``chat_model`` and the
+output) are declared per model in the table. ``chat_model`` and the
 repair agent's binding pass only what the model declares; whatever a configuration asks
 for and its model lacks is listed by ``feature_notes`` and turned off up front.
 
@@ -67,7 +67,6 @@ class ModelCard(_Frozen):
     prompt_caching: bool = False
     strict_tools: bool = False
     structured_output: bool = False
-    advisor: bool = False
 
     @field_validator("id")
     @classmethod

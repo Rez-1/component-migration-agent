@@ -31,8 +31,6 @@ def test_shipped_configurations_load() -> None:
     names = sorted(p.stem for p in CONFIGS.glob("*.toml"))
     assert names == [
         "baseline",
-        "cascade-haiku-opus",
-        "haiku-advisor-opus",
         "haiku-high",
         "m6-baseline",
         "m6-opus-low",
@@ -152,3 +150,17 @@ def test_preflight_passes_rules_only_and_refuses_llm_runs() -> None:
     assert not no_cap.ok and "--max-cost" in no_cap.reason
     capped = check(PlannedExperiment(configuration="o", uses_llm=True, runs=2, max_cost_usd=9))
     assert not capped.ok and "ledger" in capped.reason
+
+
+def test_a_configuration_stored_before_the_m5_removals_still_loads() -> None:
+    """run.json and experiment.json written before 0eddf6e's removals dumped
+    attempt_efforts and advisor as null: accepted and dropped, the digest unchanged."""
+    opus = find_configuration("opus-low", CONFIGS)
+    stored = opus.model_dump(mode="json")
+    stored["repair"] |= {"attempt_efforts": None, "advisor": None}
+    assert Configuration.model_validate(stored).digest() == opus.digest() == "d81d48a907d0"
+    for key, value in (("attempt_efforts", ["low"] * 3), ("advisor", {"model": "x"})):
+        bad = opus.model_dump(mode="json")
+        bad["repair"][key] = value
+        with pytest.raises(ValueError, match="removed after commit 0eddf6e"):
+            Configuration.model_validate(bad)
