@@ -414,7 +414,7 @@ def build_deps(
     worktree: Worktree | None = None,
 ) -> RunDeps:
     configuration = opts.configuration
-    spec = configuration.apply_to(opts.spec)
+    spec = opts.spec
     cost = configuration.cost
     caps = RunCaps(
         run_usd=opts.max_run_usd if opts.max_run_usd is not None else cost.max_run_usd,
@@ -560,7 +560,7 @@ def start_run(
     configuration = opts.configuration
     ensure_runnable(configuration)
     repo = opts.repo.resolve()
-    spec = configuration.apply_to(opts.spec)
+    spec = opts.spec
     run_dir = opts.run_dir.resolve()
     run_id = opts.run_id or run_dir.name
     check_detection(repo, spec)
@@ -725,7 +725,7 @@ def resume_run(
         raise ChangedWorkspaceError(changed)
     opts = options_from_record(record, run_dir)
     traps = load_traps(Path(record.traps)) if record.traps else None
-    spec = opts.configuration.apply_to(opts.spec)
+    spec = opts.spec
     config = resolve_config(opts.repo, spec, opts.case, opts.incremental_typecheck)
     run_runner, owned, opts = open_runner(opts, config, runner)
     budget: Budget | None = None

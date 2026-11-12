@@ -214,7 +214,7 @@ def test_resume_refuses_a_changed_configuration(
 ) -> None:
     run_experiment(_plan(tmp_path), run=FakeRuns(card_input, ["dirty"] * 2))
     changed = BASELINE.model_copy(
-        update={"rules": BASELINE.rules.model_copy(update={"skip": ["x"]})}
+        update={"cost": BASELINE.cost.model_copy(update={"max_run_usd": 6.0})}
     )
     with pytest.raises(EvalError, match="not be comparable"):
         run_experiment(

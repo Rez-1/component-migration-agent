@@ -25,7 +25,6 @@ from migrator.scan.assets import (
     template_usages,
 )
 from migrator.scan.parser import ParsedFile, Usage, parse_file
-from migrator.scan.teams import TeamSource, load_teams
 from migrator.workspace import list_files
 
 SCHEMA_VERSION = 1
@@ -50,7 +49,6 @@ class GuideRef(BaseModel):
 
 class FileUsages(BaseModel):
     path: str
-    team: str
     old_usages: list[Usage]
     new_usages: list[Usage]
     expected_repair: list[str]  # guide change ids
@@ -69,15 +67,6 @@ class SymbolSummary(BaseModel):
     usages: int
     files: int
     guide_changes: list[GuideRef]
-
-
-class TeamSummary(BaseModel):
-    team: str
-    source: TeamSource
-    affected_files: int
-    usages: int
-    expected_repair_usages: int
-    expected_repair_files: int
 
 
 class UsageTotals(BaseModel):
@@ -102,7 +91,6 @@ class UsageReport(BaseModel):
     migration: str
     target_repo: str
     totals: UsageTotals
-    by_team: list[TeamSummary]
     by_symbol: list[SymbolSummary]
     files: list[FileUsages]
     meta: ScanMeta
@@ -170,7 +158,6 @@ def _git_commit(repo: Path) -> str | None:
 
 def scan(inp: ScanInput) -> UsageReport:
     spec = inp.spec
-    teams = load_teams(inp.repo)
     guide = load_guide(spec.guide_dir(), spec.guide)
     paths = list_files(inp.repo, inp.source_globs, inp.exclude)
     parsed = scan_sources(inp.repo, spec, paths)
@@ -203,7 +190,6 @@ def scan(inp: ScanInput) -> UsageReport:
         files.append(
             FileUsages(
                 path=path,
-                team=teams.team_for(path),
                 old_usages=old,
                 new_usages=new,
                 expected_repair=repair_ids,
@@ -240,23 +226,6 @@ def scan(inp: ScanInput) -> UsageReport:
     ]
     symbols.sort(key=lambda s: (-s.usages, s.symbol, s.module))
 
-    team_names = sorted({f.team for f in files if f.affected})
-    by_team = []
-    for team in team_names:
-        team_files = [f for f in files if f.affected and f.team == team]
-        team_repair = [(f, u) for f, u in repair_usages if f.team == team]
-        by_team.append(
-            TeamSummary(
-                team=team,
-                source=teams.source,
-                affected_files=len(team_files),
-                usages=sum(len(f.old_usages) for f in team_files),
-                expected_repair_usages=len(team_repair),
-                expected_repair_files=len({f.path for f, _ in team_repair}),
-            )
-        )
-    by_team.sort(key=lambda t: (-t.usages, t.team))
-
     totals = UsageTotals(
         files_scanned=len(paths),
         affected_files=sum(1 for f in files if f.affected),
@@ -270,7 +239,6 @@ def scan(inp: ScanInput) -> UsageReport:
         migration=spec.id,
         target_repo=repo_name(inp.repo),
         totals=totals,
-        by_team=by_team,
         by_symbol=symbols,
         files=files,
         meta=ScanMeta(

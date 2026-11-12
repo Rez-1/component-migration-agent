@@ -21,7 +21,6 @@ from migrator.cost import (
     Usage,
     cost_usd,
 )
-from migrator.migrations import MigrationSpec
 from tests.conftest import REPO_ROOT
 
 CONFIGS = REPO_ROOT / "evals" / "configs"
@@ -95,20 +94,13 @@ def test_name_must_match_the_file(tmp_path: Path) -> None:
         find_configuration("nope", CONFIGS)
 
 
-def test_skipping_rules(spec: MigrationSpec) -> None:
-    config = Configuration.model_validate({"name": "x", "rules": {"skip": ["box-sx-prop"]}})
-    names = [s.name for s in config.apply_to(spec).rule_steps]
-    assert "box-sx-prop" not in names
-    assert len(names) == len(spec.rule_steps) - 1
-    assert config.digest() != BASELINE.digest()
-
-
-def test_the_dependency_bump_cannot_be_switched_off(spec: MigrationSpec) -> None:
-    # Without it a run is not a migration, and would verify clean migrating nothing.
-    for step in ("dependencies", "install", "nope"):
-        config = Configuration.model_validate({"name": "x", "rules": {"skip": [step]}})
-        with pytest.raises(ConfigurationError, match="not a codemod or script"):
-            config.apply_to(spec)
+def test_rules_skip_is_gone_but_an_empty_one_still_loads() -> None:
+    """Every configuration and stored run before 0eddf6e's removals had rules.skip = []:
+    it loads, with the digest it had; a skip that names a step is refused."""
+    stored = BASELINE.model_dump(mode="json") | {"rules": {"skip": []}}
+    assert Configuration.model_validate(stored).digest() == BASELINE.digest() == "73a3262d088d"
+    with pytest.raises(ValueError, match=r"rules\.skip was removed"):
+        Configuration.model_validate({"name": "x", "rules": {"skip": ["box-sx-prop"]}})
 
 
 def test_digest_ignores_the_description() -> None:

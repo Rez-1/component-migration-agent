@@ -33,12 +33,9 @@ from migrator.evals import (
     read_manifest,
     run_experiment,
 )
-from migrator.evals.retrieval import RetrievalError
-from migrator.evals.retrieval import measure as measure_retrieval
-from migrator.evals.retrieval import render as render_retrieval
 from migrator.evals.summary import build_summary, write_summary
 from migrator.execs import LocalRunner, Sandbox, docker_available
-from migrator.migrations import UnknownMigrationError, available_specs, find_spec
+from migrator.migrations import UnknownMigrationError, find_spec
 from migrator.pipeline import (
     PausedRun,
     RunError,
@@ -130,15 +127,6 @@ def scan_command(
         f"Codemods expected to handle {t.expected_by_codemods} of {t.old_usages} usages; "
         f"{t.expected_repair} usages in {t.expected_repair_files} files may need repair."
     )
-    table = Table("Team", "Affected files", "Usages", "Expected repair")
-    for team in report.by_team:
-        table.add_row(
-            team.team,
-            str(team.affected_files),
-            str(team.usages),
-            f"{team.expected_repair_usages} in {team.expected_repair_files} files",
-        )
-    console.print(table)
     console.print(f"Usage report: {out_dir / 'usage-report.md'}")
 
 
@@ -845,38 +833,3 @@ def eval_score_reference(
             f"{c['out of scope']}; silent misses {score.silent_misses}; judge "
             f"{score.judge_calls} calls ${score.judge_cost_usd:.2f}"
         )
-
-
-@eval_app.command("retrieval")
-def eval_retrieval(
-    run: Annotated[
-        Path,
-        typer.Argument(help="A finished run folder (a Baseline run: the files after Rules)."),
-    ],
-    case: Annotated[str, typer.Option(help="The fixture case whose traps score it.")] = (
-        "fixture-mui4"
-    ),
-    mode: Annotated[
-        list[str] | None,
-        typer.Option(help="Retrieval modes to compare (default: every built one)."),
-    ] = None,
-    root: RootOpt = None,
-) -> None:
-    """Offline, free: is each repair trap's guide section in its file's top 3?"""
-    base = _repo_root(root)
-    try:
-        case_config = load_case(base / "evals" / "cases" / case / "case.toml")
-        if case_config.split != "dev":
-            raise RetrievalError(f"{case} is a {case_config.split} case; measure dev cases only")
-        traps_path = case_config.traps_path()
-        if traps_path is None:
-            raise RetrievalError(f"{case} has no traps to score retrieval with")
-        from migrator.config import load_traps
-
-        traps = load_traps(traps_path)
-        spec = next(s for s in available_specs() if s.id == case_config.migration)
-        modes = mode or ["keyword"]
-        reports = [measure_retrieval(run, traps, spec, m) for m in modes]
-    except (ConfigError, RetrievalError, StopIteration) as exc:
-        raise _fail(str(exc)) from exc
-    console.print(render_retrieval(reports), markup=False)

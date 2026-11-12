@@ -1,9 +1,10 @@
 """Configurations: everything an experiment varies, one TOML file each.
 
 A configuration names the model per attempt, effort, repair prompt version, retrieval
-mode, max attempts, cost caps and which rules are on. The Baseline is the
-configuration with repair turned off. Configurations live in ``evals/configs/`` and are
-also what a normal run is configured by (its caps and models).
+mode, max attempts and cost caps; every rule step of the migration spec runs. The
+Baseline is the configuration with repair turned off. Configurations live in
+``evals/configs/`` and are also what a normal run is configured by (its caps and
+models).
 
 From M3 a configuration with repair on runs the repair agent with the models it
 names, one per attempt. ``ensure_runnable`` refuses one this version can't run
@@ -28,7 +29,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from migrator.migrations import CodemodStep, MigrationSpec, ScriptStep
 from migrator.model_table import (
     ModelLevels,
     UnknownModelError,
@@ -53,11 +53,6 @@ _DIGEST_OPTIONAL = {
     "test_fitting_hand_off": False,
     "reviewer_model": None,
 }
-
-# Rule steps a configuration may switch off. Install, dependencies and format are not
-# optional: without the dependency bump a run is not a migration at all (and would
-# verify clean while migrating nothing).
-OPTIONAL_STEP_KINDS = ("codemod", "script")
 
 # Default caps (ticket #12): on by default, no unlimited mode.
 DEFAULT_MAX_RUN_USD = 5.0
@@ -145,11 +140,6 @@ class CostCaps(_Model):
     stop_run_usd: float | None = Field(default=None, gt=0)
 
 
-class RulesSettings(_Model):
-    # Names of codemod or script rule steps to switch off; everything else runs.
-    skip: list[str] = []
-
-
 class Configuration(_Model):
     schema_version: int = SCHEMA_VERSION
     name: str
@@ -159,10 +149,23 @@ class Configuration(_Model):
     models: ModelLevels = ModelLevels()
     repair: RepairSettings = RepairSettings()
     cost: CostCaps = CostCaps()
-    rules: RulesSettings = RulesSettings()
 
     # Set by the loader. Not part of the TOML.
     path: Path | None = Field(default=None, exclude=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _removed_rules(cls, data: Any) -> Any:
+        """``[rules] skip`` (switch rule steps off) was removed after 0eddf6e; no
+        configuration ever skipped one. ``skip = []``, which every configuration and
+        stored run of that time has, is accepted and dropped."""
+        if isinstance(data, dict) and "rules" in data:
+            if data["rules"] not in ({}, {"skip": []}):
+                raise ValueError(
+                    "rules.skip was removed after commit 0eddf6e: every rule step runs"
+                )
+            data = {k: v for k, v in data.items() if k != "rules"}
+        return data
 
     @model_validator(mode="after")
     def _resolve_levels(self) -> Configuration:
@@ -224,23 +227,11 @@ class Configuration(_Model):
         for key in ("reserve_attempt_usd", "stop_run_usd"):
             if data["cost"].get(key) is None:
                 data["cost"].pop(key, None)
+        # rules.skip was digested, always empty, until it was removed after 0eddf6e;
+        # digesting it as it was keeps every configuration's digest.
+        data["rules"] = {"skip": []}
         blob = json.dumps(data, sort_keys=True).encode()
         return hashlib.sha256(blob).hexdigest()[:12]
-
-    def apply_to(self, spec: MigrationSpec) -> MigrationSpec:
-        """The spec with this configuration's switched-off rule steps removed."""
-        if not self.rules.skip:
-            return spec
-        optional = {s.name for s in spec.rule_steps if isinstance(s, CodemodStep | ScriptStep)}
-        unknown = sorted(set(self.rules.skip) - optional)
-        if unknown:
-            raise ConfigurationError(
-                f"configuration {self.name!r} skips {', '.join(unknown)}, which "
-                f"{'is not a' if len(unknown) == 1 else 'are not'} codemod or script "
-                f"step of {spec.id} (optional steps: {', '.join(sorted(optional))})"
-            )
-        steps = [s for s in spec.rule_steps if s.name not in self.rules.skip]
-        return spec.model_copy(update={"rule_steps": steps})
 
 
 BASELINE = Configuration(name="baseline", description="Rules only: no repair agent.")
