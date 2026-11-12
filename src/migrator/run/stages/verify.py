@@ -25,6 +25,8 @@ from migrator.workspace import hash_file
 
 
 def verify_node(ctx: RunContext, state: RunState) -> RunState:
+    """The Verify after Rules. With the snapshot policy, snapshot-only failures are
+    rewritten and the Start of Repair is saved again to include them."""
     d = ctx.deps
     d.say("Verify", "type-check, lint, tests")
     result = ctx.checker(state).check("verify")
@@ -72,6 +74,8 @@ def update_snapshots(
 
 
 def final_verify_node(ctx: RunContext, state: RunState) -> RunState:
+    """The final verify (with the snapshot policy), the rescan, the final
+    files saved for scoring, and the cheating checks."""
     d = ctx.deps
     workspace = ctx.workspace(state)
     report = ctx.report(state)

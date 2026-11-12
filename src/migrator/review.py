@@ -3,7 +3,8 @@
 The graph pauses with one ``interrupt()`` per hand-off and resumes with a typed
 ``ReviewAnswer``. Whoever answers implements ``Reviewer``: the Rich loop below for the
 CLI (a Textual UI can replace it without touching the graph), or ``AutoReviewer`` for
-evals, CI and ``--no-review``, which always answers Revert.
+evals, CI and ``--no-review``, which always answers Revert. ``apply_answer`` decides
+what an answer comes to; the run's review node applies it.
 """
 
 from __future__ import annotations

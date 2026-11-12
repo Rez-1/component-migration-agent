@@ -1,14 +1,24 @@
 """The run graph's wiring: its nodes, edges and routes, in run order.
 
-    Scan -> Pre-check -> Rules -> commit -> Verify -> plan repair
-         -> next file -> start file -> agent <-> tools -> file end -> next file ...
-            (and once, a recheck when the first Verify ran no spec)
-         -> commit -> prepare review <-> review (one interrupt per hand-off)
-         -> commit -> final Verify -> Report
+    Scan -> Pre-check -> Rules -> commit_rules -> Verify -> plan_repair
+         -> next_file -> start_file -> agent <-> tools -> file_end -> next_file ...
+            (once, a recheck when the Verify after Rules ran no spec)
+         -> commit_agent -> prepare_review <-> review (one interrupt per hand-off)
+         -> commit_review -> final_verify -> Report
 
-Each node is a plain function of the RunContext and the state, bound here, and each
-route is one too. Timing is added here, once per timed node. A paused run resumes by
-node name and state key, so both are fixed (tests/test_graph_shape.py).
+Each node is a plain function ``(ctx, state) -> changed keys`` in ``stages/``, bound
+here to the run's RunContext; each route is one too. Timing is one wrapper, applied
+here to the nodes that are timed. LangGraph checkpoints the state after every node, so
+Rules runs once even across a pause and resume (the codemods are not idempotent), and
+a paused run resumes by node name and state key: both are pinned by
+``tests/test_graph_shape.py``.
+
+Repair's limits are edges, not prompt text: an attempt ends when the agent calls
+``run_verify`` (or at 15 tool calls, which hands the file off), a file gets at most its
+configured attempts, and the cost cap ends Repair for every remaining file (they end
+Unmigrated, and the run still goes through Review and Report, so there is always a
+Scorecard). The commit nodes commit a real run's stage once (they look for their own
+commit first) and pass a dry run through unchanged.
 """
 
 from __future__ import annotations

@@ -18,6 +18,9 @@ from migrator.verify import Failure
 
 
 def prepare_review_node(ctx: RunContext, state: RunState) -> RunState:
+    """The next hand-off's ReviewPayload, with a set-aside patch put back
+    first so the human sees (and can edit) it. Review itself computes nothing
+    before its interrupt, so a resumed Review repeats no change."""
     queue = list(state.get("review_queue") or [])
     if not queue:
         return {"review": None}
@@ -68,6 +71,8 @@ def route_prepare_review(ctx: RunContext, state: RunState) -> str:
 
 
 def review_node(ctx: RunContext, state: RunState) -> RunState:
+    """Pause for the human's answer to one hand-off, then apply it
+    (``apply_answer``)."""
     # Nothing before interrupt(): on resume this node starts again from here.
     payload = ReviewPayload.model_validate(state["review"])
     answer = interrupt(payload.model_dump(mode="json"), response_schema=ReviewAnswer)

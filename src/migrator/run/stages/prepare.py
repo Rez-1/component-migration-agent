@@ -28,6 +28,8 @@ from migrator.workspace import create_dry_run_workspace
 
 
 def scan_node(ctx: RunContext, state: RunState) -> RunState:
+    """Scan the target repo for the migration's old usages into the run folder; the
+    repair report and the call list start empty."""
     d = ctx.deps
     d.say("Scan", f"scanning {d.repo.name}")
     usage = scan(
@@ -55,6 +57,8 @@ def scan_node(ctx: RunContext, state: RunState) -> RunState:
 
 
 def precheck_node(ctx: RunContext, state: RunState) -> RunState:
+    """Make the workspace (a real run's worktree, or a new copy for a dry run),
+    install and verify it untouched, and take the visual check's before capture."""
     d = ctx.deps
     if d.worktree is not None:  # a real run: the worktree on the migration branch
         workspace = d.worktree.workspace
@@ -152,6 +156,8 @@ def run_precheck(ctx: RunContext, workspace: Path) -> tuple[str | None, str | No
 
 
 def rules_node(ctx: RunContext, state: RunState) -> RunState:
+    """Run the rule steps, once: a marker refuses a second start on the same
+    workspace. The workspace after them is saved as the Start of Repair."""
     d = ctx.deps
     if state.get("rules_done"):
         return {}

@@ -78,6 +78,9 @@ def reserve_queue(budget: Budget, order: list[str], tests: Mapping[str, str]) ->
 
 
 def plan_repair_node(ctx: RunContext, state: RunState) -> RunState:
+    """The repair queue: failing files in repair order, a shared cause's
+    definition first, with their worst case reserved before any model call. With
+    repair off, the queue is empty."""
     result = VerifyResult.model_validate(state["verify"])
     after = ctx.files.start_of_repair()
     tests = find_test_files(
@@ -148,6 +151,9 @@ def _repair_did_not_start(held: Reservation, caps: RunCaps) -> str:
 
 
 def next_file_node(ctx: RunContext, state: RunState) -> RunState:
+    """Before each file: once the cost cap is reached, the rest end not
+    attempted; after a shared definition was repaired, callers that no longer fail
+    leave the queue."""
     report = ctx.report(state)
     queue = list(state.get("queue") or [])
     if report.stopped_by_cost_cap and queue:

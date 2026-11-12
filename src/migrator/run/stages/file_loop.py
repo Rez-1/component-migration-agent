@@ -44,6 +44,8 @@ def attempt_model(ctx: RunContext, attempt: int) -> str:
 
 
 def start_file_node(ctx: RunContext, state: RunState) -> RunState:
+    """Take the next file and start its repair: its session and first message.
+    A failing Test file is handed off at once, without a model call."""
     assert ctx.deps.templates is not None and ctx.deps.retriever is not None
     queue = list(state.get("queue") or [])
     path = queue.pop(0)
@@ -151,6 +153,8 @@ def route_start_file(ctx: RunContext, state: RunState) -> str:
 
 
 def agent_node(ctx: RunContext, state: RunState) -> RunState:
+    """One model call in the file's current attempt. The cost cap ends the repair
+    (Unmigrated); a refusal hands the file off."""
     d = ctx.deps
     assert d.model is not None and d.templates is not None
     session = SessionState.model_validate(state["current"])
@@ -213,6 +217,7 @@ def route_agent(ctx: RunContext, state: RunState) -> str:
 
 
 def tools_node(ctx: RunContext, state: RunState) -> RunState:
+    """Run the model's tool calls against the file's RepairSession."""
     session = ctx.repair_session(state, SessionState.model_validate(state["current"]))
     messages = list(state.get("messages") or [])
     last = messages[-1] if messages else None
@@ -320,6 +325,8 @@ def end_policy(ctx: RunContext) -> EndPolicy:
 
 
 def file_end_node(ctx: RunContext, state: RunState) -> RunState:
+    """End the file's repair (``end_file``), apply its outcome to the workspace
+    and the repair report, and save its conversation."""
     d = ctx.deps
     start = ctx.files.start_of_repair()
     workspace = ctx.workspace(state)

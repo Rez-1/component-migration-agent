@@ -18,6 +18,8 @@ from migrator.workspace import remove_worktree
 
 
 def report_node(ctx: RunContext, state: RunState) -> RunState:
+    """Score the run's Evidence and write the Scorecard and PR body, then clean
+    up the workspace (still here: #26 makes cleanup a node of its own)."""
     d = ctx.deps
     run_dir = ctx.files.folder
     evidence = evidence_from_run(state, ctx.files, d, partial(_visual, ctx, state))
