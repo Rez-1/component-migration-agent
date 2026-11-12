@@ -30,25 +30,6 @@ def render_usage_report(report: UsageReport, top_symbols: int = 10) -> str:
         "counted for repair when its symbol has any unmarked breaking change, whether or "
         "not the file uses the changed prop. Import statements count as codemod-handled.",
         "",
-        "## By team",
-        "",
-        "| Team | Affected files | Usages | Expected repair |",
-        "|---|---|---|---|",
-    ]
-    for team in report.by_team:
-        repair = (
-            f"{team.expected_repair_usages} usages in {team.expected_repair_files} "
-            f"file{'s' if team.expected_repair_files != 1 else ''}"
-            if team.expected_repair_usages
-            else "—"
-        )
-        lines.append(f"| {team.team} | {team.affected_files} | {team.usages} | {repair} |")
-    source = report.by_team[0].source if report.by_team else "CODEOWNERS"
-    if source == "folder":
-        lines += ["", "No CODEOWNERS file, so teams are top-level folders."]
-
-    lines += [
-        "",
         "## Most-used symbols",
         "",
         "| Symbol | Module | Usages | Files | Guide says |",
@@ -73,8 +54,8 @@ def render_usage_report(report: UsageReport, top_symbols: int = 10) -> str:
         "",
         "## Files",
         "",
-        "| File | Team | Usages | Expected repair |",
-        "|---|---|---|---|",
+        "| File | Usages | Expected repair |",
+        "|---|---|---|",
     ]
     for f in sorted(affected, key=lambda f: (-len(f.expected_repair), f.path)):
         repair = ", ".join(i.split("#", 1)[1] for i in f.expected_repair[:3])
@@ -82,5 +63,5 @@ def render_usage_report(report: UsageReport, top_symbols: int = 10) -> str:
         if more > 0:
             repair += f" (+{more})"
         warn = " (syntax errors)" if f.has_syntax_errors else ""
-        lines.append(f"| {f.path}{warn} | {f.team} | {len(f.old_usages)} | {repair or '—'} |")
+        lines.append(f"| {f.path}{warn} | {len(f.old_usages)} | {repair or '—'} |")
     return "\n".join(lines) + "\n"

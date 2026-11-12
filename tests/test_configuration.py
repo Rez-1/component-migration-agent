@@ -21,7 +21,6 @@ from migrator.cost import (
     Usage,
     cost_usd,
 )
-from migrator.migrations import MigrationSpec
 from tests.conftest import REPO_ROOT
 
 CONFIGS = REPO_ROOT / "evals" / "configs"
@@ -31,9 +30,6 @@ def test_shipped_configurations_load() -> None:
     names = sorted(p.stem for p in CONFIGS.glob("*.toml"))
     assert names == [
         "baseline",
-        "cascade-haiku-opus",
-        "haiku-advisor-opus",
-        "haiku-debug",
         "haiku-high",
         "m6-baseline",
         "m6-opus-low",
@@ -43,9 +39,6 @@ def test_shipped_configurations_load() -> None:
         "m7-baseline",
         "m7-strong-low",
         "opus-low",
-        "opus-low-context",
-        "opus-low-imports",
-        "opus-low-tools-v2",
         "sonnet-medium",
     ]
     baseline = find_configuration("baseline", CONFIGS)
@@ -64,7 +57,7 @@ def test_the_baseline_file_matches_the_built_in_baseline() -> None:
 
 
 def test_repair_configurations_are_runnable_from_m3() -> None:
-    for name in ("baseline", "opus-low", "haiku-debug"):
+    for name in ("baseline", "opus-low", "haiku-high"):
         ensure_runnable(find_configuration(name, CONFIGS))
 
 
@@ -101,20 +94,13 @@ def test_name_must_match_the_file(tmp_path: Path) -> None:
         find_configuration("nope", CONFIGS)
 
 
-def test_skipping_rules(spec: MigrationSpec) -> None:
-    config = Configuration.model_validate({"name": "x", "rules": {"skip": ["box-sx-prop"]}})
-    names = [s.name for s in config.apply_to(spec).rule_steps]
-    assert "box-sx-prop" not in names
-    assert len(names) == len(spec.rule_steps) - 1
-    assert config.digest() != BASELINE.digest()
-
-
-def test_the_dependency_bump_cannot_be_switched_off(spec: MigrationSpec) -> None:
-    # Without it a run is not a migration, and would verify clean migrating nothing.
-    for step in ("dependencies", "install", "nope"):
-        config = Configuration.model_validate({"name": "x", "rules": {"skip": [step]}})
-        with pytest.raises(ConfigurationError, match="not a codemod or script"):
-            config.apply_to(spec)
+def test_rules_skip_is_gone_but_an_empty_one_still_loads() -> None:
+    """Every configuration and stored run before 0eddf6e's removals had rules.skip = []:
+    it loads, with the digest it had; a skip that names a step is refused."""
+    stored = BASELINE.model_dump(mode="json") | {"rules": {"skip": []}}
+    assert Configuration.model_validate(stored).digest() == BASELINE.digest() == "73a3262d088d"
+    with pytest.raises(ValueError, match=r"rules\.skip was removed"):
+        Configuration.model_validate({"name": "x", "rules": {"skip": ["box-sx-prop"]}})
 
 
 def test_digest_ignores_the_description() -> None:
@@ -156,3 +142,17 @@ def test_preflight_passes_rules_only_and_refuses_llm_runs() -> None:
     assert not no_cap.ok and "--max-cost" in no_cap.reason
     capped = check(PlannedExperiment(configuration="o", uses_llm=True, runs=2, max_cost_usd=9))
     assert not capped.ok and "ledger" in capped.reason
+
+
+def test_a_configuration_stored_before_the_m5_removals_still_loads() -> None:
+    """run.json and experiment.json written before 0eddf6e's removals dumped
+    attempt_efforts and advisor as null: accepted and dropped, the digest unchanged."""
+    opus = find_configuration("opus-low", CONFIGS)
+    stored = opus.model_dump(mode="json")
+    stored["repair"] |= {"attempt_efforts": None, "advisor": None}
+    assert Configuration.model_validate(stored).digest() == opus.digest() == "d81d48a907d0"
+    for key, value in (("attempt_efforts", ["low"] * 3), ("advisor", {"model": "x"})):
+        bad = opus.model_dump(mode="json")
+        bad["repair"][key] = value
+        with pytest.raises(ValueError, match="removed after commit 0eddf6e"):
+            Configuration.model_validate(bad)

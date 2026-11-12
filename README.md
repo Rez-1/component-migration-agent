@@ -30,7 +30,7 @@ uv run migrator migrate path/to/repo --from mui@4 --to mui@5 --dry-run   # codem
 With an Anthropic API key in the environment:
 
 ```sh
-uv run migrator migrate path/to/repo --from mui@4 --to mui@5 --config opus-low --max-cost 2
+uv run migrator migrate path/to/repo --from mui@4 --to mui@5 --config m7-strong-low --max-cost 2
 uv run migrator pr path/to/repo/.migrator/runs/<run-id>                  # shows the push and PR it would make
 ```
 
@@ -137,7 +137,7 @@ Before the real repos, I measured the agent on test apps I wrote myself: small R
 
 89% is the maximum on this app. The one file left is a test that checks v4 class names; only a human may change tests, and the agent handed it off both times with that reason. [Summary](docs/results/opus-low-holdout/experiment-summary.md).
 
-**Choosing the model.** Seven paid rounds on two other test apps, 4 runs per row (full log in [`experiments.md`](experiments.md)):
+**Choosing the model.** Seven paid rounds on two other test apps, 4 runs per row (full log in [`experiments.md`](experiments.md)). Measured at commit [`0eddf6e`](https://github.com/Rez-1/component-migration-agent/tree/0eddf6e), the last with the advisor, the Haiku-then-Opus cascade and `eval climb`; reproduce these rows from there. They are left out of the end-of-M7 re-run.
 
 | Setup | Migrated without a human | Agent traps fixed (of 9) | Cost per run |
 |---|---|---|---|
@@ -166,7 +166,7 @@ Every agent run in this table was clean. The cheaper models failed safely: almos
 ## Evals
 
 - Cases are in [`evals/cases/`](evals/cases), split into **dev** (tuned on) and **held out** (run only at milestones). Each trap is scored as handled by the expected layer, by another layer, or missed.
-- The grader, the scorecard and the cheating checks are locked while tuning: `migrator eval climb` refuses to run if they changed since the last approval, so a better score can't come from a changed ruler.
+- In M5 the grader, the scorecard and the cheating checks were locked while tuning: `migrator eval climb` refused to run if they had changed since the last approval, so a better score couldn't come from a changed ruler. Its rounds are frozen under [`.claude/hillclimb/dev/`](.claude/hillclimb/dev); the command was removed after commit [`0eddf6e`](https://github.com/Rez-1/component-migration-agent/tree/0eddf6e). M6 and M7 tuned with `eval run`.
 - [`docs/eval-audit.md`](docs/eval-audit.md) lists what the evals can and cannot show.
 - Results are in [`docs/results/`](docs/results) and [`.claude/hillclimb/dev/`](.claude/hillclimb/dev) (every round's runs, scorecards and agent transcripts).
 
@@ -174,7 +174,7 @@ Evals from the command line:
 
 ```sh
 uv run migrator eval run --split dev --config baseline                   # codemods only, free
-uv run migrator eval run --split dev --config opus-low --max-cost 1.5
+uv run migrator eval run --split dev --config m7-strong-low --max-cost 1.5
 uv run migrator eval summary dev/<experiment>
 ```
 

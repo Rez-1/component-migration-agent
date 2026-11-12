@@ -45,8 +45,6 @@ class CachedPrecheck(BaseModel):
     precheck: PrecheckResult
     node_version: str | None
     npm_version: str | None
-    # With node_modules in a Docker volume (speed-up 4): the cache's copy of it.
-    node_modules_volume: str | None = None
 
 
 def tree_hash(root: Path) -> str:

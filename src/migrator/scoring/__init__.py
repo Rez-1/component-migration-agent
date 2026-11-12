@@ -6,7 +6,7 @@ Verify, scan or Cheating check and reads no files. Callers import only from here
 - ``score(evidence)``: the Scorecard of one run, from the Migrator
   (``MigratorChanges``) or from a general coding agent (``AgentChanges``).
 - ``run_metrics(card)`` and ``METRICS``: the one per-run metric list, which the
-  experiment summary, ``grade()`` and the hill-climb keep rule all read.
+  experiment summary and ``grade()`` both read.
 - The Scorecard schema and ``stable_view``, its deterministic part.
 """
 

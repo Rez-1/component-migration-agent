@@ -47,7 +47,7 @@ from migrator.config import (
     read_package_json,
 )
 from migrator.configuration import BASELINE, Configuration, ensure_runnable
-from migrator.cost import Budget, Ledger, RunCaps, UnknownModelPriceError, price_for
+from migrator.cost import Budget, Ledger, RunCaps
 from migrator.detection import resolve_repo_config
 from migrator.execs import (
     CommandRunner,
@@ -124,8 +124,6 @@ class RunOptions(BaseModel):
     precheck_cache: bool = False
     # One long-lived container per run, commands by docker exec (M6 speed-up 3; evals).
     run_container: bool = False
-    # node_modules in a Docker volume of the run container (M6 speed-up 4; needs 3).
-    node_modules_volume: bool = False
     # tsc --incremental in the type-check (M6 speed-up 5).
     incremental_typecheck: bool = False
 
@@ -334,7 +332,6 @@ def sandbox_runner(
     config: ResolvedRepoConfig,
     tools_cache: Path | None,
     per_run: bool = False,
-    node_modules_volume: bool = False,
 ) -> tuple[CommandRunner, Path | None]:
     """The run's runner and its codemod tools cache. Docker installs the tools inside
     the container (for Linux), so they get a cache of their own per image, mounted
@@ -358,7 +355,6 @@ def sandbox_runner(
         config.node,
         read_only=[cache],
         per_run=per_run,
-        node_modules_volume=per_run and node_modules_volume,
         image=browser,
     )
     return runner, cache
@@ -379,7 +375,6 @@ def open_runner(
                 config,
                 opts.tools_cache,
                 per_run=opts.run_container and opts.mode == "eval",
-                node_modules_volume=opts.node_modules_volume,
             )
         except SandboxError as exc:
             raise RunError(str(exc)) from exc
@@ -419,7 +414,7 @@ def build_deps(
     worktree: Worktree | None = None,
 ) -> RunDeps:
     configuration = opts.configuration
-    spec = configuration.apply_to(opts.spec)
+    spec = opts.spec
     cost = configuration.cost
     caps = RunCaps(
         run_usd=opts.max_run_usd if opts.max_run_usd is not None else cost.max_run_usd,
@@ -435,14 +430,8 @@ def build_deps(
     if configuration.repair.enabled:
         repair = configuration.repair
         templates = load_templates(repair.prompt_version or "v1")
-        # ensure_runnable has refused an advisor without its prompt, and embeddings.
-        if repair.advisor is not None:
-            try:
-                price_for(repair.advisor.model)  # an unpriced advisor can't be capped
-            except UnknownModelPriceError as exc:
-                raise RunError(str(exc)) from exc
         tools = RepairTools(tool_text(templates, spec))
-        retriever = GuideRetriever.from_spec(spec, mode=repair.retrieval or "keyword")
+        retriever = GuideRetriever.from_spec(spec)
         model = GuardedModel(
             model_factory or provider_model,
             tools.tools,
@@ -451,7 +440,6 @@ def build_deps(
             case=opts.case.id if opts.case else None,
             tags=[f"config:{configuration.name}", *([f"case:{opts.case.id}"] if opts.case else [])],
             configuration=configuration.name,
-            advisor=repair.advisor,
         )
     return RunDeps(
         repo=opts.repo.resolve(),
@@ -572,7 +560,7 @@ def start_run(
     configuration = opts.configuration
     ensure_runnable(configuration)
     repo = opts.repo.resolve()
-    spec = configuration.apply_to(opts.spec)
+    spec = opts.spec
     run_dir = opts.run_dir.resolve()
     run_id = opts.run_id or run_dir.name
     check_detection(repo, spec)
@@ -737,7 +725,7 @@ def resume_run(
         raise ChangedWorkspaceError(changed)
     opts = options_from_record(record, run_dir)
     traps = load_traps(Path(record.traps)) if record.traps else None
-    spec = opts.configuration.apply_to(opts.spec)
+    spec = opts.spec
     config = resolve_config(opts.repo, spec, opts.case, opts.incremental_typecheck)
     run_runner, owned, opts = open_runner(opts, config, runner)
     budget: Budget | None = None

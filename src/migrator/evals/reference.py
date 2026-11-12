@@ -275,15 +275,14 @@ JudgeFn = Callable[[str, str], Judgement]  # (prompt, ledger file label) -> Judg
 
 def independent_judge(name: str, judged: Configuration) -> str:
     """The judge's model for scoring runs of ``judged``: a level (of the default levels)
-    or a model, priced, and not a model that wrote the runs' code, a repair attempt's or
-    the advisor's (M7: no model judges its own work). The test-fitting reviewer writes
+    or a model, priced, and not a model that wrote the runs' code, a repair attempt's
+    (M7: no model judges its own work). The test-fitting reviewer writes
     no code, and shares the balanced level with the judge. Raises ValueError otherwise."""
     from migrator.model_table import ModelLevels
 
     model = ModelLevels().resolve(name)
     r = judged.repair
-    writers = [*r.attempt_models, *([r.advisor.model] if r.advisor else [])]
-    if model in writers:
+    if model in r.attempt_models:
         raise ValueError(
             f"the judge ({model}) writes code in {judged.name}; no model judges its own "
             "work: pass --judge with another model"

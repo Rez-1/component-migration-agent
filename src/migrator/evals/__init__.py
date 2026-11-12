@@ -407,15 +407,13 @@ def _default_run(opts: RunOptions, runner: CommandRunner | None) -> RunResult:
 
 class HarnessSettings(BaseModel):
     """How an experiment's runs are executed (the M6 speed-ups that passed their gate),
-    not what they measure. One copy for every command that starts an experiment, so
-    ``eval run`` and ``eval climb`` can't run under different settings."""
+    not what they measure: the defaults of ``eval run``'s options."""
 
     model_config = ConfigDict(frozen=True)
 
     parallel: int = 2  # repeat runs of one case at the same time (speed-up 1)
     precheck_cache: bool = True  # speed-up 2
     run_container: bool = True  # speed-up 3
-    node_modules_volume: bool = False  # speed-up 4 failed its gate
     incremental_typecheck: bool = True  # speed-up 5
 
 
@@ -444,8 +442,6 @@ class ExperimentPlan(BaseModel):
     precheck_cache: bool = False
     # One long-lived container per run (M6 speed-up 3).
     run_container: bool = False
-    # node_modules in a Docker volume of that container (M6 speed-up 4).
-    node_modules_volume: bool = False
     # tsc --incremental in the type-check (M6 speed-up 5).
     incremental_typecheck: bool = False
 
@@ -503,7 +499,6 @@ def run_experiment(
             max_cost_usd=plan.max_cost_usd,
             attempt_models=config.repair.attempt_models,
             month_cap_usd=config.cost.max_month_usd,
-            advisor_model=config.repair.advisor.model if config.repair.advisor else None,
         )
     )
     if not pre.ok:
@@ -575,7 +570,6 @@ def run_experiment(
             sandbox=plan.sandbox,
             precheck_cache=plan.precheck_cache,
             run_container=plan.run_container,
-            node_modules_volume=plan.node_modules_volume,
             incremental_typecheck=plan.incremental_typecheck,
         )
         started = time.monotonic()

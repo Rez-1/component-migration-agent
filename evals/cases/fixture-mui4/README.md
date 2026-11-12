@@ -10,7 +10,7 @@ This README lives here, outside the fixture, on purpose: everything in `fixtures
 - `src/theme.ts`, `src/App.tsx` (with `AppProviders`, the theme shell), `src/index.tsx`, `src/data/`.
 - `src/screens/__tests__/`: one Testing Library behaviour test file per screen (20 tests, one of them a snapshot under `__snapshots__/`).
 - `src/test-utils.tsx`: test helpers (`renderScreen` inside the app shell, `renderComponent` bare, `mockViewportWidth`). It is imported only by tests, so it counts as a **Test file** and the repair agent can't edit it.
-- `CODEOWNERS`: teams for the usage report.
+- `CODEOWNERS`: teams for the usage report's By team section until 0eddf6e (kept, so the fixture is unchanged).
 
 ## Traps
 

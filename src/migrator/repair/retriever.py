@@ -1,10 +1,10 @@
 """Guide retrieval: a keyword (BM25) retriever over the vendored migration guide.
 
-It sits behind LangChain's ``BaseRetriever`` interface, so the M5 "keyword vs
-embeddings" experiment is a configuration value (``retrieval``) rather than a
-refactor. Each document is one change (or one change-less section) of the guide, as
-``migrations.guide`` splits it. A section marked as handled by a codemod is labelled,
-never demoted: codemods often handle only the common form of a change (ticket #14).
+It sits behind LangChain's ``BaseRetriever`` interface; a configuration's ``retrieval``
+names it (``keyword``, the only mode). Each document is one change (or one change-less
+section) of the guide, as ``migrations.guide`` splits it. A section marked as handled
+by a codemod is labelled, never demoted: codemods often handle only the common form of
+a change (ticket #14).
 """
 
 from __future__ import annotations
@@ -83,10 +83,6 @@ class GuideRetriever(BaseRetriever):
 
     documents: list[Document]
     k: int = 3
-    # The configuration's ``retrieval``: "keyword", or "keyword-imports", which also
-    # weighs the failing file's own components when the first message ranks sections
-    # (``prompt.rank_sections``). ``search_guide`` is the same in both.
-    mode: str = "keyword"
     _tf: list[Counter[str]] = PrivateAttr(default_factory=list)
     _df: Counter[str] = PrivateAttr(default_factory=Counter)
     _avg_len: float = PrivateAttr(default=1.0)
@@ -101,9 +97,9 @@ class GuideRetriever(BaseRetriever):
         self._avg_len = (sum(lengths) / len(lengths)) if lengths else 1.0
 
     @classmethod
-    def from_spec(cls, spec: MigrationSpec, k: int = 3, mode: str = "keyword") -> GuideRetriever:
+    def from_spec(cls, spec: MigrationSpec, k: int = 3) -> GuideRetriever:
         changes = load_guide(spec.guide_dir(), spec.guide)
-        return cls(documents=[to_document(c) for c in changes], k=k, mode=mode)
+        return cls(documents=[to_document(c) for c in changes], k=k)
 
     def scores(self, query: str) -> list[float]:
         q = tokens(query)

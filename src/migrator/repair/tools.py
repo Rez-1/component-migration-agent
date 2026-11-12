@@ -23,7 +23,7 @@ from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from migrator.execs import RunTimeoutError
-from migrator.repair.context import PatchSize, is_code, numbered
+from migrator.repair.context import PatchSize, numbered
 from migrator.repair.guardrails import (
     Blocked,
     added_escape_hatches,
@@ -34,38 +34,12 @@ from migrator.repair.guardrails import (
 from migrator.repair.prompt import PromptTemplates, attempt_result, describe_failure
 from migrator.repair.records import AttemptRecord, FileRepair
 from migrator.repair.retriever import GuideRetriever, render_section
-from migrator.scan.parser import parse_tree
 from migrator.verify import Failure
 from migrator.verify.checker import Checker
 
 TOOL_ORDER = ("read_file", "search_guide", "apply_edit", "run_verify", "hand_off")
 MAX_READ_LINES = 2000
 Ended = Literal["passed", "handed_off", "cost_cap", "error"]
-
-
-def first_parse_error(path: str, text: str) -> int | None:
-    """The 1-based line of the first syntax error tree-sitter finds, or None."""
-    tree = parse_tree(text.encode("utf-8"), path)
-    if not tree.root_node.has_error:
-        return None
-    stack = [tree.root_node]
-    while stack:
-        node = stack.pop()
-        if node.type == "ERROR" or node.is_missing:
-            return int(node.start_point[0]) + 1
-        if node.has_error:
-            stack.extend(reversed(node.children))
-    return int(tree.root_node.start_point[0]) + 1
-
-
-def new_parse_error(path: str, before: str, after: str) -> int | None:
-    """The line of a syntax error the edit introduced (None if the file parsed before
-    the edit too badly to tell, or parses after it). Code files only."""
-    if not is_code(path):
-        return None
-    if first_parse_error(path, before) is not None:
-        return None
-    return first_parse_error(path, after)
 
 
 def failure_key(f: Failure) -> str:
@@ -246,16 +220,7 @@ class RepairSession:
         full.write_text(updated, "utf-8")
         self.record.edits_applied += 1
         self.record.patch_lines[rel] = size.changed
-        result = f"Applied. Patch to {rel} so far: {size.describe()}."
-        if self.templates.options.get("apply_edit_parse_warning"):
-            line = new_parse_error(rel, current, updated)
-            if line is not None:
-                self.record.parse_warnings += 1
-                result += (
-                    f" Warning: {rel} no longer parses (syntax error at line {line}). The "
-                    "edit is kept; fix the syntax before `run_verify`."
-                )
-        return result
+        return f"Applied. Patch to {rel} so far: {size.describe()}."
 
     def narrow_verify(self, label: str) -> tuple[list[Failure], list[Failure], list[str] | None]:
         """(failures in the failing file, new failures elsewhere, test files that ran)."""

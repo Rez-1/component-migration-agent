@@ -174,7 +174,7 @@ How a run handled one trap: Expected (the expected layer handled it; for a human
 A Missed agent or human trap whose checks all pass at the final verify, so verify can't show it. Either the breaking change is still in the code with no check covering it, or it was fixed in a different file than the trap's. Only a human reading the diff can tell which; counted on its own in every scorecard and experiment summary. On a real repo, scored against its migration PR: a scoring item judged *wrong* or *untouched* whose file has no failure at the final verify and was not handed off.
 
 **Configuration**:
-Everything an experiment varies: model per attempt, effort, repair prompt, retrieval mode, max attempts, cost caps and which rules are on. The baseline is the configuration with repair turned off.
+Everything an experiment varies: model per attempt, effort, repair prompt, retrieval mode, max attempts and cost caps. Every rule step of the migration runs. The baseline is the configuration with repair turned off.
 _Avoid_: variant, arm, settings
 
 **Model level**:
@@ -182,7 +182,7 @@ A role a configuration names instead of a model: strong (the repair agent), bala
 _Avoid_: tier, model class
 
 **Split**:
-Either the dev set (climbed on) or the held-out set (run only at milestones).
+Either the dev set (tuned on) or the held-out set (run only at milestones).
 
 **Experiment**:
 All runs of one configuration over a split.

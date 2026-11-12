@@ -484,60 +484,18 @@ class RunContainerRunner(DockerRunner):
     Same image, user, limits, read-only root and clean environment as ``DockerRunner``;
     a command's timeout is enforced inside the container (``timeout -s KILL``)."""
 
-    def __init__(self, image: str, *, node_modules_volume: bool = False, **kw: Any):
+    def __init__(self, image: str, **kw: Any):
         super().__init__(image, **kw)
-        # M6 speed-up 4: the workspace's node_modules in a Docker volume of its own, not
-        # on the file share between macOS and Docker's VM (much faster to read).
-        self.node_modules_volume = node_modules_volume
-        self.volume: str | None = None
-        self.seed: str | None = None  # a volume to copy node_modules from (the cache)
         self.container: str | None = None
         self.home: Path | None = None  # the folder the container was started for
         self.logs: Path | None = None
         self._lock = threading.Lock()
-
-    def new_volume(self, name: str) -> None:
-        """A Docker volume owned by the container user (a new volume is root's)."""
-        made = self._docker("volume", "create", name)
-        chown = self._docker(
-            "run", "--rm", "--network", "none", "--user", "0:0",
-            "--mount", f"type=volume,src={name},dst=/v", self.image, "chown", self.user, "/v",
-        )  # fmt: skip
-        if made.returncode != 0 or chown.returncode != 0:
-            raise SandboxError(f"could not prepare the volume {name}: {chown.stdout.strip()}")
-
-    def copy_volume(self, src: str, dst: str) -> None:
-        """Copy one volume's files into another, inside Docker's VM."""
-        copied = self._docker(
-            "run", "--rm", "--network", "none", "--user", self.user,
-            "--mount", f"type=volume,src={src},dst=/from,readonly",
-            "--mount", f"type=volume,src={dst},dst=/to",
-            self.image, "sh", "-c", "cp -a /from/. /to/",
-            timeout_s=900,
-        )  # fmt: skip
-        if copied.returncode != 0:
-            raise SandboxError(f"could not copy {src} to {dst}: {copied.stdout.strip()[-300:]}")
-
-    def seed_node_modules(self, volume: str) -> None:
-        """Start this run's node_modules as a copy of ``volume`` (the Pre-check cache's)."""
-        self.seed = volume
 
     def _start(self, cwd: Path, log_file: Path | None) -> None:
         name = f"migrator-run-{secrets.token_hex(6)}"
         argv = self.argv(["sleep", "infinity"], cwd, name=name, log_file=log_file)
         argv[argv.index("run") + 1 : argv.index("run") + 2] = ["-d"]  # detached, kept
         argv[argv.index("--network") + 1] = "bridge"
-        if self.node_modules_volume:
-            self.volume = f"migrator-nm-{name.removeprefix('migrator-run-')}"
-            self.new_volume(self.volume)
-            if self.seed is not None:
-                self.copy_volume(self.seed, self.volume)
-            target = cwd.resolve() / "node_modules"
-            image_at = argv.index(self.image)
-            argv[image_at:image_at] = [
-                "--mount",
-                f"type=volume,src={self.volume},dst={target}",
-            ]
         started = self._docker(*argv[1:], timeout_s=120)
         if started.returncode != 0:
             raise SandboxError(f"could not start the run's container: {started.stdout.strip()}")
@@ -640,9 +598,6 @@ class RunContainerRunner(DockerRunner):
             if self.container is not None:
                 self._docker("rm", "-f", self.container, timeout_s=60)
                 self.container = None
-            if self.volume is not None:
-                self._docker("volume", "rm", "-f", self.volume, timeout_s=60)
-                self.volume = None
 
 
 def make_runner(
@@ -651,7 +606,6 @@ def make_runner(
     *,
     read_only: Iterable[Path] = (),
     per_run: bool = False,
-    node_modules_volume: bool = False,
     image: str | None = None,
 ) -> CommandRunner:
     """The runner for a run: Docker (checked now, so a missing daemon fails at the
@@ -661,7 +615,7 @@ def make_runner(
         return LocalRunner()
     chosen = image or node_image(node)
     runner: DockerRunner = (
-        RunContainerRunner(chosen, read_only=read_only, node_modules_volume=node_modules_volume)
+        RunContainerRunner(chosen, read_only=read_only)
         if per_run
         else DockerRunner(chosen, read_only=read_only)
     )

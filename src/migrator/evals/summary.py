@@ -65,7 +65,7 @@ class CostSummary(BaseModel):
     per_run_usd: float | None
     per_clean_run_usd: float | None  # None when no run was clean: never divide by zero
     clean_runs: int
-    # Cost per model over the scored runs (M5: cascades, the advisor); left out of the
+    # Cost per model over the scored runs (a cascade, a reviewer); left out of the
     # JSON when no run called a model, so a rules-only summary is unchanged.
     by_model: list[ModelCost] = []
 
