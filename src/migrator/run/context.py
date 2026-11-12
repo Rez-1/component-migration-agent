@@ -7,7 +7,8 @@ between steps, so its helpers rebuild what they return from the checkpointed sta
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Literal
 
@@ -145,6 +146,17 @@ class RunContext:
             retriever=d.retriever,
             link_base=d.spec.guide.link_base,
         )
+
+    @contextmanager
+    def tools_for(self, session: RepairSession) -> Iterator[RepairTools]:
+        """The repair tools, pointed at ``session`` until the block ends."""
+        tools = self.deps.tools
+        assert tools is not None
+        tools.session = session
+        try:
+            yield tools
+        finally:
+            tools.session = None
 
     def report(self, state: RunState) -> RepairReport:
         """The repair report: a dict in the state, read once by each node that changes

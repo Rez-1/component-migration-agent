@@ -6,7 +6,7 @@ import re
 from functools import partial
 from pathlib import Path
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolCall, ToolMessage
 
 from migrator.checks import FileSet
 from migrator.cost import CallRecord, CostCapError
@@ -25,7 +25,7 @@ from migrator.repair.reviewer import (
 )
 from migrator.repair.reviewer import default_model as default_review_model
 from migrator.repair.shared import SharedCause, shared_cause_section
-from migrator.repair.tools import SessionState, failure_key
+from migrator.repair.tools import RepairSession, RepairTools, SessionState, failure_key
 from migrator.run.context import RunContext
 from migrator.run.state import RunState, dump_failures, failures_of
 from migrator.scan import UsageReport
@@ -171,56 +171,57 @@ def route_agent(ctx: RunContext, state: RunState) -> str:
 
 
 def tools_node(ctx: RunContext, state: RunState) -> RunState:
-    d = ctx.deps
-    assert d.tools is not None and d.templates is not None and d.retriever is not None
-    session_state = SessionState.model_validate(state["current"])
+    session = ctx.repair_session(state, SessionState.model_validate(state["current"]))
     messages = list(state.get("messages") or [])
     last = messages[-1] if messages else None
-    session = ctx.repair_session(state, session_state)
-    d.tools.session = session
-    new: list[BaseMessage] = []
-    try:
-        calls = last.tool_calls if isinstance(last, AIMessage) else []
-        if not calls:
-            # No tool call (text only, or cut off): nudge, and count it against the budget.
-            session_state.tool_calls += 1
-            session.current_attempt.tool_calls += 1
-            new.append(HumanMessage(content=NUDGE))
-        for call in calls:
-            if session_state.ended is not None:
-                new.append(
-                    ToolMessage(
-                        content="Not run: this file's repair has ended.",
-                        tool_call_id=call["id"] or "",
-                        name=call["name"],
-                        status="error",
-                    )
-                )
-                continue
-            attempt_before = session_state.attempt
-            session_state.tool_calls += 1
-            session.current_attempt.tool_calls += 1
-            new.append(d.tools.invoke(call))
-            if session_state.ended is None and session_state.attempt != attempt_before:
-                # run_verify failed and a new attempt starts: later calls are its own
-                session.record.attempts.append(
-                    AttemptRecord(
-                        number=session_state.attempt,
-                        model=attempt_model(ctx, session_state.attempt),
-                    )
-                )
-        if session_state.ended is None and session_state.tool_calls >= MAX_TOOL_CALLS:
-            session.hand_off(
-                f"tool-call budget used: {MAX_TOOL_CALLS} calls in attempt "
-                f"{session_state.attempt} without passing run_verify"
-            )
-    finally:
-        d.tools.session = None
+    calls = last.tool_calls if isinstance(last, AIMessage) else []
+    with ctx.tools_for(session) as tools:
+        new = run_tool_calls(ctx, session, tools, calls)
     return {
-        "current": session_state.model_dump(mode="json"),
+        "current": session.state.model_dump(mode="json"),
         "messages": [*messages, *new],
         "known_failures": dump_failures(session.known_failures),
     }
+
+
+def run_tool_calls(
+    ctx: RunContext, session: RepairSession, tools: RepairTools, calls: list[ToolCall]
+) -> list[BaseMessage]:
+    """The model's tool calls, one at a time, and their results. Calls after the
+    file's repair ended are not run; the tool-call budget hands the file off."""
+    file = session.state
+    new: list[BaseMessage] = []
+    if not calls:
+        # No tool call (text only, or cut off): nudge, and count it against the budget.
+        file.tool_calls += 1
+        session.current_attempt.tool_calls += 1
+        new.append(HumanMessage(content=NUDGE))
+    for call in calls:
+        if file.ended is not None:
+            new.append(
+                ToolMessage(
+                    content="Not run: this file's repair has ended.",
+                    tool_call_id=call["id"] or "",
+                    name=call["name"],
+                    status="error",
+                )
+            )
+            continue
+        attempt_before = file.attempt
+        file.tool_calls += 1
+        session.current_attempt.tool_calls += 1
+        new.append(tools.invoke(call))
+        if file.ended is None and file.attempt != attempt_before:
+            # run_verify failed and a new attempt starts: later calls are its own
+            session.record.attempts.append(
+                AttemptRecord(number=file.attempt, model=attempt_model(ctx, file.attempt))
+            )
+    if file.ended is None and file.tool_calls >= MAX_TOOL_CALLS:
+        session.hand_off(
+            f"tool-call budget used: {MAX_TOOL_CALLS} calls in attempt "
+            f"{file.attempt} without passing run_verify"
+        )
+    return new
 
 
 def route_tools(ctx: RunContext, state: RunState) -> str:
