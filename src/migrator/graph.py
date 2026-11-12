@@ -65,12 +65,11 @@ from migrator.checks import (
 from migrator.config import CaseConfig, ResolvedRepoConfig, TrapList
 from migrator.configuration import Configuration
 from migrator.cost import (
+    Budget,
     CallRecord,
     CostCapError,
-    CostGuard,
     Ledger,
-    release_run,
-    reserve_run,
+    RunCaps,
     run_cost,
 )
 from migrator.execs import (
@@ -214,8 +213,7 @@ class RunDeps:
         mode: Mode,
         keep_workspace: bool,
         tools_cache: Path | None,
-        run_cap_usd: float,
-        month_cap_usd: float,
+        caps: RunCaps,
         ledger: Ledger,
         model: GuardedModel | None,
         tools: RepairTools | None,
@@ -225,7 +223,6 @@ class RunDeps:
         worktree: Worktree | None = None,
         sandbox: str = "local",
         precheck_cache: PrecheckCache | None = None,
-        guard_cap_usd: float | None = None,
         reviewer_factory: Any = None,
     ):
         self.repo = repo
@@ -238,8 +235,7 @@ class RunDeps:
         self.mode = mode
         self.keep_workspace = keep_workspace
         self.tools_cache = tools_cache
-        self.run_cap_usd = run_cap_usd
-        self.month_cap_usd = month_cap_usd
+        self.caps = caps  # the run's Cost caps; each step's Budget is built from them
         self.ledger = ledger
         self.model = model
         self.tools = tools
@@ -249,8 +245,6 @@ class RunDeps:
         self.worktree = worktree  # a real run's git worktree; None for a dry run
         self.sandbox = sandbox
         self.precheck_cache = precheck_cache  # speed-up 2 (M6); None: no cache
-        # What the cost guard enforces per call: the run cap, or the lower hard stop.
-        self.guard_cap_usd = guard_cap_usd if guard_cap_usd is not None else run_cap_usd
         self.reviewer_factory = reviewer_factory  # tests pass a fake; None: Claude
 
     @property
@@ -285,6 +279,14 @@ def _now() -> str:
 
 def _slug(path: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "-", path).strip("-")
+
+
+def not_attempted(report: RepairReport, paths: list[str]) -> None:
+    """Files the cost cap left no room for: they end Unmigrated, untried."""
+    for path in paths:
+        report.files.append(
+            FileRepair(path=path, outcome="Unmigrated", reason="cost cap: not attempted")
+        )
 
 
 def _failures(rows: list[dict[str, Any]] | None) -> list[Failure]:
@@ -411,6 +413,19 @@ class RunGraph:
             state.get("repair") or {"enabled": self.d.configuration.repair.enabled}
         )
 
+    def budget(self, state: Mapping[str, Any]) -> Budget:
+        """The run's Budget, built again from the checkpointed state: its recorded calls
+        and Reservation (it keeps nothing between steps)."""
+        spent = sum(CallRecord.model_validate(c).cost_usd for c in state.get("calls") or [])
+        repair = state.get("repair") or {}
+        return Budget(
+            state["run_id"],
+            self.d.caps,
+            self.d.ledger,
+            spent_usd=spent,
+            reserved_usd=repair.get("reserved_usd"),
+        )
+
     # ------------------------------------------------------------------ stages
 
     def scan_node(self, state: RunState) -> RunState:
@@ -519,17 +534,13 @@ class RunGraph:
         prompt = review_prompt(
             record.path, patch_diff(record.touched, after, current), lines, failures, tests, guide
         )
-        spent = sum(CallRecord.model_validate(c).cost_usd for c in state.get("calls") or [])
         try:
             return review_patch(
                 prompt,
                 model=model,
-                guard=CostGuard(d.guard_cap_usd, d.month_cap_usd, d.ledger),
-                ledger=d.ledger,
-                run_id=state["run_id"],
+                budget=self.budget(state),
                 case=d.case.id if d.case else None,
                 path=record.path,
-                run_spent_usd=spent,
                 factory=d.reviewer_factory or default_review_model,
             )
         except Exception as exc:  # the flag still decides: a hand-off
@@ -813,30 +824,34 @@ class RunGraph:
                     f"{len(c.callers)} files; repairing {c.source} first",
                 )
         d.say("Repair", f"{len(order)} failing files to repair: {', '.join(order) or 'none'}")
-        reserve = d.configuration.cost.reserve_attempt_usd
-        if reserve is not None and order:
-            # Runs must finish (M6): reserve the whole worst case before the first call.
-            # Failing test files are handed off without a model call, so they cost nothing.
-            paid = [p for p in order if p not in tests]
-            attempts = d.configuration.repair.max_attempts
-            worst = round(len(paid) * attempts * reserve, 2)
-            ok, available = reserve_run(
-                state["run_id"], worst, d.run_cap_usd, d.month_cap_usd, d.ledger
-            )
+        # Runs must finish (M6): reserve the whole worst case before the first call.
+        # Failing test files are handed off without a model call, so they cost nothing.
+        held = self.budget(state).reserve([p for p in order if p not in tests]) if order else None
+        if held is not None:
+            caps = d.caps
             report = self.report_of(state)
-            report.reserved_usd = worst
-            if not ok:
+            report.reserved_usd = held.total_usd
+            if not held.held:
+                capped = (
+                    f", ${held.total_usd:.2f} at most, what the run can spend"
+                    if held.total_usd < held.added_usd
+                    else ""
+                )
                 why = (
-                    f"the worst case ({len(paid)} files x {attempts} attempts x ${reserve:.2f} "
-                    f"= ${worst:.2f}) is more than the ${available:.2f} available (run cap "
-                    f"${d.run_cap_usd:.2f}, less what this month and other running runs have "
+                    f"the worst case ({held.files} files x {caps.max_attempts} attempts x "
+                    f"${caps.reserve_attempt_usd:.2f} = ${held.added_usd:.2f}{capped}) is more "
+                    f"than the ${held.available_usd:.2f} available (run cap "
+                    f"${caps.run_usd:.2f}, less what this month and other running runs have "
                     "spent or reserved), so repair did not start"
                 )
                 report.stopped_by_cost_cap = True
                 report.cost_cap_reason = why
                 d.say("Repair", why)
             else:
-                d.say("Repair", f"reserved ${worst:.2f} of ${available:.2f} available")
+                d.say(
+                    "Repair",
+                    f"reserved ${held.total_usd:.2f} of ${held.available_usd:.2f} available",
+                )
             return {
                 "test_files": tests,
                 "queue": order,
@@ -857,10 +872,7 @@ class RunGraph:
         report = self.report_of(state)
         queue = list(state.get("queue") or [])
         if report.stopped_by_cost_cap and queue:
-            for path in queue:
-                report.files.append(
-                    FileRepair(path=path, outcome="Unmigrated", reason="cost cap: not attempted")
-                )
+            not_attempted(report, queue)
             self.d.say("Repair", f"cost cap: {len(queue)} files not attempted")
             return {"queue": [], "repair": report.model_dump(mode="json")}
         if self.d.configuration.repair.shared_causes and queue:
@@ -923,32 +935,20 @@ class RunGraph:
             return updates
         order = repair_order(new, after)
         tests = state.get("test_files") or {}
-        reserve = d.configuration.cost.reserve_attempt_usd
-        if reserve is not None:
-            paid = [p for p in order if p not in tests]
-            extra = round(len(paid) * d.configuration.repair.max_attempts * reserve, 2)
-            # The new total stays under the same run cap (this run's spend counts twice
-            # against the month: on the safe side).
-            worst = round((report.reserved_usd or 0.0) + extra, 2)
-            ok, available = reserve_run(
-                state["run_id"], worst, d.run_cap_usd, d.month_cap_usd, d.ledger
-            )
-            if not ok:
+        # The top-up stays under the same run cap as the first pass's Reservation.
+        held = self.budget(state).reserve([p for p in order if p not in tests])
+        if held is not None:
+            if not held.held:
                 d.say(
                     "Repair",
                     f"recheck: {len(order)} new failing files, but the worst case "
-                    f"(${worst:.2f} in all) is more than the ${available:.2f} available; "
-                    "not attempted",
+                    f"(${held.total_usd:.2f} in all) is more than the "
+                    f"${held.available_usd:.2f} available; not attempted",
                 )
-                for path in order:
-                    report.files.append(
-                        FileRepair(
-                            path=path, outcome="Unmigrated", reason="cost cap: not attempted"
-                        )
-                    )
+                not_attempted(report, order)
                 updates["repair"] = report.model_dump(mode="json")
                 return updates
-            report.reserved_usd = worst
+            report.reserved_usd = held.total_usd
             updates["repair"] = report.model_dump(mode="json")
         d.say("Repair", f"recheck: {len(order)} new failing files: {', '.join(order)}")
         updates["queue"] = [*kept, *order]
@@ -1043,7 +1043,6 @@ class RunGraph:
         session = SessionState.model_validate(state["current"])
         report = self.report_of(state)
         calls = [CallRecord.model_validate(c) for c in state.get("calls") or []]
-        spent = sum(c.cost_usd for c in calls)
         model = self.attempt_model(session.attempt)
         record = session.record
         if not record.attempts or record.attempts[-1].number != session.attempt:
@@ -1055,7 +1054,7 @@ class RunGraph:
                 model,
                 system,
                 messages,
-                run_spent_usd=spent,
+                budget=self.budget(state),
                 file=session.path,
                 attempt=session.attempt,
                 effort=d.configuration.repair.effort_for(session.attempt),
@@ -1553,8 +1552,8 @@ class RunGraph:
         )
         cost = run_cost(
             calls,
-            d.run_cap_usd,
-            d.month_cap_usd,
+            d.caps.run_usd,
+            d.caps.month_usd,
             month_spent_usd=d.ledger.month_spent() if calls else None,
             stopped_by_cap=report.stopped_by_cost_cap,
         )
@@ -1600,7 +1599,6 @@ class RunGraph:
         )
         write_evidence(evidence, run_dir / EVIDENCE_FILE)  # before Scoring: see #17
         card = score(evidence)
-        release_run(state["run_id"])  # this run's worst-case reservation ends here
         write_json(card, run_dir / "scorecard.json")
         (run_dir / "scorecard.md").write_text(render_scorecard(card), "utf-8")
         # The PR body, rendered from the same JSON; written for every run, opened as a PR

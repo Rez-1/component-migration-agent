@@ -10,7 +10,7 @@ from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.messages import HumanMessage
 
 from migrator.configuration import Configuration, ConfigurationError, ensure_runnable
-from migrator.cost import PRICES, CostGuard, Ledger, price_for
+from migrator.cost import PRICES, Budget, CostGuard, Ledger, RunCaps, price_for
 from migrator.evals.reference import LLMJudge, independent_judge, judge_key
 from migrator.migrations import MigrationSpec
 from migrator.model_table import (
@@ -210,7 +210,6 @@ def test_the_repair_agent_binds_no_strict_tools_or_cache_breakpoints_without_the
 
     guarded = GuardedModel(
         factory,
-        CostGuard(5, 20, Ledger(tmp_path / "l.jsonl")),
         RepairTools(tool_text(load_templates("v1"), spec)).tools,
         effort="low",
         run_id="r",
@@ -220,7 +219,7 @@ def test_the_repair_agent_binds_no_strict_tools_or_cache_breakpoints_without_the
         "fakeco:fake-large",
         "system",
         [HumanMessage(content="## Failing file: `x`")],
-        run_spent_usd=0,
+        budget=Budget("r", RunCaps(run_usd=5, month_usd=20), Ledger(tmp_path / "l.jsonl")),
         file="x",
         attempt=1,
     )

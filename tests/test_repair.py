@@ -12,6 +12,7 @@ import pytest
 from langchain_core.messages import HumanMessage
 
 from migrator.cost import (
+    Budget,
     CallRecord,
     CostCapError,
     CostGuard,
@@ -19,6 +20,7 @@ from migrator.cost import (
     LedgerPreflight,
     LedgerRow,
     PlannedExperiment,
+    RunCaps,
     Usage,
     cost_usd,
     now_utc,
@@ -358,7 +360,6 @@ def test_the_guarded_model_binds_strict_tools_and_the_cache_breakpoints(
     tools = RepairTools(tool_text(load_templates("v1"), spec)).tools
     guarded = GuardedModel(
         lambda *_: model,
-        CostGuard(5, 20, Ledger(tmp_path / "l.jsonl")),
         tools,
         effort="low",
         run_id="r",
@@ -368,7 +369,7 @@ def test_the_guarded_model_binds_strict_tools_and_the_cache_breakpoints(
         "claude-opus-5-5",
         "system",
         [HumanMessage(content="## Failing file: `x`")],
-        run_spent_usd=0,
+        budget=Budget("r", RunCaps(run_usd=5, month_usd=20), Ledger(tmp_path / "l.jsonl")),
         file="x",
         attempt=1,
     )

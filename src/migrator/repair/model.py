@@ -13,8 +13,9 @@
   and system prompt (identical for every file and attempt of a run) are one cached
   prefix, plus top-level automatic caching for the growing conversation, on the
   5-minute cache.
-- ``GuardedModel.call`` is the only way the graph calls a model. It prices the call's
-  worst case and refuses to send it over a cap (``CostGuard``), and its ``on_llm_end``
+- ``GuardedModel.call`` is the only way the graph calls a model. It asks the run's
+  ``Budget`` to price the call's worst case and refuses to send it over a cap, and its
+  ``on_llm_end``
   callback writes one ledger row per call, with the cache tokens taken from
   langchain-anthropic's breakdown fields.
 - Tracing (LangSmith, from environment variables only): the call's config is merged
@@ -59,8 +60,8 @@ from pydantic import BaseModel
 from migrator.configuration import AdvisorSettings
 from migrator.cost import (
     PRICES,
+    Budget,
     CallRecord,
-    CostGuard,
     Ledger,
     LedgerRow,
     Usage,
@@ -215,7 +216,6 @@ class GuardedModel:
     def __init__(
         self,
         factory: ModelFactory,
-        guard: CostGuard,
         tools: Sequence[BaseTool],
         *,
         effort: str | None,
@@ -227,7 +227,6 @@ class GuardedModel:
         advisor: AdvisorSettings | None = None,
     ):
         self.factory = factory
-        self.guard = guard
         self.tools = list(tools)
         self.effort = effort
         self.run_id = run_id
@@ -278,24 +277,21 @@ class GuardedModel:
         system: str,
         messages: Sequence[BaseMessage],
         *,
-        run_spent_usd: float,
+        budget: Budget,
         file: str | None,
         attempt: int | None,
         effort: str | None = None,
     ) -> tuple[AIMessage, CallRecord]:
-        """Send one call, or raise ``CostCapError`` without sending it. ``effort``
-        defaults to the model's configured one (the attempt's, from the graph)."""
+        """Send one call, or raise ``CostCapError`` without sending it when ``budget``
+        refuses its worst case. ``effort`` defaults to the model's configured one (the
+        attempt's, from the graph)."""
         effort = effort if effort is not None else self.effort
         estimate = self.estimate_input(system, messages)
-        self.guard.check(
-            model,
-            estimate,
-            self.max_tokens,
-            run_spent_usd,
-            extra_worst_usd=self.advisor_worst_usd(estimate),
+        budget.check(
+            model, estimate, self.max_tokens, extra_worst_usd=self.advisor_worst_usd(estimate)
         )
         callback = LedgerCallback(
-            self.guard.ledger,
+            budget.ledger,
             run_id=self.run_id,
             case=self.case,
             file=file,

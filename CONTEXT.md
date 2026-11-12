@@ -132,6 +132,20 @@ _Avoid_: codemod warning
 A codemod change to a component that comes from the repo's own code rather than from the library being migrated (the codemods match by name), which the Rules stage undoes and lists for a human. On OpossumUI: `size="large"` added to the repo's own `IconButton` wrapper.
 _Avoid_: codemod bug, wrong codemod change
 
+### Cost
+
+**Cost cap**:
+A limit on model spend: the run cap, the hard stop (a lower per-call limit a Configuration may set), and the month cap on this machine.
+_Avoid_: quota, limit (unqualified)
+
+**Reservation**:
+The worst case a Run sets aside before Repair starts, so it can finish under the month cap even while other runs are going.
+_Avoid_: hold, allocation
+
+**Budget**:
+One Run's cost caps, spend so far and Reservation, checked before every model call.
+_Avoid_: wallet, cost guard (for the whole)
+
 ### Evals
 
 **Case**:
