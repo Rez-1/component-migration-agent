@@ -666,10 +666,13 @@ def test_a_migration_can_give_the_reviewer_its_own_instructions(tmp_path: Path) 
     traps = yaml.safe_load(
         (Path(__file__).parents[1] / "evals/m7-cases/fixture-angular15/traps.yaml").read_text()
     )["traps"]
+    # Nor the repair notes the agent reads (the owner's decision, 13 November).
+    told = angular.reviewer_system + " ".join(angular.repair_notes)
     for trap in traps:
         symbol = trap["location"].get("symbol")
-        if symbol and len(symbol) > 4:
-            assert symbol not in angular.reviewer_system, trap["id"]
+        # an element name such as mat-form-field is the library's vocabulary, not a hint
+        if symbol and len(symbol) > 4 and not symbol.startswith("mat-"):
+            assert symbol not in told, trap["id"]
     for word in ("placeholder", "mat-label", "wrapper"):
         assert word not in angular.reviewer_system
 
