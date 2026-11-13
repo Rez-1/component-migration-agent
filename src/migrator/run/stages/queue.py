@@ -67,11 +67,15 @@ class ReservationOutcome:
     reservation: Reservation | None = None
 
 
-def reserve_queue(budget: Budget, order: list[str], tests: Mapping[str, str]) -> ReservationOutcome:
+def reserve_queue(
+    budget: Budget, order: list[str], tests: Mapping[str, str], *, from_spend: bool = False
+) -> ReservationOutcome:
     """Reserve the worst case of repairing ``order`` before its first call (M6: runs
     must finish). Failing test files are handed off without a model call, so they cost
-    nothing. The first pass and the recheck's top-up share the run's caps."""
-    held = budget.reserve([p for p in order if p not in tests]) if order else None
+    nothing. The first pass and the recheck share the run's caps; the recheck reserves
+    from what is spent (``Budget.reserve``)."""
+    paid = [p for p in order if p not in tests]
+    held = budget.reserve(paid, from_spend=from_spend) if order else None
     if held is None:
         return ReservationOutcome("unreserved")
     return ReservationOutcome("held" if held.held else "refused", held)
@@ -214,8 +218,10 @@ def recheck_node(ctx: RunContext, state: RunState) -> RunState:
         d.say("Repair", "recheck: no new failing files")
         return updates
     order = repair_order(new, after)
-    # The top-up stays under the same run cap as the first pass's Reservation.
-    out = reserve_queue(ctx.budget(state), order, state.get("test_files") or {})
+    # The new worst case: the spend so far plus every attempt left on the queued and
+    # the new files, under the same run cap as the first pass's Reservation.
+    tests = state.get("test_files") or {}
+    out = reserve_queue(ctx.budget(state), [*kept, *order], tests, from_spend=True)
     if out.status == "refused" and (held := out.reservation) is not None:
         d.say("Repair", _top_up_refused(order, held))
         not_attempted(report, order)

@@ -555,12 +555,15 @@ class Budget:
         cap, else return the worst case."""
         return self._guard.check(model, input_tokens, max_tokens, self.spent_usd)
 
-    def reserve(self, files: Collection[str]) -> Reservation | None:
+    def reserve(self, files: Collection[str], *, from_spend: bool = False) -> Reservation | None:
         """Add the worst case of ``files`` to the Reservation, if the run cap
         and the month (less other runs' Reservations) have room: the first pass reserves
-        for its queue, the recheck tops up for the files it adds. None when the caps
-        reserve nothing. The new total counts this run's spend twice against the month:
-        on the safe side.
+        for its queue. None when the caps reserve nothing. The new total counts this
+        run's spend twice against the month: on the safe side.
+
+        ``from_spend``: the recheck's new worst case is what the run has spent plus
+        every attempt still possible on ``files`` (all the files left, queued and new);
+        files already done no longer need their reserve.
 
         Never more than the run can spend: the total stops at the lower of the run cap
         and the hard stop, since the check before each call ends the run there anyway."""
@@ -568,7 +571,8 @@ class Budget:
         if per is None:
             return None
         added = round(len(files) * self.caps.max_attempts * per, 2)
-        total = min(round((self.reserved_usd or 0.0) + added, 2), self.caps.call_cap_usd)
+        base = self.spent_usd if from_spend else (self.reserved_usd or 0.0)
+        total = min(round(base + added, 2), self.caps.call_cap_usd)
         held, available = self._book(total, need=total)
         if held:
             self.reserved_usd = total
