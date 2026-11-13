@@ -187,6 +187,10 @@ class MigrationSpec(_Model):
     # for a library without templates. Template usages are reported, not counted as old.
     template_prefix: str | None = None
     failing_todo_markers: list[str] = []
+    # The test-fitting reviewer's instructions for this migration (M7); None: the MUI
+    # instructions it was written with. Its answer keys stay v5_required (the new
+    # version needs the change) and fits_old_test.
+    reviewer_system: str | None = None
     # Selectors the visual check hides in every screenshot (M7): animated decorations
     # of the library, such as a click ripple, that would differ between two captures.
     visual_hide: list[str] = []
