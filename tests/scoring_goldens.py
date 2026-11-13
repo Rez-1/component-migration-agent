@@ -24,7 +24,7 @@ import json
 import sys
 from pathlib import Path
 
-from migrator.graph import EVIDENCE_FILE
+from migrator.run.evidence import EVIDENCE_FILE
 from migrator.scoring import stable_view
 
 GOLDENS = Path(__file__).parent / "data" / "scoring"

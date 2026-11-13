@@ -64,6 +64,11 @@ _Avoid_: step (unqualified), action, task
 A run that stopped because a rule step failed, scored separately from the repair agent's results.
 _Avoid_: setup failure, install error
 
+<a id="start-of-repair"></a>
+**Start of Repair**:
+The workspace as Repair begins: the codemods' changes plus the Migrator's own snapshot updates. Everything after it is the agent's layer (or a human's, at Review). Its snapshot is still saved as `after-rules.json`, so older runs load.
+_Avoid_: after Rules (for the snapshot), post-codemod state
+
 **Baseline**:
 The rules-only configuration that every other configuration is compared against.
 _Avoid_: control, codemod only
@@ -86,7 +91,7 @@ A Verify that runs only the tests related to some files (the repair agent's `run
 _Avoid_: partial verify, quick check
 
 **Regression**:
-A failure in a file that had none before, caused by a change to another file during the run. "Before" is the Verify after Rules; for a workspace with no Rules stage (a general coding agent's), it is the Pre-check.
+A failure in a file that had none before, caused by a change to another file during the run. "Before" is the [Verify after Rules](#start-of-repair); for a workspace with no Rules stage (a general coding agent's), it is the Pre-check.
 _Avoid_: side effect, collateral failure
 
 **Attempt**:

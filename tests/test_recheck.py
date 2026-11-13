@@ -9,12 +9,15 @@ from typing import Any, cast
 
 import pytest
 
-import migrator.graph as graph
 import migrator.verify.checker as checker
 from migrator.checks import read_files
 from migrator.config import VerifyCommands
 from migrator.cost import Budget, Ledger, LedgerRow, Reservation, RunCaps, Usage, now_utc
 from migrator.repair.records import FileRepair, RepairReport
+from migrator.run.context import RunContext, RunDeps
+from migrator.run.files import RunFiles
+from migrator.run.stages import queue
+from migrator.run.state import RunState
 from migrator.verify import VerifyResult
 from migrator.verify.parsers import Failure
 
@@ -29,41 +32,35 @@ SPEC = Failure(
 )
 
 
-class Graph(graph.RunGraph):
-    """The run graph with its file-system helpers replaced."""
-
-    def __init__(self, tmp: Path, reserve: float | None = 0.15, run_cap: float = 8.0):
-        self.said: list[str] = []
-        self.d = SimpleNamespace(  # type: ignore[assignment]
-            repair_on=True,
-            say=lambda stage, text: self.said.append(text),
-            config=SimpleNamespace(verify=VerifyCommands(), runner="karma", leftovers=None),
-            configuration=SimpleNamespace(repair=SimpleNamespace(shared_causes=False)),
-            caps=RunCaps(run_usd=run_cap, month_usd=50.0, reserve_attempt_usd=reserve),
-            ledger=Ledger(tmp / "ledger.jsonl"),
-            runner=None,
-        )
-        self.tmp = tmp
-
-    def workspace(self, state: Any) -> Path:
-        return self.tmp
-
-    def logs(self, state: Any) -> Path:
-        return self.tmp
-
-    def after_rules(self, state: Any) -> dict[str, str]:
-        return {
-            "src/app/list.component.ts": "",
-            "src/app/search.component.ts": "",
-            "src/app/a.component.scss": "",
-            "src/app/b.component.scss": "",
-        }
+# The Start of Repair the recheck sees: the files the codemods could change.
+START = {
+    "src/app/list.component.ts": "",
+    "src/app/search.component.ts": "",
+    "src/app/a.component.scss": "",
+    "src/app/b.component.scss": "",
+}
 
 
-def state(first: list[Failure], tried: list[FileRepair], **extra: Any) -> graph.RunState:
+def context(tmp: Path, reserve: float | None = 0.15, run_cap: float = 8.0) -> RunContext:
+    """A RunContext over fake deps and a real run folder in ``tmp``, holding START."""
+    files = RunFiles(tmp / "run")
+    files.save_start_of_repair(START)
+    deps = SimpleNamespace(
+        repair_on=True,
+        say=lambda stage, text: None,
+        config=SimpleNamespace(verify=VerifyCommands(), runner="karma", leftovers=None),
+        configuration=SimpleNamespace(repair=SimpleNamespace(shared_causes=False)),
+        caps=RunCaps(run_usd=run_cap, month_usd=50.0, reserve_attempt_usd=reserve),
+        ledger=Ledger(tmp / "ledger.jsonl"),
+        runner=None,
+    )
+    return RunContext(cast(RunDeps, deps), files)
+
+
+def state(first: list[Failure], tried: list[FileRepair], **extra: Any) -> RunState:
     report = RepairReport(enabled=True, files=tried, reserved_usd=1.35)
     return cast(
-        graph.RunState,
+        RunState,
         {
             "run_id": "recheck-test",
             "precheck": {"status": "ok"},
@@ -81,25 +78,25 @@ def fixed(path: str = "src/app/list.component.ts") -> FileRepair:
 
 
 def test_a_recheck_only_when_no_spec_ran_and_repair_changed_something(tmp_path: Path) -> None:
-    g = Graph(tmp_path)
-    assert g.needs_recheck(state([BUILD, TYPE], [fixed()]))
-    assert not g.needs_recheck(state([TYPE, SPEC], [fixed()]))  # the specs ran
-    assert not g.needs_recheck(state([BUILD, TYPE], []))  # nothing changed
-    assert not g.needs_recheck(state([BUILD, TYPE], [fixed()], rechecked=True))  # once
-    assert g.route_next_file(state([BUILD, TYPE], [fixed()])) == "recheck"
-    assert g.route_next_file(state([TYPE, SPEC], [fixed()])) == "commit_agent"
+    ctx = context(tmp_path)
+    assert queue.needs_recheck(ctx, state([BUILD, TYPE], [fixed()]))
+    assert not queue.needs_recheck(ctx, state([TYPE, SPEC], [fixed()]))  # the specs ran
+    assert not queue.needs_recheck(ctx, state([BUILD, TYPE], []))  # nothing changed
+    assert not queue.needs_recheck(ctx, state([BUILD, TYPE], [fixed()], rechecked=True))  # once
+    assert queue.route_next_file(ctx, state([BUILD, TYPE], [fixed()])) == "recheck"
+    assert queue.route_next_file(ctx, state([TYPE, SPEC], [fixed()])) == "commit_agent"
 
 
 def test_the_recheck_comes_as_soon_as_the_build_compiles(tmp_path: Path) -> None:
-    g = Graph(tmp_path)
+    ctx = context(tmp_path)
     queued = ["src/app/confirm.component.scss"]
     # the type-check still fails: the specs can't run yet, so repair goes on
     still = state([BUILD, TYPE], [fixed()], queue=queued, known_failures=[TYPE.model_dump()])
-    assert not g.needs_recheck(still)
-    assert g.route_next_file(still) == "start_file"
+    assert not queue.needs_recheck(ctx, still)
+    assert queue.route_next_file(ctx, still) == "start_file"
     # the build compiles: check every spec before the next file's repair is charged
     clean = state([BUILD, TYPE], [fixed()], queue=queued, known_failures=[])
-    assert g.route_next_file(clean) == "recheck"
+    assert queue.route_next_file(ctx, clean) == "recheck"
 
 
 def test_the_recheck_keeps_queued_files_that_still_fail_and_drops_the_rest(
@@ -109,9 +106,11 @@ def test_the_recheck_keeps_queued_files_that_still_fail_and_drops_the_rest(
     monkeypatch.setattr(
         checker, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[still, SPEC])
     )
-    g = Graph(tmp_path, reserve=None)  # no Reservation: this test is about the queue
+    ctx = context(tmp_path, reserve=None)  # no Reservation: this test is about the queue
     queued = ["src/app/b.component.scss", "src/app/a.component.scss"]
-    out = g.recheck_node(state([BUILD, TYPE], [fixed()], queue=queued))
+    out = queue.recheck_node(
+        ctx, state([BUILD, TYPE], [fixed()], queue=queued, workspace=str(tmp_path))
+    )
     assert out["queue"] == ["src/app/a.component.scss", "src/app/search.component.ts"]
 
 
@@ -121,17 +120,19 @@ def test_the_files_that_fail_only_now_are_queued_and_reserved(
     monkeypatch.setattr(
         checker, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
     )
-    g = Graph(tmp_path)
-    out = g.recheck_node(state([BUILD, TYPE], [fixed()]))
+    ctx = context(tmp_path)
+    out = queue.recheck_node(ctx, state([BUILD, TYPE], [fixed()], workspace=str(tmp_path)))
     assert out["rechecked"] and out["queue"] == ["src/app/search.component.ts"]
     assert RepairReport.model_validate(out["repair"]).reserved_usd == 1.8  # 1.35 + 3 x 0.15
-    assert g.route_recheck(out) == "start_file"
+    assert queue.route_recheck(ctx, out) == "start_file"
     # The top-up is held in the shared book: another run has $50 - $1.80 of the month.
-    other = Budget("other", RunCaps(run_usd=99, month_usd=50, reserve_attempt_usd=20), g.d.ledger)
+    other = Budget(
+        "other", RunCaps(run_usd=99, month_usd=50, reserve_attempt_usd=20), ctx.deps.ledger
+    )
     assert other.reserve(["x"]) == Reservation(
         held=False, files=1, added_usd=60.0, total_usd=60.0, available_usd=48.2
     )
-    Budget("recheck-test", g.d.caps, g.d.ledger).release()  # start_run's finally, here
+    Budget("recheck-test", ctx.deps.caps, ctx.deps.ledger).release()  # start_run's finally, here
 
 
 def test_a_file_already_tried_is_not_queued_again(
@@ -141,7 +142,9 @@ def test_a_file_already_tried_is_not_queued_again(
         checker, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
     )
     tried = [fixed(), FileRepair(path="src/app/search.component.ts", outcome="Handed off")]
-    out = Graph(tmp_path).recheck_node(state([BUILD, TYPE], tried))
+    out = queue.recheck_node(
+        context(tmp_path), state([BUILD, TYPE], tried, workspace=str(tmp_path))
+    )
     assert out["rechecked"] and out["queue"] == []
 
 
@@ -151,12 +154,14 @@ def test_new_files_over_the_cap_are_left_unmigrated(
     monkeypatch.setattr(
         checker, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
     )
-    g = Graph(tmp_path)
-    g.d.ledger.append(
+    ctx = context(tmp_path)
+    ctx.deps.ledger.append(
         LedgerRow(at=now_utc(), run_id="earlier", model="m", requested_model="m", usage=Usage(),
                   cost_usd=49.0)
     )  # fmt: skip
-    out = g.recheck_node(state([BUILD, TYPE], [fixed()]))  # $1.80 > $50 - $49 of the month
+    out = queue.recheck_node(
+        ctx, state([BUILD, TYPE], [fixed()], workspace=str(tmp_path))
+    )  # $1.80 > $50 - $49 of the month
     assert out["queue"] == []
     files = RepairReport.model_validate(out["repair"]).files
     assert files[-1].path == "src/app/search.component.ts" and files[-1].outcome == "Unmigrated"
@@ -168,11 +173,12 @@ def test_the_top_up_stops_at_what_the_run_can_spend(
     monkeypatch.setattr(
         checker, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
     )
-    g = Graph(tmp_path, run_cap=1.5)
-    out = g.recheck_node(state([BUILD, TYPE], [fixed()]))  # $1.80 asked, the run stops at $1.50
+    ctx = context(tmp_path, run_cap=1.5)
+    # $1.80 asked, the run stops at $1.50
+    out = queue.recheck_node(ctx, state([BUILD, TYPE], [fixed()], workspace=str(tmp_path)))
     assert out["queue"] == ["src/app/search.component.ts"]
     assert RepairReport.model_validate(out["repair"]).reserved_usd == 1.5
-    Budget("recheck-test", g.d.caps, g.d.ledger).release()
+    Budget("recheck-test", ctx.deps.caps, ctx.deps.ledger).release()
 
 
 def test_build_output_is_not_read_as_source(tmp_path: Path) -> None:
