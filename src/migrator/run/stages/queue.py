@@ -156,16 +156,17 @@ def _repair_did_not_start(held: Reservation, caps: RunCaps) -> str:
 
 def next_file_node(ctx: RunContext, state: RunState) -> RunState:
     """Before each file: once the cost cap is reached, the rest end not
-    attempted; after a shared definition was repaired, callers that no longer fail
-    leave the queue."""
+    attempted; files that no longer fail leave the queue (an earlier file's fix, such
+    as a shared definition or a component's template, fixed them too)."""
     report = ctx.report(state)
     queue = list(state.get("queue") or [])
     if report.stopped_by_cost_cap and queue:
         not_attempted(report, queue)
         ctx.deps.say("Repair", f"cost cap: {len(queue)} files not attempted")
         return {"queue": [], "repair": report.model_dump(mode="json")}
-    if ctx.deps.configuration.repair.shared_causes and queue:
-        # After a shared definition was repaired, only callers that still fail stay.
+    if queue:
+        # An earlier file's fix may have fixed this one too (a shared definition, or
+        # a component's template): only files that still fail stay.
         known = {f.file for f in failures_of(state.get("known_failures"))}
         sources = {c["source"] for c in state.get("shared_causes") or []}
         kept = [p for p in queue if p in known or p in sources]

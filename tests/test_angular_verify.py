@@ -416,3 +416,54 @@ def test_a_rule_on_the_components_element_is_not_stale() -> None:
     assert rules_under_todos(files, ["TODO(mdc-migration)"]) == [
         ("src/s.scss", ":host ::ng-deep .mat-button-wrapper {")
     ]
+
+
+def _narrow_karma_run(tmp_path: Path, specs: list[dict[str, object]]) -> list[str] | None:
+    from migrator.config import VerifyCommands
+    from migrator.execs import CommandResult
+    from migrator.verify import VerifyInput, verify
+
+    ws = tmp_path / "ws"
+    (ws / "src/app/a").mkdir(parents=True)
+    (ws / "karma.conf.js").write_text("module.exports = () => {};\n")
+    (ws / "src/app/a/a.component.ts").write_text("export class AComponent {}\n")
+    (ws / "src/app/a/a.component.html").write_text("<p></p>\n")
+    (ws / "src/app/a/a.component.spec.ts").write_text("describe('AComponent', () => {});\n")
+    logs = tmp_path / "logs"
+    logs.mkdir()
+
+    class Runner:
+        def run(self, command: str, cwd: Path, log_file: Path | None = None) -> CommandResult:
+            (logs / "narrow-karma.json").write_text(json.dumps({"specs": specs, "error": False}))
+            failed = any(not s["success"] for s in specs)
+            return CommandResult(
+                command=command, cwd=str(cwd), exit_code=int(failed), output="", duration_s=0.0
+            )
+
+    result = verify(
+        VerifyInput(
+            workspace=ws,
+            commands=VerifyCommands(test="ng test"),
+            runner="karma",
+            log_dir=logs,
+            label="narrow",
+            related_to=["src/app/a/a.component.html"],
+        ),
+        Runner(),  # type: ignore[arg-type]
+    )
+    return result.test_files_run
+
+
+def test_a_narrow_karma_run_says_which_spec_files_ran_even_when_they_pass(
+    tmp_path: Path,
+) -> None:
+    # A spec that passes now must refresh its old failures (repair.tools.update_known):
+    # the next file's agent was handed failures a template fix had already cleared.
+    spec = {"suite": ["AComponent"], "description": "works", "skipped": False, "log": []}
+    assert _narrow_karma_run(tmp_path, [{**spec, "success": True}]) == [
+        "src/app/a/a.component.spec.ts"
+    ]
+
+
+def test_a_narrow_karma_run_that_ran_no_spec_refreshes_nothing(tmp_path: Path) -> None:
+    assert _narrow_karma_run(tmp_path, []) == []

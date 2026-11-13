@@ -17,7 +17,7 @@ from migrator.repair.records import FileRepair, RepairReport
 from migrator.run.context import RunContext, RunDeps
 from migrator.run.files import RunFiles
 from migrator.run.stages import queue
-from migrator.run.state import RunState
+from migrator.run.state import RunState, dump_failures
 from migrator.verify import VerifyResult
 from migrator.verify.parsers import Failure
 
@@ -189,3 +189,15 @@ def test_build_output_is_not_read_as_source(tmp_path: Path) -> None:
         (tmp_path / d).mkdir(parents=True)
         (tmp_path / d / "vendor.js").write_text("// @ts-ignore", "utf-8")
     assert list(read_files(tmp_path)) == ["src/a.ts"]
+
+
+def test_a_queued_file_that_no_longer_fails_is_skipped(tmp_path: Path) -> None:
+    # The template's fix cleared its component's spec failures: no agent for the component.
+    ctx = context(tmp_path)  # shared causes off
+    said: list[str] = []
+    ctx.deps.say = lambda stage, text: said.append(text)
+    s = state([BUILD], [fixed()], workspace=str(tmp_path))
+    s["queue"] = ["src/app/search.component.ts", "src/app/list.component.ts"]
+    s["known_failures"] = dump_failures([TYPE])
+    assert queue.next_file_node(ctx, s) == {"queue": ["src/app/list.component.ts"]}
+    assert said == ["no longer failing, skipped: src/app/search.component.ts"]
