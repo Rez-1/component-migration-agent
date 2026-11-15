@@ -399,9 +399,9 @@ def read_run(run_dir: Path) -> RunInputs:
         raise ValueError(f"{run_dir} has no state/untouched.json or state/final.json")
     covered = None
     if card.coverage is not None:
-        covered = {p: True for p in card.coverage.covered} | {
-            p: False for p in card.coverage.not_covered
-        }
+        covered = dict.fromkeys(card.coverage.covered, True) | dict.fromkeys(
+            card.coverage.not_covered, False
+        )
     return RunInputs(card=card, base=base, final=final, covered=covered)
 
 
@@ -556,8 +556,10 @@ def render_reference_score(s: ReferenceScore) -> str:
     lines = [
         f"# Reference score: {s.case}, run {s.run_id} ({s.configuration})",
         "",
-        f"Scored against [{s.reference_pr}]({s.reference_pr}): {len(scored)} items "
-        f"({len(s.items) - len(scored)} more out of scope).",
+        (
+            f"Scored against [{s.reference_pr}]({s.reference_pr}): {len(scored)} items "
+            f"({len(s.items) - len(scored)} more out of scope)."
+        ),
         "",
         "| Verdict | Items |",
         "|---|---|",

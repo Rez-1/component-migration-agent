@@ -181,7 +181,7 @@ def test_escape_hatches_are_counted_per_file() -> None:
 
 def test_reads_stay_inside_the_workspace(tmp_path: Path) -> None:
     (tmp_path / ".git").mkdir()
-    assert not isinstance(workspace_path(tmp_path, "src/a.ts"), type(None))
+    assert workspace_path(tmp_path, "src/a.ts") is not None
     assert getattr(workspace_path(tmp_path, "../x"), "guardrail", None) == "outside-workspace"
     assert (
         getattr(workspace_path(tmp_path, ".git/config"), "guardrail", None) == "outside-workspace"

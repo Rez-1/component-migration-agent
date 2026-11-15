@@ -310,7 +310,7 @@ def review_flagged(
             path=record.path,
             factory=d.reviewer_factory or default_review_model,
         )
-    except Exception as exc:  # the flag still decides: a hand-off
+    except Exception as exc:  # noqa: BLE001 (the flag still decides: a hand-off)
         d.say("Repair", f"{record.path}: the reviewer could not answer ({exc})")
         return None
 

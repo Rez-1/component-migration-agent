@@ -159,7 +159,7 @@ def install_redaction(roots: Sequence[Path] | None = None) -> bool:
 
         rt._CLIENT = langsmith.Client(hide_inputs=hide, hide_outputs=hide, hide_metadata=hide)
         return True
-    except Exception:
+    except Exception:  # noqa: BLE001 (tracing is optional; no client means no tracing)
         return False
 
 
@@ -169,5 +169,5 @@ def flush() -> None:
         from langchain_core.tracers.langchain import wait_for_all_tracers
 
         wait_for_all_tracers()
-    except Exception:  # tracing is optional; never fail a run over it
+    except Exception:  # noqa: BLE001, S110 (tracing is optional; never fail a run over it)
         pass

@@ -81,7 +81,7 @@ def test_repair_on_needs_one_model_per_attempt() -> None:
 
 
 def test_caps_must_be_positive_numbers() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="greater than 0"):
         Configuration.model_validate({"name": "x", "cost": {"max_run_usd": 0}})
 
 

@@ -191,7 +191,7 @@ def _score(ev: Evidence, ch: MigratorChanges, agent: AgentChanges | None) -> Sco
     affected = ev.usage.affected_files()
     failures = ev.verify.failures if ev.verify else []
     rules_changed = set(ch.rules.changed_files) if ch.rules else set()
-    layers: dict[str, Layer] = {p: "rules" for p in rules_changed}
+    layers: dict[str, Layer] = dict.fromkeys(rules_changed, "rules")
     layers.update(ch.later_layers or {})
     repair = ch.repair
     records = {f.path: f for f in repair.files} if repair else {}
