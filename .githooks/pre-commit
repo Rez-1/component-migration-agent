@@ -1,0 +1,22 @@
+#!/bin/sh
+# Blocks a commit unless the same lint and type checks as CI pass.
+# Turn it on once per clone: git config core.hooksPath .githooks
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+if ! command -v uv >/dev/null 2>&1; then
+    echo "pre-commit: uv is not installed, so the checks can't run. Install uv, then commit again." >&2
+    exit 1
+fi
+
+fail=0
+uv run --quiet ruff check . || fail=1
+uv run --quiet ruff format --check . || fail=1
+uv run --quiet mypy || fail=1
+
+if [ "$fail" -ne 0 ]; then
+    echo "" >&2
+    echo "pre-commit: lint or type checks failed, so nothing was committed." >&2
+    echo "Fix with: uv run ruff check --fix . && uv run ruff format .  (mypy errors need fixing by hand)" >&2
+    exit 1
+fi

@@ -210,6 +210,14 @@ Each library does a job that would otherwise be hand-written.
 | `evals/` | cases, traps, reference scores and configurations |
 | `docs/` | running the tool, the eval audit, research and results |
 
+## Working on the Migrator
+
+A commit is blocked unless Ruff's lint and format checks and mypy (strict) pass, the same checks CI runs. Turn the hook on once per clone:
+
+```sh
+git config core.hooksPath .githooks
+```
+
 ## Licence
 
 MIT, see [`LICENSE`](LICENSE). The vendored Material UI guide is MIT, © Call-Em-All (licence in its folder).
