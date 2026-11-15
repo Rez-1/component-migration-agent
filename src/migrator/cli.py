@@ -597,7 +597,16 @@ def eval_run(
         + (f", experiment cap {usd(max_cost)}" if max_cost is not None else "")
         + f" · sandbox {plan.sandbox}"
     )
-    if configuration.uses_llm:
+    if configuration.general_agent.enabled:
+        # M8: no per-attempt history to estimate from; the worst case is every run
+        # reaching its stop.
+        stop = configuration.cost.stop_run_usd or configuration.cost.max_run_usd
+        console.print(
+            f"General agent ({configuration.general_agent.setup}): at most "
+            f"{usd(stop * len(cases) * repeats)} ({len(cases) * repeats} runs x {usd(stop)} "
+            f"stop). Spent this month on this machine: {usd(Ledger().month_spent())}."
+        )
+    elif configuration.uses_llm:
         ledger = Ledger()
         _estimate, how = LedgerPreflight(ledger).estimate(
             PlannedExperiment(

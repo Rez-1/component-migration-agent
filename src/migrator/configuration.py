@@ -17,6 +17,11 @@ configuration loads, so everything downstream sees model ids, and the digest is 
 over the resolved models: a configuration that names levels digests the same as one
 naming the same models directly. Every configuration written before M7 names models,
 so its digest is unchanged.
+
+From M8 a configuration can instead run a **general agent**: Claude Code, headless, given
+the repo and the guide (``[general_agent]``, see ``migrator.general_agent``). It replaces
+Rules, Repair and Review; Scan, Pre-check, the final Verify and Scoring are the same.
+Its section is left out of the digest when it is off, so every earlier digest stands.
 """
 
 from __future__ import annotations
@@ -128,6 +133,39 @@ class RepairSettings(_Model):
         return self
 
 
+GeneralAgentSetup = Literal["plain", "rules"]
+
+
+class GeneralAgentSettings(_Model):
+    """M8: Claude Code run headless on the repo, instead of Rules, Repair and Review.
+
+    ``plain`` gets the repo, the guide and the codemods and is asked to migrate; ``rules``
+    is also told the Migrator's limits and to list the files it could not finish (each
+    one a Hand-off). The prompts are ``migrator/general_agent/prompts/<setup>-<version>.md``,
+    written before the first run and never tuned."""
+
+    enabled: bool = False
+    setup: GeneralAgentSetup | None = None
+    model: str | None = None  # every model call, subagents and helpers included
+    effort: Effort | None = None
+    prompt_version: str | None = None
+    # Wall-clock limit for the agent itself; the run's ceiling still bounds the whole run.
+    timeout_s: float = Field(default=3600.0, gt=0)
+
+    @model_validator(mode="after")
+    def _complete_when_on(self) -> GeneralAgentSettings:
+        if not self.enabled:
+            return self
+        missing = [
+            name
+            for name in ("setup", "model", "effort", "prompt_version")
+            if not getattr(self, name)
+        ]
+        if missing:
+            raise ValueError(f"general_agent is on but {', '.join(missing)} not set")
+        return self
+
+
 class CostCaps(_Model):
     """Hard caps in USD (Anthropic's prices), enforced per call by the run's ``cost.Budget``."""
 
@@ -150,6 +188,7 @@ class Configuration(_Model):
     # uses are resolved into the repair settings, which are.
     models: ModelLevels = ModelLevels()
     repair: RepairSettings = RepairSettings()
+    general_agent: GeneralAgentSettings = GeneralAgentSettings()
     cost: CostCaps = CostCaps()
 
     # Set by the loader. Not part of the TOML.
@@ -188,12 +227,28 @@ class Configuration(_Model):
         if any(getattr(r, k) != v for k, v in update.items()):
             # Frozen models: set in place (pydantic wants an after-validator to return self).
             object.__setattr__(self, "repair", r.model_copy(update=update))
+        g = self.general_agent
+        if g.enabled:
+            if r.enabled:
+                raise ValueError(
+                    "general_agent replaces Rules, Repair and Review: repair must be off"
+                )
+            if self.cost.stop_run_usd is None:
+                raise ValueError("general_agent needs cost.stop_run_usd, its per-run stop")
+            try:
+                model = self.models.resolve(g.model or "")
+            except UnknownModelError as exc:
+                raise ValueError(str(exc)) from exc
+            if model != g.model:
+                object.__setattr__(self, "general_agent", g.model_copy(update={"model": model}))
         return self
 
     def models_used(self) -> list[str]:
         """Every model a run of this configuration may call."""
         r = self.repair
         names = [*r.attempt_models, *([r.reviewer_model] if r.reviewer_model else [])]
+        if self.general_agent.enabled and self.general_agent.model:
+            names.append(self.general_agent.model)
         return list(dict.fromkeys(names))
 
     def feature_notes(self) -> list[str]:
@@ -217,11 +272,13 @@ class Configuration(_Model):
 
     @property
     def uses_llm(self) -> bool:
-        return self.repair.enabled
+        return self.repair.enabled or self.general_agent.enabled
 
     def digest(self) -> str:
         """A short hash of everything the configuration varies (not its description)."""
         data = self.model_dump(mode="json", exclude={"description", "models"})
+        if not self.general_agent.enabled:
+            data.pop("general_agent")  # M8: absent when off, so earlier digests stand
         repair = data["repair"]
         for key, off in _DIGEST_OPTIONAL.items():
             if repair.get(key) == off:
@@ -247,6 +304,13 @@ def ensure_runnable(config: Configuration) -> None:
     """Refuse a configuration this version of the Migrator cannot run faithfully, before
     anything runs (an experiment would otherwise fail run by run)."""
     repair = config.repair
+    if config.general_agent.enabled:
+        from migrator.general_agent import GeneralAgentError, ensure_agent_runnable
+
+        try:
+            ensure_agent_runnable(config.general_agent)
+        except GeneralAgentError as exc:
+            raise ConfigurationError(f"configuration {config.name!r}: {exc}") from exc
     if repair.enabled:
         from migrator.repair.prompt import UnknownPromptVersionError, load_templates
 

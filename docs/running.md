@@ -172,6 +172,24 @@ Defaults: **evals use Docker** (`migrator eval run --sandbox local` opts out); *
 
 One Docker Desktop quirk the runner works around: its file sharing (virtiofs on macOS) caches file attributes for up to a second, so a file the host rewrote just before a container starts can be read there with its old length. The first sandboxed Baseline failed this way (`npm install` read a truncated `package.json`). The runner waits until the newest file in the workspace is 1.1 s old before it starts a container.
 
+## The general agent (M8): Claude Code instead of the Migrator's stages
+
+`m8-agent-plain` and `m8-agent-rules` run a general coding agent in place of Rules, Repair and Review: Claude Code, headless, on Opus 5.5 at low effort (subagents forced onto it), given the repo, the vendored guide and the pinned codemods. Scan, Pre-check, the final Verify and Scoring are the Migrator's own, so its results line up with a Migrator run's. The prompts are `src/migrator/general_agent/prompts/`, written before the first run and never tuned.
+
+```bash
+uv run migrator eval run --split dev --cases-dir evals/m6-cases --case opossum-ui --config m8-agent-plain --repeats 1 --max-cost 6 --timeout-s 9000
+```
+
+What a run does, and needs:
+
+- **Claude Code** on this machine (`MIGRATOR_CLAUDE_BIN` names the binary; otherwise `claude` on PATH, or the copy the Claude desktop app bundles), and the API key in `~/.config/migrator/anthropic.env`. Claude Code reads it through a key-helper script; the agent can't.
+- **Its own copy** of the Pre-checked workspace in `~/.cache/migrator/general-agent/runs/<run-id>/`, with packages installed for this machine by the case's pinned Node (downloaded once from nodejs.org, checked against its `SHASUMS256.txt`). Its changes are copied back to the Migrator's workspace, which is installed again in Docker when the agent changed package.json or the lockfile.
+- **The sandbox:** the agent's shell commands run in Claude Code's own sandbox, with the strict settings from [`research/claude-code-sandbox.md`](research/claude-code-sandbox.md): writes only in its folder, the key folder and `~/.ssh` unreadable, the network limited to the npm and yarn registries, no unsandboxed retries. The Migrator's host install runs under the same policy through `srt` (the sandbox runtime Claude Code is built on, pinned).
+- **The probe:** before every run, a short Haiku session (a few tenths of a cent) checks with the run's own settings file that the sandbox still blocks what it must. Any failure stops the run before the agent starts.
+- **Cost:** `cost.stop_run_usd` is the agent's `--max-budget-usd`. Its cost goes into the ledger like every model call. The Scorecard prices its tokens at the Migrator's prices and keeps Claude Code's own figure per model beside it.
+- **Time:** the agent has `general_agent.timeout_s` (an hour), and the whole run still has its ceiling. Pass `--timeout-s` large enough for the Pre-check, the agent and the final Verify together.
+- **The record:** `general-agent/` in the run folder holds the prompt, the probe's and the agent's stream-json transcripts, and `run.json`. That file has the audit: tool calls, unsandboxed requests, and any file tool used outside the agent's folder.
+
 ## LangSmith tracing
 
 Off by default; switched on by environment variables only, never by code or configuration:
