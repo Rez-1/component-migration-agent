@@ -4,7 +4,8 @@ The prompt explains them; these functions enforce them. ``apply_edit`` may chang
 the failing file and the local files it imports, never a Test file (as the cheating
 checks define it, on the untouched repo), a config, a lockfile or ``package.json``,
 and never in a way that adds an escape hatch or code that detects it runs under test.
-A patch past the size limit (60 changed lines or 40% of a file) hands the file off.
+A patch past the size limit (60 changed lines, or 40% of a file once it changes more than
+10 lines) hands the file off.
 """
 
 from __future__ import annotations
@@ -21,6 +22,9 @@ from migrator.repair.context import ANGULAR_ASSETS, PatchSize
 
 MAX_PATCH_LINES = 60
 MAX_PATCH_SHARE = 0.40
+# The share counts only past this many changed lines (M7): a correct fix to a small
+# stylesheet is often over 40% of it, and a patch this small is quick to check.
+SHARE_FLOOR_LINES = 10
 
 _CONFIG_NAME = re.compile(
     r"""^(
@@ -103,4 +107,6 @@ def added_escape_hatches(path: str, before: str, after: str) -> list[str]:
 
 
 def over_size_limit(size: PatchSize) -> bool:
-    return size.changed > MAX_PATCH_LINES or size.share > MAX_PATCH_SHARE
+    if size.changed > MAX_PATCH_LINES:
+        return True
+    return size.changed > SHARE_FLOOR_LINES and size.share > MAX_PATCH_SHARE
