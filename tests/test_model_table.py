@@ -159,14 +159,20 @@ def test_another_provider_plugs_in_from_the_users_table(fake_provider: Path) -> 
     assert config.repair.attempt_models == ["fakeco:fake-large"]
     notes = config.feature_notes()
     assert notes == [
-        "repair on fakeco:fake-large: turned off effort 'medium' (no effort control), which "
-        "it doesn't declare",
+        (
+            "repair on fakeco:fake-large: turned off effort 'medium' (no effort control), which "
+            "it doesn't declare"
+        ),
         "repair on fakeco:fake-large: turned off prompt caching, which it doesn't declare",
         "repair on fakeco:fake-large: turned off strict tool schemas, which it doesn't declare",
-        "reviewer on fakeco:fake-small: turned off effort 'medium' (it accepts low), which it "
-        "doesn't declare",
-        "reviewer on fakeco:fake-small: turned off structured output (its JSON answer is "
-        "parsed from text instead), which it doesn't declare",
+        (
+            "reviewer on fakeco:fake-small: turned off effort 'medium' (it accepts low), which it "
+            "doesn't declare"
+        ),
+        (
+            "reviewer on fakeco:fake-small: turned off structured output (its JSON answer is "
+            "parsed from text instead), which it doesn't declare"
+        ),
     ]
     # Its LangChain package isn't installed, so the run is refused before it starts.
     with pytest.raises(ConfigurationError, match="needs langchain-fakeco"):

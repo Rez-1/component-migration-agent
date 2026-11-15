@@ -546,7 +546,7 @@ def run_experiment(
             run_ids.add(run_id)
         try:
             repo = case_repo(case, plan.root)
-        except Exception as exc:  # a clone that failed: not a failure of the system
+        except Exception as exc:  # noqa: BLE001 (a clone that failed: not a failure of the system)
             with lock:
                 counts["errors"] += 1
                 _append(
@@ -581,7 +581,7 @@ def run_experiment(
             failure = ("timeout", str(exc))
         except RunError as exc:
             failure = ("case_rejected", str(exc))
-        except Exception as exc:  # a harness bug must not cost the rest of the experiment
+        except Exception as exc:  # noqa: BLE001 (a harness bug must not cost the rest of the experiment)
             failure = ("harness", f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}")
         if card is not None and card.status != "completed":
             failure = (

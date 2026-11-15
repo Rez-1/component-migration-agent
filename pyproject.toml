@@ -47,11 +47,36 @@ target-version = "py313"
 extend-exclude = ["runs", "fixtures", "docs"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PTH", "N"]
-# The glossary's test names use "›" (as traps.yaml does) on purpose.
-ignore = ["RUF001"]
+select = [
+    "E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PTH", "N",
+    "BLE",     # blind `except Exception`
+    "S",       # security (bandit)
+    "DTZ",     # datetimes without a time zone
+    "C4", "PERF", "FURB", "ERA", "T20",
+    "PIE", "RET", "PGH", "TID", "Q", "LOG", "G", "A",
+    "ARG001",  # unused function arguments (not lambdas or methods, which often must match a signature)
+    "PT",      # pytest style
+    "ISC",     # implicit string concatenation
+]
+ignore = [
+    "RUF001",  # The glossary's test names use "›" (as traps.yaml does) on purpose.
+    "PT018",   # splitting `assert a and b` in two is churn for little gain
+    "S603",    # the tool's job is running subprocesses; every call passes an argument list, never a shell
+    "S607",    # git, npm, docker and friends are found on PATH on purpose
+    "S101",    # asserts here only narrow types or state impossible cases; a safety check must raise instead
+    "ISC001",  # conflicts with the formatter
+    "PERF401", # a loop that appends often reads better than the comprehension it asks for
+]
 
 [tool.ruff.lint.per-file-ignores]
+# Tests may assert, use temp paths, and reach into private helpers.
+"tests/**" = ["S108", "S105", "S106", "ARG001"]  # ARG001: fixtures requested for their side effect, fakes matching a signature
+# Scripts are run by hand and report to the terminal.
+"scripts/**" = ["T20"]
+# /tmp here is the sandbox container's own tmpfs, not the host's.
+"src/migrator/execs.py" = ["S108"]
+# Every stage takes (ctx, state), so the graph can call any of them the same way.
+"src/migrator/run/stages/**" = ["ARG001"]
 # Real Angular build output, kept as the tools print it.
 "tests/test_angular_verify.py" = ["E501"]
 

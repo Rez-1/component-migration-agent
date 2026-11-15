@@ -255,7 +255,7 @@ def test_repeated_edits_flag_a_line_added_to_three_files() -> None:
     from migrator.review_aids import repeated_edits
 
     after = {f"src/{n}.tsx": "<IconButton\n/>\n" for n in "ABCD"}
-    final = {p: '<IconButton\n  size="medium"\n/>\n' for p in after}
+    final = dict.fromkeys(after, '<IconButton\n  size="medium"\n/>\n')
     flags = repeated_edits(
         after, final, dict.fromkeys(["src/A.tsx", "src/B.tsx", "src/C.tsx"], "agent")
     )

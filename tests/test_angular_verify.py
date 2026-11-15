@@ -85,8 +85,10 @@ def test_a_failing_spec_is_charged_to_its_component_from_the_stack_or_the_descri
             "description": "shows chips",
             "success": False,
             "log": [
-                "Expected 0 to be 3.\n    at UserContext.<anonymous> "
-                "(src/app/tags/tag-list.component.spec.ts:31:22)"
+                (
+                    "Expected 0 to be 3.\n    at UserContext.<anonymous> "
+                    "(src/app/tags/tag-list.component.spec.ts:31:22)"
+                )
             ],
             "console": [],
         },
@@ -143,8 +145,10 @@ def test_an_unknown_element_logged_in_a_passing_spec_is_a_failure() -> None:
             "success": True,
             "log": [],
             "console": [
-                "'ERROR', 'NG0304: \\'mat-chip-list\\' is not a known element (used in "
-                "the \\'TagListComponent\\' component template)'",
+                (
+                    "'ERROR', 'NG0304: \\'mat-chip-list\\' is not a known element (used in "
+                    "the \\'TagListComponent\\' component template)'"
+                ),
                 "'ERROR', 'something else'",
             ],
         },

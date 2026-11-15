@@ -473,7 +473,7 @@ def _covered_from_map(cmap: dict[str, object], root: Path) -> dict[str, bool]:
     return dict(sorted(out.items()))
 
 
-# --------------------------------------------------------------------------- snapshots (M6)
+# --------------------------------------------------------------------------- snapshots, from M6
 
 # A failed test whose message is a snapshot mismatch: Jest's matcher line, or Vitest's.
 # Inline snapshots are left out: updating them rewrites the test file itself.

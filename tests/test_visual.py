@@ -163,7 +163,7 @@ def test_visual_config_needs_a_build_or_an_entry_and_unique_pages() -> None:
         VisualConfig(pages=[VisualPage(name="a")])
     with pytest.raises(ValueError, match="unique"):
         VisualConfig(entry="src/index.tsx", pages=[VisualPage(name="a"), VisualPage(name="a")])
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="should match pattern"):
         VisualPage(name="Not A Slug")
 
 
