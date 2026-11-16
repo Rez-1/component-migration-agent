@@ -139,15 +139,17 @@ def review_patch(
     case: str | None,
     path: str,
     factory: ModelFactory = default_model,
+    system: str = REVIEW_SYSTEM,
 ) -> Review:
-    """One structured-output call; raises CostCapError when the run's Budget refuses it."""
-    budget.check(model, estimate_tokens(REVIEW_SYSTEM + prompt), REVIEW_MAX_TOKENS)
+    """One structured-output call; raises CostCapError when the run's Budget refuses it.
+    ``system``: the migration's own reviewer instructions (M7), MUI's by default."""
+    budget.check(model, estimate_tokens(system + prompt), REVIEW_MAX_TOKENS)
     chat = factory(model, card_for(model).effort(REVIEW_EFFORT), REVIEW_MAX_TOKENS)
     out = ask_structured(
         chat,
         model,
         ReviewAnswer,
-        REVIEW_SYSTEM,
+        system,
         prompt,
         config={"run_name": f"review {path}", "metadata": {"file": path, "reviewer": model}},
     )

@@ -67,11 +67,15 @@ class ReservationOutcome:
     reservation: Reservation | None = None
 
 
-def reserve_queue(budget: Budget, order: list[str], tests: Mapping[str, str]) -> ReservationOutcome:
+def reserve_queue(
+    budget: Budget, order: list[str], tests: Mapping[str, str], *, from_spend: bool = False
+) -> ReservationOutcome:
     """Reserve the worst case of repairing ``order`` before its first call (M6: runs
     must finish). Failing test files are handed off without a model call, so they cost
-    nothing. The first pass and the recheck's top-up share the run's caps."""
-    held = budget.reserve([p for p in order if p not in tests]) if order else None
+    nothing. The first pass and the recheck share the run's caps; the recheck reserves
+    from what is spent (``Budget.reserve``)."""
+    paid = [p for p in order if p not in tests]
+    held = budget.reserve(paid, from_spend=from_spend) if order else None
     if held is None:
         return ReservationOutcome("unreserved")
     return ReservationOutcome("held" if held.held else "refused", held)
@@ -152,16 +156,17 @@ def _repair_did_not_start(held: Reservation, caps: RunCaps) -> str:
 
 def next_file_node(ctx: RunContext, state: RunState) -> RunState:
     """Before each file: once the cost cap is reached, the rest end not
-    attempted; after a shared definition was repaired, callers that no longer fail
-    leave the queue."""
+    attempted; files that no longer fail leave the queue (an earlier file's fix, such
+    as a shared definition or a component's template, fixed them too)."""
     report = ctx.report(state)
     queue = list(state.get("queue") or [])
     if report.stopped_by_cost_cap and queue:
         not_attempted(report, queue)
         ctx.deps.say("Repair", f"cost cap: {len(queue)} files not attempted")
         return {"queue": [], "repair": report.model_dump(mode="json")}
-    if ctx.deps.configuration.repair.shared_causes and queue:
-        # After a shared definition was repaired, only callers that still fail stay.
+    if queue:
+        # An earlier file's fix may have fixed this one too (a shared definition, or
+        # a component's template): only files that still fail stay.
         known = {f.file for f in failures_of(state.get("known_failures"))}
         sources = {c["source"] for c in state.get("shared_causes") or []}
         kept = [p for p in queue if p in known or p in sources]
@@ -214,8 +219,10 @@ def recheck_node(ctx: RunContext, state: RunState) -> RunState:
         d.say("Repair", "recheck: no new failing files")
         return updates
     order = repair_order(new, after)
-    # The top-up stays under the same run cap as the first pass's Reservation.
-    out = reserve_queue(ctx.budget(state), order, state.get("test_files") or {})
+    # The new worst case: the spend so far plus every attempt left on the queued and
+    # the new files, under the same run cap as the first pass's Reservation.
+    tests = state.get("test_files") or {}
+    out = reserve_queue(ctx.budget(state), [*kept, *order], tests, from_spend=True)
     if out.status == "refused" and (held := out.reservation) is not None:
         d.say("Repair", _top_up_refused(order, held))
         not_attempted(report, order)

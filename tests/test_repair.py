@@ -31,7 +31,12 @@ from migrator.cost import (
 from migrator.migrations import MigrationSpec
 from migrator.pipeline import RunResult
 from migrator.repair.context import PatchSize, file_view, signatures
-from migrator.repair.guardrails import added_escape_hatches, check_target, workspace_path
+from migrator.repair.guardrails import (
+    added_escape_hatches,
+    check_target,
+    over_size_limit,
+    workspace_path,
+)
 from migrator.repair.model import GuardedModel, provider_model
 from migrator.repair.prompt import (
     PROMPTS_DIR,
@@ -549,3 +554,19 @@ def test_nothing_in_the_fixture_describes_the_traps() -> None:
         # traps.yaml and the case README live outside the fixture, so outside the workspace.
         assert not (fixture / "traps.yaml").exists()
     assert leaks == []
+
+
+def test_a_small_patch_to_a_small_file_is_within_the_size_limit() -> None:
+    # The share only counts past 10 changed lines: a correct 7-line fix to an 11-line
+    # stylesheet (64%) was handed off, while a rewrite of most of a file is still refused.
+    def lines(prefix: str, n: int) -> list[str]:
+        return [f"{prefix} {i}\n" for i in range(n)]
+
+    stylesheet = lines("old", 11)
+    fix = PatchSize("".join(stylesheet), "".join(lines("new", 7) + stylesheet[7:]))
+    assert fix.changed == 7 and fix.share > 0.4 and not over_size_limit(fix)
+    module = lines("old", 25)
+    rewrite = PatchSize("".join(module), "".join(lines("new", 11) + module[11:]))
+    assert rewrite.changed == 11 and rewrite.share > 0.4 and over_size_limit(rewrite)
+    big = "".join(f"line {i}\n" for i in range(1000))
+    assert over_size_limit(PatchSize(big, big + "".join(f"x{i}\n" for i in range(61))))
