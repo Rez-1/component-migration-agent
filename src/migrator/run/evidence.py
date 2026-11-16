@@ -11,6 +11,7 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from migrator import __version__
 from migrator.checks import CheatingReport, FileSet, read_files
@@ -23,7 +24,8 @@ from migrator.run.files import RunFiles
 from migrator.run.stages.verify import final_layers, migrator_snapshots
 from migrator.run.state import RunState
 from migrator.scan import UsageReport
-from migrator.scoring import Evidence, MigratorChanges, RunMeta, SnapshotUpdate
+from migrator.scoring import AgentChanges, Evidence, MigratorChanges, RunMeta, SnapshotUpdate
+from migrator.scoring.evidence import Unfinished
 from migrator.verify import PrecheckResult, VerifyResult
 from migrator.visual.compare import VisualReport
 from migrator.workspace import StageCommit
@@ -66,7 +68,11 @@ def evidence_from_run(
     calls = [CallRecord.model_validate(c) for c in state.get("calls") or []]
     meta = run_meta(state, deps, calls)
     ws = state.get("workspace")
-    finished = bool(ws) and rules is not None and rules.status == "ok" and final is not None
+    agent_run: dict[str, Any] | None = state.get("general_agent")  # type: ignore[assignment]
+    if deps.configuration.general_agent.enabled:
+        finished = bool(ws) and agent_run is not None and final is not None
+    else:
+        finished = bool(ws) and rules is not None and rules.status == "ok" and final is not None
     # The Start of Repair and the final files: who changed what after Rules.
     layers = (files.start_of_repair(), read_files(Path(str(ws)))) if finished else None
     visual_report = visual(finished)
@@ -75,8 +81,13 @@ def evidence_from_run(
         deps.caps.run_usd,
         deps.caps.month_usd,
         month_spent_usd=deps.ledger.month_spent() if calls else None,
-        stopped_by_cap=report.stopped_by_cost_cap,
+        stopped_by_cap=report.stopped_by_cost_cap or _agent_stopped(agent_run),
     )
+    changes: MigratorChanges | AgentChanges
+    if deps.configuration.general_agent.enabled:
+        changes = agent_changes(files.untouched(), layers[1] if layers else None, agent_run)
+    else:
+        changes = migrator_changes(state, deps, rules, report, layers, visual_report)
     return Evidence(
         usage=_usage(state["usage_path"]),
         precheck=PrecheckResult.model_validate(state["precheck"]),
@@ -91,7 +102,28 @@ def evidence_from_run(
         cost=cost,
         case=deps.case.id if deps.case else (deps.traps.case if deps.traps else None),
         meta=meta,
-        changes=migrator_changes(state, deps, rules, report, layers, visual_report),
+        changes=changes,
+    )
+
+
+def _agent_stopped(agent_run: dict[str, Any] | None) -> bool:
+    agent = (agent_run or {}).get("agent") or {}
+    return agent.get("status") == "stopped_by_cost"
+
+
+def agent_changes(
+    untouched: FileSet, final: FileSet | None, agent_run: dict[str, Any] | None
+) -> AgentChanges:
+    """What a general agent changed (M8): every file that differs from the untouched
+    workspace, and the files it listed as unfinished (the setup with the rules)."""
+    if final is None:
+        return AgentChanges(changed_files=[])
+    changed = sorted(p for p in untouched.keys() | final.keys() if untouched.get(p) != final.get(p))
+    return AgentChanges(
+        changed_files=changed,
+        unfinished=[
+            Unfinished.model_validate(u) for u in (agent_run or {}).get("unfinished") or []
+        ],
     )
 
 

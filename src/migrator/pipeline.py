@@ -68,7 +68,7 @@ from migrator.repair.tools import RepairTools
 from migrator.report import write_json
 from migrator.review import AutoReviewer, Reviewer, ReviewPayload, code_hashes
 from migrator.rules import tools_cache_root
-from migrator.run.build import RECURSION_LIMIT, build
+from migrator.run.build import RECURSION_LIMIT, builder_for
 from migrator.run.context import Mode, RunContext, RunDeps, StageCallback
 from migrator.run.files import RunFiles
 from migrator.run.state import initial_state
@@ -612,7 +612,7 @@ def start_run(
     )
     write_run_record(run_dir, record)
     reviewer = reviewer or AutoReviewer()
-    builder = build(RunContext(deps, RunFiles(run_dir)))
+    builder = builder_for(RunContext(deps, RunFiles(run_dir)))
     config_ = _graph_config(run_id, opts, callbacks)
     use_sqlite = durable if durable is not None else checkpointer is None and opts.mode == "cli"
     durability: Literal["sync", "async"] = "sync" if use_sqlite else "async"
@@ -754,7 +754,7 @@ def _resume(
     callbacks: list[BaseCallbackHandler] | None,
 ) -> RunResult | PausedRun:
     ctx = RunContext(deps, RunFiles(run_dir))
-    builder = build(ctx)
+    builder = builder_for(ctx)
     config_ = _graph_config(record.run_id, opts, callbacks)
     with sqlite_checkpointer(run_dir) as saver:
         graph = builder.compile(checkpointer=saver)

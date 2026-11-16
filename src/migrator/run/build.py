@@ -30,7 +30,16 @@ from typing import Protocol
 from langgraph.graph import END, START, StateGraph
 
 from migrator.run.context import RunContext
-from migrator.run.stages import commits, file_loop, prepare, queue, report, review, verify
+from migrator.run.stages import (
+    commits,
+    file_loop,
+    general_agent,
+    prepare,
+    queue,
+    report,
+    review,
+    verify,
+)
 from migrator.run.state import RunState
 
 RECURSION_LIMIT = 10_000
@@ -41,6 +50,12 @@ Route = Callable[[RunContext, RunState], str]
 
 class BoundNode(Protocol):
     def __call__(self, state: RunState) -> RunState: ...
+
+
+class BoundAgentNode(Protocol):
+    def __call__(
+        self, state: general_agent.GeneralAgentState
+    ) -> general_agent.GeneralAgentState: ...
 
 
 def _bind(ctx: RunContext, node: Node, timed: str | None = None) -> BoundNode:
@@ -115,3 +130,51 @@ def build(ctx: RunContext) -> StateGraph[RunState]:
     g.add_edge("final_verify", "report")
     g.add_edge("report", END)
     return g
+
+
+def build_general_agent(ctx: RunContext) -> StateGraph[general_agent.GeneralAgentState]:
+    """M8's general agent in place of Rules, Repair and Review:
+
+        Scan -> Pre-check -> general_agent -> final_verify -> Report
+
+    The other nodes are the Migrator's own. A general-agent run never pauses (it is
+    only run as a dry run in evals), so this graph's shape is not pinned for resume."""
+    g: StateGraph[general_agent.GeneralAgentState] = StateGraph(general_agent.GeneralAgentState)
+    g.add_node("scan", _bind_agent(ctx, prepare.scan_node, "scan"))
+    g.add_node("precheck", _bind_agent(ctx, prepare.precheck_node, "precheck"))
+    g.add_node(
+        "general_agent",
+        _bind_agent(ctx, general_agent.general_agent_node, "general_agent"),  # type: ignore[arg-type]
+    )
+    g.add_node("final_verify", _bind_agent(ctx, verify.final_verify_node, "final_verify"))
+    g.add_node("report", _bind_agent(ctx, report.report_node))
+    g.add_edge(START, "scan")
+    g.add_edge("scan", "precheck")
+    g.add_conditional_edges("precheck", _route(ctx, _after_precheck), ["general_agent", "report"])
+    g.add_edge("general_agent", "final_verify")
+    g.add_edge("final_verify", "report")
+    g.add_edge("report", END)
+    return g
+
+
+def _bind_agent(ctx: RunContext, node: Node, timed: str | None = None) -> BoundAgentNode:
+    """``_bind`` for the general agent's graph: LangGraph hands a node only the keys of
+    the state type it is annotated with, and Report must see ``general_agent``."""
+    inner = _bind(ctx, node, timed)
+
+    def run(state: general_agent.GeneralAgentState) -> general_agent.GeneralAgentState:
+        return inner(state)  # type: ignore[return-value]
+
+    return run
+
+
+def _after_precheck(_ctx: RunContext, state: RunState) -> str:
+    pre = state.get("precheck") or {}
+    return "general_agent" if pre.get("status") == "ok" else "report"
+
+
+def builder_for(ctx: RunContext) -> StateGraph[RunState]:
+    """The run's graph: the Migrator's, or the general agent's (M8)."""
+    if ctx.deps.configuration.general_agent.enabled:
+        return build_general_agent(ctx)  # type: ignore[return-value]
+    return build(ctx)

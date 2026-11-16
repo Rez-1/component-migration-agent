@@ -38,6 +38,8 @@ def test_shipped_configurations_load() -> None:
         "m6-opus-low-v4",
         "m7-baseline",
         "m7-strong-low",
+        "m8-agent-plain",
+        "m8-agent-rules",
         "opus-low",
         "sonnet-medium",
     ]
