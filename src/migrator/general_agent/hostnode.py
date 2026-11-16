@@ -49,7 +49,9 @@ def node_version(node: str | None) -> str:
 
 
 def _fetch(url: str) -> bytes:
-    with urllib.request.urlopen(url, timeout=120) as resp:
+    if not url.startswith("https://"):
+        raise GeneralAgentError(f"refusing to download from a non-https URL: {url}")
+    with urllib.request.urlopen(url, timeout=120) as resp:  # noqa: S310 (https only, checked above)
         data: bytes = resp.read()
     return data
 

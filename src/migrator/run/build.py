@@ -168,7 +168,7 @@ def _bind_agent(ctx: RunContext, node: Node, timed: str | None = None) -> BoundA
     return run
 
 
-def _after_precheck(ctx: RunContext, state: RunState) -> str:
+def _after_precheck(_ctx: RunContext, state: RunState) -> str:
     pre = state.get("precheck") or {}
     return "general_agent" if pre.get("status") == "ok" else "report"
 
