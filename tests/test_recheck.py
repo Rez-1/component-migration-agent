@@ -17,7 +17,7 @@ from migrator.repair.records import FileRepair, RepairReport
 from migrator.run.context import RunContext, RunDeps
 from migrator.run.files import RunFiles
 from migrator.run.stages import queue
-from migrator.run.state import RunState
+from migrator.run.state import RunState, dump_failures
 from migrator.verify import VerifyResult
 from migrator.verify.parsers import Failure
 
@@ -123,14 +123,15 @@ def test_the_files_that_fail_only_now_are_queued_and_reserved(
     ctx = context(tmp_path)
     out = queue.recheck_node(ctx, state([BUILD, TYPE], [fixed()], workspace=str(tmp_path)))
     assert out["rechecked"] and out["queue"] == ["src/app/search.component.ts"]
-    assert RepairReport.model_validate(out["repair"]).reserved_usd == 1.8  # 1.35 + 3 x 0.15
+    # nothing spent yet, one file left: 3 attempts x $0.15 (the done file's reserve is freed)
+    assert RepairReport.model_validate(out["repair"]).reserved_usd == 0.45
     assert queue.route_recheck(ctx, out) == "start_file"
-    # The top-up is held in the shared book: another run has $50 - $1.80 of the month.
+    # The new total is held in the shared book: another run has $50 - $0.45 of the month.
     other = Budget(
         "other", RunCaps(run_usd=99, month_usd=50, reserve_attempt_usd=20), ctx.deps.ledger
     )
     assert other.reserve(["x"]) == Reservation(
-        held=False, files=1, added_usd=60.0, total_usd=60.0, available_usd=48.2
+        held=False, files=1, added_usd=60.0, total_usd=60.0, available_usd=49.55
     )
     Budget("recheck-test", ctx.deps.caps, ctx.deps.ledger).release()  # start_run's finally, here
 
@@ -157,11 +158,11 @@ def test_new_files_over_the_cap_are_left_unmigrated(
     ctx = context(tmp_path)
     ctx.deps.ledger.append(
         LedgerRow(at=now_utc(), run_id="earlier", model="m", requested_model="m", usage=Usage(),
-                  cost_usd=49.0)
+                  cost_usd=49.7)
     )  # fmt: skip
     out = queue.recheck_node(
         ctx, state([BUILD, TYPE], [fixed()], workspace=str(tmp_path))
-    )  # $1.80 > $50 - $49 of the month
+    )  # $0.45 > $50 - $49.70 of the month
     assert out["queue"] == []
     files = RepairReport.model_validate(out["repair"]).files
     assert files[-1].path == "src/app/search.component.ts" and files[-1].outcome == "Unmigrated"
@@ -173,11 +174,11 @@ def test_the_top_up_stops_at_what_the_run_can_spend(
     monkeypatch.setattr(
         checker, "verify", lambda inp, runner: VerifyResult(commands=[], failures=[SPEC])
     )
-    ctx = context(tmp_path, run_cap=1.5)
-    # $1.80 asked, the run stops at $1.50
+    ctx = context(tmp_path, run_cap=0.3)
+    # $0.45 asked, the run stops at $0.30
     out = queue.recheck_node(ctx, state([BUILD, TYPE], [fixed()], workspace=str(tmp_path)))
     assert out["queue"] == ["src/app/search.component.ts"]
-    assert RepairReport.model_validate(out["repair"]).reserved_usd == 1.5
+    assert RepairReport.model_validate(out["repair"]).reserved_usd == 0.3
     Budget("recheck-test", ctx.deps.caps, ctx.deps.ledger).release()
 
 
@@ -188,3 +189,15 @@ def test_build_output_is_not_read_as_source(tmp_path: Path) -> None:
         (tmp_path / d).mkdir(parents=True)
         (tmp_path / d / "vendor.js").write_text("// @ts-ignore", "utf-8")
     assert list(read_files(tmp_path)) == ["src/a.ts"]
+
+
+def test_a_queued_file_that_no_longer_fails_is_skipped(tmp_path: Path) -> None:
+    # The template's fix cleared its component's spec failures: no agent for the component.
+    ctx = context(tmp_path)  # shared causes off
+    said: list[str] = []
+    ctx.deps.say = lambda stage, text: said.append(text)
+    s = state([BUILD], [fixed()], workspace=str(tmp_path))
+    s["queue"] = ["src/app/search.component.ts", "src/app/list.component.ts"]
+    s["known_failures"] = dump_failures([TYPE])
+    assert queue.next_file_node(ctx, s) == {"queue": ["src/app/list.component.ts"]}
+    assert said == ["no longer failing, skipped: src/app/search.component.ts"]

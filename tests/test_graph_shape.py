@@ -37,7 +37,7 @@ NODES = [
     "verify",
 ]
 
-# (source, target, conditional)
+# Each edge: source, target, conditional.
 EDGES = [
     ("__start__", "scan", False),
     ("agent", "file_end", True),

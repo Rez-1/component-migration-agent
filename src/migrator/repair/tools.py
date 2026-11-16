@@ -350,7 +350,7 @@ class RepairTools:
             result = tool.invoke(call)
         except RunTimeoutError:
             raise  # the run's wall-clock ceiling ends the run, not just the tool call
-        except Exception as exc:  # a bad argument must not kill the run
+        except Exception as exc:  # noqa: BLE001 (a bad argument must not kill the run)
             return ToolMessage(
                 content=f"Error: {type(exc).__name__}: {exc}",
                 tool_call_id=call["id"] or "",

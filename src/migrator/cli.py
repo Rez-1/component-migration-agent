@@ -276,7 +276,7 @@ def init_command(
     try:
         if stdout:
             result = detect(repo)
-            print(render_migrate_toml(result), end="")
+            print(render_migrate_toml(result), end="")  # noqa: T201 (--stdout writes the file to stdout)
         else:
             path, result = write_migrate_toml(repo, force=force)
             console.print(f"Wrote {path}. Check every value before the first run.")

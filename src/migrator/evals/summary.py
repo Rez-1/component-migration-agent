@@ -334,14 +334,18 @@ def render_summary(s: ExperimentSummary, *, stable: bool = False) -> str:
         + (f" vs {base_name}" if base_name else "")
         + f" · {s.split} split",
         "",
-        f"{when}{len(s.cases)} case{'s' if len(s.cases) != 1 else ''} ({cases}) × "
-        f"{s.repeats} run{'s' if s.repeats != 1 else ''} · configuration "
-        f"`{s.configuration}` ({s.configuration_digest}) · "
-        f"experiment `{s.experiment}` · total {usd(s.cost.total_usd)}",
+        (
+            f"{when}{len(s.cases)} case{'s' if len(s.cases) != 1 else ''} ({cases}) × "
+            f"{s.repeats} run{'s' if s.repeats != 1 else ''} · configuration "
+            f"`{s.configuration}` ({s.configuration_digest}) · "
+            f"experiment `{s.experiment}` · total {usd(s.cost.total_usd)}"
+        ),
         "",
-        f"**Migrated without a human: {_mean_cell(share, runs)} (runs: {_spread(share)}){vs}. "
-        f"Clean runs: {s.clean_runs} of {runs}{clean_vs}.** Cost per clean run: {per_clean} "
-        f"(cost per run: {usd(s.cost.per_run_usd)}).",
+        (
+            f"**Migrated without a human: {_mean_cell(share, runs)} (runs: {_spread(share)}){vs}. "
+            f"Clean runs: {s.clean_runs} of {runs}{clean_vs}.** Cost per clean run: {per_clean} "
+            f"(cost per run: {usd(s.cost.per_run_usd)})."
+        ),
         "",
     ]
     if len(s.cost.by_model) > 1:

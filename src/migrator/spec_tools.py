@@ -120,11 +120,13 @@ Fetch = Callable[[str], int]  # URL -> HTTP status (0 when unreachable)
 
 
 def http_status(url: str) -> int:
-    request = urllib.request.Request(
+    if not url.startswith(("https://", "http://")):
+        raise ValueError(f"only http(s) links can be checked, not {url!r}")
+    request = urllib.request.Request(  # noqa: S310 (checked just above)
         url, method="GET", headers={"User-Agent": "migrator-spec-check", "Accept": "*/*"}
     )
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
+        with urllib.request.urlopen(request, timeout=15) as response:  # noqa: S310
             return int(response.status)
     except urllib.error.HTTPError as exc:
         return int(exc.code)

@@ -89,8 +89,10 @@ class PrPlan(BaseModel):
 
     def describe(self) -> list[str]:
         return [
-            f"Would check that `gh api user` is {self.github.owner} (the owner of "
-            f"{self.github.slug}, the {self.remote} remote), then:",
+            (
+                f"Would check that `gh api user` is {self.github.owner} (the owner of "
+                f"{self.github.slug}, the {self.remote} remote), then:"
+            ),
             f"  $ {shlex.join(self.push_command())}   (in {self.repo_dir})",
             f"  $ {shlex.join(self.create_command())}",
             f"Title: {self.title}",

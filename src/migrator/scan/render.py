@@ -18,17 +18,21 @@ def render_usage_report(report: UsageReport, top_symbols: int = 10) -> str:
         "",
         f"`{report.migration}` · {t.files_scanned} files scanned",
         "",
-        f"**{t.affected_files} affected files, {t.old_usages} usages of "
-        f"{', '.join(f'`{m}`' for m in old_modules) or 'the old library'}, "
-        f"{t.new_usages} of the new library.** "
-        f"The official codemods are expected to handle {t.expected_by_codemods} of the "
-        f"{t.old_usages} usages ({_pct(t.expected_by_codemods, t.old_usages)}). "
-        f"{t.expected_repair} usages in {t.expected_repair_files} files touch breaking changes "
-        "the guide doesn't mark as codemod-handled, so expect repair work there.",
+        (
+            f"**{t.affected_files} affected files, {t.old_usages} usages of "
+            f"{', '.join(f'`{m}`' for m in old_modules) or 'the old library'}, "
+            f"{t.new_usages} of the new library.** "
+            f"The official codemods are expected to handle {t.expected_by_codemods} of the "
+            f"{t.old_usages} usages ({_pct(t.expected_by_codemods, t.old_usages)}). "
+            f"{t.expected_repair} usages in {t.expected_repair_files} files touch breaking changes "
+            "the guide doesn't mark as codemod-handled, so expect repair work there."
+        ),
         "",
-        "> The split is a forecast from the guide's ✅ markers: a JSX element or call is "
-        "counted for repair when its symbol has any unmarked breaking change, whether or "
-        "not the file uses the changed prop. Import statements count as codemod-handled.",
+        (
+            "> The split is a forecast from the guide's ✅ markers: a JSX element or call is "
+            "counted for repair when its symbol has any unmarked breaking change, whether or "
+            "not the file uses the changed prop. Import statements count as codemod-handled."
+        ),
         "",
         "## Most-used symbols",
         "",
@@ -46,8 +50,10 @@ def render_usage_report(report: UsageReport, top_symbols: int = 10) -> str:
     if len(report.by_symbol) > top_symbols:
         lines += [
             "",
-            f"(top {top_symbols} of {len(report.by_symbol)} symbols; full list in "
-            "`usage-report.json`)",
+            (
+                f"(top {top_symbols} of {len(report.by_symbol)} symbols; full list in "
+                "`usage-report.json`)"
+            ),
         ]
 
     lines += [

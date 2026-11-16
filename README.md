@@ -73,14 +73,16 @@ Each run starts from the commit before the repo's merged migration PR. The resul
 - **Tuned on:** [OpossumUI](https://github.com/opossum-tool/OpossumUI/pull/218) and the [kubeflow/pipelines](https://github.com/kubeflow/pipelines/pull/12925) frontend.
 - **Held out:** the [bcgov/wps](https://github.com/bcgov/wps/pull/1933) `web/` app, run once with the configuration frozen. Nothing was tuned on it.
 
-| Repo | Setup | Clean runs | Migrated without a human | Silent misses | Cost per run | Time per run |
-|---|---|---|---|---|---|---|
-| OpossumUI (52 files) | Codemods only | 0 of 2 | 43 (83%) | 3 | $0 | 6 min |
-| | Opus, low effort | **2 of 2** | 43–44 (83–85%) | 3–4 | $1.05 | 17 min |
-| kubeflow (76 files) | Codemods only | 0 of 2 | 66 (87%) | 0 | $0 | 11 min |
-| | Opus, low effort | **2 of 2** | 68 (89%) | 0 | $1.87 | 54 min |
-| wps, held out (141 files) | Codemods only | 0 of 2 | 127 (90%) | 13 ¹ | $0 | 5.5 min |
-| | Opus, low effort | **2 of 2** | 134 (95%) | 14 ² | $0.55 | 10 min |
+| Repo | Setup | Clean runs | Migrated without a human | Not migrated | Silent misses | Cost per run | Time per run |
+|---|---|---|---|---|---|---|---|
+| OpossumUI (52 files) | Codemods only | 0 of 2 | 43 (83%) | 9 left failing | 3 | $0 | 6 min |
+| | Opus, low effort | **2 of 2** | 43–44 (83–85%) | 8–9 handed off | 3–4 | $1.05 | 17 min |
+| kubeflow (76 files) | Codemods only | 0 of 2 | 66 (87%) | 10 left failing | 0 | $0 | 11 min |
+| | Opus, low effort | **2 of 2** | 68 (89%) | 8 handed off | 0 | $1.87 | 54 min |
+| wps, held out (141 files) | Codemods only | 0 of 2 | 127 (90%) | 14 left failing | 13 ¹ | $0 | 5.5 min |
+| | Opus, low effort | **2 of 2** | 134 (95%) | 7 handed off | 14 ² | $0.55 | 10 min |
+
+Migrated and not migrated add up to the repo's file count. A clean run does not mean fewer files for a human: on OpossumUI the agent handed off 8–9 files where the codemods left 9 failing. What changes is that each one comes with a reason.
 
 ¹ The stray-parentheses fix in Rules was found by reading wps's results, so the table keeps the blind numbers. Re-run after the fix, the codemods-only score is 11 ([per-file score](docs/results/m6/bcgov-wps-baseline-after-rules-fix-reference-score.md)).<br>
 ² 15 by the judge alone. I overrode one of its verdicts; [`overrides.toml`](evals/m6-cases/bcgov-wps/overrides.toml) records who, when and why, and the judge's verdict is kept beside it.
@@ -207,6 +209,14 @@ Each library does a job that would otherwise be hand-written.
 | `fixtures/` | the test apps with planted traps |
 | `evals/` | cases, traps, reference scores and configurations |
 | `docs/` | running the tool, the eval audit, research and results |
+
+## Working on the Migrator
+
+A commit is blocked unless Ruff's lint and format checks and mypy (strict) pass, the same checks CI runs. Turn the hook on once per clone:
+
+```sh
+git config core.hooksPath .githooks
+```
 
 ## Licence
 

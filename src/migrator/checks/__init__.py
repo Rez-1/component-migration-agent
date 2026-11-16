@@ -543,7 +543,7 @@ def _totals_findings(
     after Rules is the Rules layer's (reported, not failing), whoever changed files
     later: on a real repo, suites the codemods broke so that they can't load report no
     tests, and the Baseline loses exactly the same tests (M6)."""
-    after_rules = dict((r[0], r[2]) for r in _totals_rows(pre, rules)) if rules else {}
+    after_rules = {r[0]: r[2] for r in _totals_rows(pre, rules)} if rules else {}
     findings: list[Finding] = []
     for label, before, after, bad in _totals_rows(pre, final):
         if not bad:

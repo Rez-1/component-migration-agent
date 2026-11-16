@@ -292,7 +292,12 @@ def review_flagged(
     failures = failing_tests_of(record.path, failures_of(state.get("file_start_failures")))
     tests = read_tests(workspace, failures)
     lines = flagged.removeprefix("possible test-fitting: ").split("; ")
-    query = " ".join([*re.findall(r"[A-Z][A-Za-z]+|aria-\w+|describeChild", " ".join(lines))])
+    words = re.findall(r"[A-Z][A-Za-z]+|aria-\w+|describeChild", " ".join(lines))
+    if d.spec.template_prefix:
+        # Templates (M7): what the patch added or removed (an element, a binding) is
+        # what the guide's sections talk about; words on both sides are noise.
+        words = changed_words(lines) or words
+    query = " ".join(words)
     guide = (
         [render_section(doc, d.spec.guide.link_base) for doc in d.retriever.rank(query, k=2)]
         if d.retriever is not None and query
@@ -309,10 +314,23 @@ def review_flagged(
             case=d.case.id if d.case else None,
             path=record.path,
             factory=d.reviewer_factory or default_review_model,
+            **({"system": d.spec.reviewer_system} if d.spec.reviewer_system else {}),
         )
-    except Exception as exc:  # the flag still decides: a hand-off
+    except Exception as exc:  # noqa: BLE001 (the flag still decides: a hand-off)
         d.say("Repair", f"{record.path}: the reviewer could not answer ({exc})")
         return None
+
+
+def changed_words(flagged: list[str]) -> list[str]:
+    """The words a flagged patch added or removed: in "path: + <added>, - <removed>"
+    lines, the words whose count differs between the added and the removed side."""
+    counts: dict[str, list[int]] = {}
+    for line in flagged:
+        body = re.sub(r"^[^\s:]+: ", "", line)
+        for sign, text in re.findall(r"(?:^|, )([+-]) (.*?)(?=, [+-] |$)", body):
+            for word in re.findall(r"[A-Za-z][\w-]{2,}", text):
+                counts.setdefault(word, [0, 0])[sign == "-"] += 1
+    return [w for w, (added, removed) in counts.items() if added != removed]
 
 
 def end_policy(ctx: RunContext) -> EndPolicy:

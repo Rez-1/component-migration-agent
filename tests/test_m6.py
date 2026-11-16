@@ -255,7 +255,7 @@ def test_repeated_edits_flag_a_line_added_to_three_files() -> None:
     from migrator.review_aids import repeated_edits
 
     after = {f"src/{n}.tsx": "<IconButton\n/>\n" for n in "ABCD"}
-    final = {p: '<IconButton\n  size="medium"\n/>\n' for p in after}
+    final = dict.fromkeys(after, '<IconButton\n  size="medium"\n/>\n')
     flags = repeated_edits(
         after, final, dict.fromkeys(["src/A.tsx", "src/B.tsx", "src/C.tsx"], "agent")
     )
@@ -638,3 +638,60 @@ def test_a_rendered_score_shows_overrides_and_the_judges_own_count() -> None:
     text = render_reference_score(score)
     assert "(1 by the judge alone, before the recorded overrides)" in text
     assert "`src/Day.tsx`: judge said wrong, scored other valid fix" in text
+
+
+def test_a_migration_can_give_the_reviewer_its_own_instructions(tmp_path: Path) -> None:
+    """M7: Angular's reviewer reads Angular instructions; MUI keeps the ones from M6."""
+    import yaml
+
+    from migrator.cost import Budget, Ledger, RunCaps
+    from migrator.migrations import MIGRATIONS_DIR, load_spec
+    from migrator.repair.reviewer import REVIEW_SYSTEM, review_patch
+
+    angular = load_spec(MIGRATIONS_DIR / "angular-material-legacy-to-mdc")
+    assert angular.reviewer_system and "Angular Material" in angular.reviewer_system
+    assert load_spec(MIGRATIONS_DIR / "mui-4-to-5").reviewer_system is None
+    ledger = Ledger(tmp_path / "ledger.jsonl")
+    fake = _FakeStructured("v5_required")
+    review_patch(
+        "prompt", model="claude-sonnet-5-5",
+        budget=Budget("r1", RunCaps(run_usd=2.0, month_usd=50.0), ledger), case="c",
+        path="src/a.component.ts",
+        factory=lambda m, e, t: fake,  # type: ignore[arg-type,return-value]
+        system=angular.reviewer_system,
+    )  # fmt: skip
+    sent = str(fake.seen[0])
+    assert "Angular Material legacy -> MDC" in sent and REVIEW_SYSTEM[:40] not in sent
+    # The instructions must not hand the reviewer the fixture's answers.
+    traps = yaml.safe_load(
+        (Path(__file__).parents[1] / "evals/m7-cases/fixture-angular15/traps.yaml").read_text()
+    )["traps"]
+    # Nor the repair notes the agent reads (the owner's decision, 13 November).
+    told = angular.reviewer_system + " ".join(angular.repair_notes)
+    for trap in traps:
+        symbol = trap["location"].get("symbol")
+        # an element name such as mat-form-field is the library's vocabulary, not a hint
+        if symbol and len(symbol) > 4 and not symbol.startswith("mat-"):
+            assert symbol not in told, trap["id"]
+    for word in ("placeholder", "mat-label", "wrapper"):
+        assert word not in angular.reviewer_system
+
+
+def test_the_reviewer_finds_the_guide_bullet_for_what_a_template_patch_changed() -> None:
+    """M7: on templates, the guide query is the words the patch added or removed, not the
+    words on both sides (which pushed the right Form Field bullet out of the top two)."""
+    from migrator.migrations import MIGRATIONS_DIR, load_spec
+    from migrator.repair.retriever import GuideRetriever
+    from migrator.run.stages.file_loop import changed_words
+
+    flagged = [
+        (
+            "src/a.component.html: + <mat-label>{{ hint }}</mat-label>, "
+            '- <input matInput type="text" [placeholder]="hint" />, '
+            '+ <input matInput type="text" />'
+        )
+    ]
+    assert changed_words(flagged) == ["mat-label", "placeholder"]
+    spec = load_spec(MIGRATIONS_DIR / "angular-material-legacy-to-mdc")
+    found = GuideRetriever.from_spec(spec).rank("mat-label placeholder", k=2)
+    assert any("promoted input placeholders" in d.page_content for d in found)

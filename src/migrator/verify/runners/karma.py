@@ -61,8 +61,14 @@ class Karma(TestRunner):
                 lambda p: real_path(ws, p),
                 spec_sources,
             )
-            # Karma reports only the failing specs as having run (a known gap).
-            ran = sorted({f.test_file for f in failures if f.test_file}) if run.narrow else None
+            ran: list[str] | None = None
+            if run.narrow and run.related_to is not None:
+                found = {f.test_file for f in failures if f.test_file}
+                if totals.tests_total:
+                    # The bundle compiled, so every included spec file ran, the passing
+                    # ones too: their old failures are refreshed (repair.tools.update_known).
+                    found |= set(spec_files_for(run.related_to, lambda p: (ws / p).is_file()))
+                ran = sorted(found)
             read = TestReport(failures=failures, totals=totals, ran=ran, parsed_with="karma json")
         if not result.ok and not read.failures and "load error" in result.output:
             # The test bundle didn't compile (M7): Karma ran no spec. The cause is in the

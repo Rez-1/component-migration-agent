@@ -152,7 +152,7 @@ def test_the_first_pass_reserves_its_queue_through_the_budget(tmp_path: Path) ->
     assert [f.reason for f in files] == ["cost cap: not attempted"] * 2
 
 
-def test_the_recheck_tops_up_through_the_budget(
+def test_the_recheck_reserves_again_through_the_budget(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
@@ -163,7 +163,8 @@ def test_the_recheck_tops_up_through_the_budget(
         ["a", "b", "c"]
     )  # the first $1.35
     queue.recheck_node(ctx, state([BUILD, TYPE], [], workspace=str(tmp_path)))
-    assert held_by_others(ctx.deps.ledger) == 1.8
+    # The first $1.35 is replaced: nothing spent, one file left at 3 x $0.15.
+    assert held_by_others(ctx.deps.ledger) == 0.45
     Budget("recheck-test", ctx.deps.caps, ctx.deps.ledger).release()
 
 

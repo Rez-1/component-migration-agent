@@ -141,7 +141,7 @@ class PausedRun(BaseModel):
 
 
 def new_run_id() -> str:
-    return f"{datetime.now().strftime('%Y-%m-%d-%H%M%S')}-{secrets.token_hex(2)[:3]}"
+    return f"{datetime.now().astimezone().strftime('%Y-%m-%d-%H%M%S')}-{secrets.token_hex(2)[:3]}"
 
 
 def _major(version: str) -> int | None:

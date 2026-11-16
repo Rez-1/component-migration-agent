@@ -219,10 +219,12 @@ def render_scorecard(card: Scorecard) -> str:
         else f"Clean run: no. Final verify found {h.failures} failures in {h.failing_files} files."
     )
     lines += [
-        f"**{clean}** **{share.count} of {share.total} affected files migrated without a human "
-        f"({_pct(share.share)})**: {by['Migrated by rules']} by rules, "
-        f"{by['Migrated by agent']} by the repair agent. {by['Handed off']} handed off, "
-        f"{by['Unmigrated']} unmigrated.",
+        (
+            f"**{clean}** **{share.count} of {share.total} affected files migrated without a human "
+            f"({_pct(share.share)})**: {by['Migrated by rules']} by rules, "
+            f"{by['Migrated by agent']} by the repair agent. {by['Handed off']} handed off, "
+            f"{by['Unmigrated']} unmigrated."
+        ),
         "",
         "| | This run |",
         "|---|---|",
@@ -307,9 +309,11 @@ def render_scorecard(card: Scorecard) -> str:
         if uncaught:
             lines += [
                 "",
-                f"Silent misses (no check fails, so verify can't show them; the fix "
-                f"is missing or was made in another file, so a human should look): "
-                f"{', '.join(uncaught)}.",
+                (
+                    f"Silent misses (no check fails, so verify can't show them; the fix "
+                    f"is missing or was made in another file, so a human should look): "
+                    f"{', '.join(uncaught)}."
+                ),
             ]
 
     lines += _repair_section(card)
@@ -344,8 +348,11 @@ def render_scorecard(card: Scorecard) -> str:
             f"| Tests run | {pre.test_totals.tests_total} | {totals.tests_total} |",
             f"| Tests failing | {pre.test_totals.tests_failed} | {totals.tests_failed} |",
             f"| Tests skipped | {pre.test_totals.tests_skipped} | {totals.tests_skipped} |",
-            f"| Suites failing | {pre.test_totals.suites_failed} of {pre.test_totals.suites_total} "
-            f"| {totals.suites_failed} of {totals.suites_total} |",
+            (
+                f"| Suites failing | {pre.test_totals.suites_failed} of "
+                f"{pre.test_totals.suites_total} | {totals.suites_failed} of "
+                f"{totals.suites_total} |"
+            ),
             f"| Snapshots | {pre.test_totals.snapshots_total} | {totals.snapshots_total} |",
         ]
     lines += _m6_review_section(card)
@@ -454,10 +461,12 @@ def render_pr_body(card: Scorecard) -> str:
         + (f", commands sandboxed in {m.sandbox}" if m.sandbox else "")
         + ". Every number below comes from the run's `scorecard.json`.",
         "",
-        f"**{clean}** **{share.count} of {share.total} affected files migrated without a "
-        f"human ({_pct(share.share)})**: {by['Migrated by rules']} by rules, "
-        f"{by['Migrated by agent']} by the repair agent, {by['Migrated by human']} by a human "
-        f"at Review. {by['Handed off']} handed off, {by['Unmigrated']} unmigrated.",
+        (
+            f"**{clean}** **{share.count} of {share.total} affected files migrated without a "
+            f"human ({_pct(share.share)})**: {by['Migrated by rules']} by rules, "
+            f"{by['Migrated by agent']} by the repair agent, {by['Migrated by human']} by a human "
+            f"at Review. {by['Handed off']} handed off, {by['Unmigrated']} unmigrated."
+        ),
         "",
         "| | This run |",
         "|---|---|",
