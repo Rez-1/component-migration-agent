@@ -81,7 +81,9 @@ def final_verify_node(ctx: RunContext, state: RunState) -> RunState:
     report = ctx.report(state)
     final = final_check(ctx, state, report)
     final_snapshots: list[dict[str, Any]] = []
+    before_update: FileSet | None = None
     if d.config.update_snapshots:
+        before_update = read_files(workspace)
         final, final_snapshots = update_snapshots(ctx, state, final, "final")
     final_usage = scan(
         ScanInput(
@@ -96,7 +98,8 @@ def final_verify_node(ctx: RunContext, state: RunState) -> RunState:
     ctx.files.save_final(final_files)
     start = ctx.files.start_of_repair()
     layers = final_layers(start, final_files, report, migrator_snapshots(state, final_snapshots))
-    cheating = cheating_checks(ctx, state, final, start, final_files, layers)
+    checked = without_inline_rewrites(final_files, before_update, final_snapshots)
+    cheating = cheating_checks(ctx, state, final, start, checked, layers)
     d.say("Checks", f"{len(cheating.hits)} cheating-check hits, {len(cheating.notes)} notes")
     d.say("Verify", f"{len(final.failures)} failures in {len(final.failing_files())} files")
     return {
@@ -164,6 +167,24 @@ def final_layers(
         if after_rules.get(path) != final.get(path):
             layers[path] = "rules" if path in ours else "human" if path in human else "agent"
     return layers
+
+
+def without_inline_rewrites(
+    final: FileSet, before_update: FileSet | None, updates: list[dict[str, Any]]
+) -> FileSet:
+    """The final files as the cheating checks read them: a test file the Migrator's own
+    final snapshot update rewrote (an inline snapshot, ``toMatchInlineSnapshot``) keeps
+    its content from just before that update. The rewrite is the Migrator's, listed in
+    the snapshot updates for a human to review; an edit the agent made earlier is still
+    in that content, so it is still checked."""
+    if before_update is None:
+        return final
+    rewritten = {str(u["test_file"]) for u in updates if u.get("test_file")}
+    out = dict(final)
+    for path in rewritten:
+        if path in before_update and before_update[path] != final.get(path):
+            out[path] = before_update[path]
+    return out
 
 
 def snapshot_hashes(workspace: Path) -> dict[str, str]:
