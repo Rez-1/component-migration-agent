@@ -67,10 +67,9 @@ def general_agent_node(ctx: RunContext, state: GeneralAgentState) -> GeneralAgen
                 cost_usd=call.cost_usd,
             )
         )
-    (ctx.files.folder / "general-agent").mkdir(parents=True, exist_ok=True)
-    (ctx.files.folder / "general-agent" / "run.json").write_text(
-        run.model_dump_json(indent=2) + "\n", "utf-8"
-    )
+    record = ctx.files.folder / "general-agent"
+    record.mkdir(parents=True, exist_ok=True)
+    (record / "run.json").write_text(run.model_dump_json(indent=2) + "\n", "utf-8")
     if run.status != "ok":
         raise RuntimeError(f"the general agent did not run: {run.reason}")
     if run.agent is not None and not run.agent.audit.clean:
@@ -81,6 +80,7 @@ def general_agent_node(ctx: RunContext, state: GeneralAgentState) -> GeneralAgen
             f"folder: {', '.join(found.outside_writes) or 'none'} (see general-agent/run.json)",
         )
     run = _reinstall(ctx, state, run)
+    (record / "run.json").write_text(run.model_dump_json(indent=2) + "\n", "utf-8")
     return {
         "general_agent": run.model_dump(mode="json"),
         "calls": [*(state.get("calls") or []), *(c.model_dump(mode="json") for c in calls)],

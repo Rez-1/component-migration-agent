@@ -499,6 +499,11 @@ def run_experiment(
             max_cost_usd=plan.max_cost_usd,
             attempt_models=config.repair.attempt_models,
             month_cap_usd=config.cost.max_month_usd,
+            per_run_usd=(
+                config.cost.stop_run_usd or config.cost.max_run_usd
+                if config.general_agent.enabled
+                else None
+            ),
         )
     )
     if not pre.ok:

@@ -1,0 +1,23 @@
+# M8: the free rehearsal of a general-agent run. Everything m8-agent-plain does, except
+# that no model is called: the probe's shell checks run through srt, and a fixed script
+# takes Claude Code's place (the first codemod, adding the new packages, the repo's own
+# typecheck, lint and tests), under the same sandbox and proxy. Then copy-back, the
+# reinstall, the final Verify and Scoring run as in a real run. Its scores mean nothing;
+# it exists to find what breaks before a paid run does (migrator.general_agent.rehearsal).
+schema_version = 1
+name = "m8-agent-rehearsal"
+description = "The general-agent run with no model: a fixed script in Claude Code's place."
+
+[general_agent]
+enabled = true
+setup = "plain"
+model = "claude-opus-5-5"
+effort = "low"
+prompt_version = "v1"
+timeout_s = 3600
+rehearsal = true
+
+[cost]
+max_run_usd = 0.01
+max_month_usd = 50.0
+stop_run_usd = 0.01

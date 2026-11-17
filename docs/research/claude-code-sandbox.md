@@ -180,6 +180,13 @@ Add the model variables from question 5. Before each run, a probe should check t
 
 If the Node 16 PATH approach misbehaves (native modules, CRA quirks on macOS), switch to Docker + proxy for OpossumUI and wps only. kubeflow (Node 22) would stay on the host.
 
+## Found while building the runner (16 and 17 November 2026)
+
+- **The sandbox's proxy truncates downloads.** sandbox-runtime 0.0.81 to 0.0.83 and Claude Code 2.1.325 drop the last bytes of a response when the server closes the connection after it: for example 1,014,951 of 1,045,250 bytes. curl keeps the connection open and isn't affected. yarn v1 asks for the close through a proxy, so every install failed. The same request through a plain CONNECT proxy, or with `Connection: keep-alive`, always completed. Both sandboxes accept an outside proxy (`network.httpProxyPort`, `socksProxyPort`), so the runner uses its own allowlisting proxy.
+- **Some folders are always write-protected.** `.vscode`, `.idea`, `.gitmodules`, `.git/hooks` and the shell rc files can't be written anywhere under the sandbox, `node_modules` included, and nothing lifts this except turning off the whole file policy. Some published packages ship such folders. So the runner fetches packages outside the sandbox with their scripts off, and runs the scripts inside it. An agent's own `yarn add` then works, because the files are already in place.
+- **npm on Node 22 on macOS** fails about one `npm ci` in five with `ERR_SSL_CIPHER_OPERATION_FAILED`, with or without a proxy. Running it again works.
+- **The strict allowlist holds.** In a check run, the model tried to widen network access, and Claude Code refused: the configured allowlist is the whole allowlist.
+
 ## Sources
 
 - [sandboxing] https://code.claude.com/docs/en/sandboxing

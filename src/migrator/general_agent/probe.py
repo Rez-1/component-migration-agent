@@ -22,7 +22,8 @@ from pydantic import BaseModel
 from migrator.cost import CallRecord
 from migrator.general_agent.agent import claude_command, read_transcript, run_claude, tool_uses
 from migrator.general_agent.errors import GeneralAgentError
-from migrator.general_agent.sandbox import AgentPaths, key_dir
+from migrator.general_agent.proxy import ProxyEntry
+from migrator.general_agent.sandbox import AgentPaths, SrtRunner, key_dir
 
 PROBE_MODEL = "claude-haiku-5-5"
 PROBE_BUDGET_USD = 0.05
@@ -134,15 +135,44 @@ def run_probe(
     )
 
 
-def judge(
-    checks: list[tuple[str, str, bool]],
-    results: Path,
-    events: list[dict[str, Any]],
-    token: str,
-    secret: Path,
-    written: Path,
-    transcript: Path,
-) -> dict[str, str]:
+def run_shell_probe(runner: SrtRunner, paths: AgentPaths, protected: list[Path]) -> ProbeResult:
+    """The rehearsal's probe: the shell checks only, run through ``srt`` (no model)."""
+    secret = key_dir() / f"zz-probe-{paths.root.name}.env"
+    results = paths.probe / "results.txt"
+    checks = _shell_checks(paths, secret, protected)
+    script = paths.probe / "probe.sh"
+    script.write_text(probe_script(checks, results), "utf-8")
+    secret.write_text("PROBE=rehearsal\n", "utf-8")
+    try:
+        runner.run(f"sh {shlex.quote(str(script))}", paths.probe, timeout_s=PROBE_TIMEOUT_S)
+        verdicts = judge_shell(checks, results)
+    finally:
+        for path in (secret, outside_target(paths), *(p / ".probe" for p in protected)):
+            path.unlink(missing_ok=True)
+    return ProbeResult(ok=all(v == "ok" for v in verdicts.values()), checks=verdicts, cost_usd=0.0)
+
+
+def proxy_checks(entries: list[ProxyEntry]) -> dict[str, str]:
+    """The probe's traffic went through the Migrator's proxy, which refused the host off
+    the list and carried the registry: proof both sandboxes use it."""
+    refused = any(not e.allowed and e.target == "example.com:443" for e in entries)
+    carried = any(
+        e.allowed and not e.reason and e.target == "registry.npmjs.org:443" for e in entries
+    )
+    return {
+        "proxy refused a host off the list": "ok" if refused else "no refusal in its record",
+        "proxy carried the registry": "ok" if carried else "no registry tunnel in its record",
+    }
+
+
+def with_proxy_checks(result: ProbeResult, entries: list[ProxyEntry]) -> ProbeResult:
+    checks = {**result.checks, **proxy_checks(entries)}
+    return result.model_copy(
+        update={"checks": checks, "ok": all(v == "ok" for v in checks.values())}
+    )
+
+
+def judge_shell(checks: list[tuple[str, str, bool]], results: Path) -> dict[str, str]:
     verdicts: dict[str, str] = {}
     got: dict[str, str] = {}
     if results.is_file():
@@ -155,6 +185,19 @@ def judge(
         verdicts[name] = (
             "ok" if seen == want else "not run" if seen is None else f"{seen}, wanted {want}"
         )
+    return verdicts
+
+
+def judge(
+    checks: list[tuple[str, str, bool]],
+    results: Path,
+    events: list[dict[str, Any]],
+    token: str,
+    secret: Path,
+    written: Path,
+    transcript: Path,
+) -> dict[str, str]:
+    verdicts = judge_shell(checks, results)
     uses = tool_uses(events)
     read = [
         u

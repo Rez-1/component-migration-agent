@@ -83,15 +83,26 @@ def test_the_digest_leaves_the_section_out_when_it_is_off() -> None:
 def test_the_settings_lock_the_sandbox_and_deny_with_absolute_rules(tmp_path: Path) -> None:
     paths = AgentPaths(root=tmp_path / "agent")
     home = tmp_path / "home"
-    policy = Policy(paths=paths, protected=[tmp_path / "ws", tmp_path / "run"], real_home=home)
+    policy = Policy(
+        paths=paths, protected=[tmp_path / "ws", tmp_path / "run"], real_home=home, proxy_port=4321
+    )
     data: dict[str, Any] = policy.claude_settings(tmp_path / "key-helper.sh")
     sandbox = data["sandbox"]
     assert sandbox["enabled"] and sandbox["failIfUnavailable"]
     assert sandbox["allowUnsandboxedCommands"] is False
     assert sandbox["excludedCommands"] == []
+    # Both sandboxes send every command's traffic through the Migrator's proxy.
     assert sandbox["network"] == {
         "allowedDomains": ["registry.npmjs.org", "registry.yarnpkg.com"],
+        "httpProxyPort": 4321,
+        "socksProxyPort": 4321,
         "strictAllowlist": True,
+    }
+    assert policy.srt_settings()["network"] == {
+        "allowedDomains": ["registry.npmjs.org", "registry.yarnpkg.com"],
+        "httpProxyPort": 4321,
+        "socksProxyPort": 4321,
+        "deniedDomains": [],
     }
     assert sandbox["filesystem"]["allowWrite"] == [str(paths.root)]
     assert str(tmp_path / "ws") in sandbox["filesystem"]["denyWrite"]
@@ -413,6 +424,8 @@ def test_run_general_agent_copies_the_agents_work_back(
     monkeypatch.setattr(ga, "SrtRunner", Ok)
     probe = ProbeResult(ok=True, checks={"x": "ok"}, cost_usd=0.003)
     monkeypatch.setattr(ga, "run_probe", lambda *_a: probe)
+    monkeypatch.setattr(ga, "with_proxy_checks", lambda p, _e: p)
+    monkeypatch.setattr(ga, "host_install", lambda **_k: "installed")
     edit = (
         "sed -i.bak 's/createMuiTheme/createTheme/' src/theme.ts && rm src/theme.ts.bak && "
         'echo \'[{"path": "src/screens/ProfileCard.tsx", "reason": "makeStyles"}]\''

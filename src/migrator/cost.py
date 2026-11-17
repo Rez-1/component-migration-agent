@@ -625,6 +625,9 @@ class PlannedExperiment(BaseModel):
     max_cost_usd: float | None  # --max-cost, required for LLM configurations
     attempt_models: list[str] = []
     month_cap_usd: float | None = None
+    # M8: a general-agent run has no repair attempts to estimate from; its worst case is
+    # its own stop. When set, the estimate is runs x this.
+    per_run_usd: float | None = None
 
 
 class PreflightResult(BaseModel):
@@ -681,6 +684,12 @@ class LedgerPreflight:
         self.ledger = ledger
 
     def estimate(self, plan: PlannedExperiment) -> tuple[float, str]:
+        if plan.per_run_usd is not None:
+            estimate = round(plan.runs * plan.per_run_usd, 4)
+            return estimate, (
+                f"{plan.runs} runs x ${plan.per_run_usd:.2f} stop = ${estimate:.2f} "
+                "(each run's own stop)"
+            )
         if len(set(plan.attempt_models)) > 1:
             return self.estimate_mixed(plan)
         model = plan.attempt_models[0] if plan.attempt_models else "claude-opus-5-5"

@@ -22,12 +22,13 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from migrator.execs import CommandResult, LocalRunner
+from migrator.execs import CommandResult, CommandRunner, LocalRunner
 from migrator.general_agent.errors import GeneralAgentError
 
 # The only hosts the agent's commands may reach: npm's and yarn v1's registries.
 ALLOWED_DOMAINS = ["registry.npmjs.org", "registry.yarnpkg.com"]
-# The sandbox runtime, pinned (tested in the research, 13 November 2026).
+# The sandbox runtime, pinned (tested in the research, 13 November 2026). Its own proxy
+# truncates downloads, so both sandboxes use ours (``proxy``) instead.
 SRT_PACKAGE = "@anthropic-ai/sandbox-runtime@0.0.81"
 KEY_FILE = "anthropic.env"
 
@@ -99,6 +100,16 @@ class Policy(BaseModel):
     # Migrator's workspace (in the system temp folder) and the run folder.
     protected: list[Path]
     real_home: Path
+    # The port of the Migrator's proxy (``proxy.AllowlistProxy``), which both sandboxes
+    # send their commands' traffic through, HTTP and SOCKS alike.
+    proxy_port: int
+
+    def _network(self) -> dict[str, object]:
+        return {
+            "allowedDomains": ALLOWED_DOMAINS,
+            "httpProxyPort": self.proxy_port,
+            "socksProxyPort": self.proxy_port,
+        }
 
     def deny_read(self) -> list[str]:
         h = self.real_home
@@ -138,7 +149,7 @@ class Policy(BaseModel):
                 "allowUnsandboxedCommands": False,
                 "autoAllowBashIfSandboxed": True,
                 "excludedCommands": [],
-                "network": {"allowedDomains": ALLOWED_DOMAINS, "strictAllowlist": True},
+                "network": {**self._network(), "strictAllowlist": True},
                 "filesystem": {
                     "denyRead": no_read,
                     "allowWrite": [str(self.paths.root)],
@@ -149,7 +160,7 @@ class Policy(BaseModel):
 
     def srt_settings(self) -> dict[str, object]:
         return {
-            "network": {"allowedDomains": ALLOWED_DOMAINS, "deniedDomains": []},
+            "network": {**self._network(), "deniedDomains": []},
             "filesystem": {
                 "denyRead": self.deny_read(),
                 "allowWrite": [str(self.paths.root)],
@@ -259,3 +270,72 @@ def clean_env(
 
 def real_home() -> Path:
     return Path.home().resolve()
+
+
+# The install scripts of the agent's copy, run inside the sandbox after the fetch:
+# every dependency's (npm rebuild, whatever the package manager) and then the repo's own.
+INSTALL_SCRIPTS = (
+    "npm rebuild --no-audit --no-fund"
+    " && npm run --if-present preinstall"
+    " && npm run --if-present install"
+    " && npm run --if-present postinstall"
+    " && npm run --if-present prepare"
+)
+
+
+FETCH_ATTEMPTS = 3
+
+
+def proxy_env(port: int) -> dict[str, str]:
+    """Send a command outside the sandbox through the Migrator's proxy too."""
+    url = f"http://127.0.0.1:{port}"
+    return {
+        "HTTPS_PROXY": url,
+        "HTTP_PROXY": url,
+        "https_proxy": url,
+        "http_proxy": url,
+        "NO_PROXY": "",
+        "no_proxy": "",
+    }
+
+
+def host_install(
+    *,
+    paths: AgentPaths,
+    command: Sequence[str],
+    env: Mapping[str, str],
+    proxy_port: int,
+    sandboxed: CommandRunner,
+    log_dir: Path,
+) -> str:
+    """Install the agent's copy for this machine, in two steps.
+
+    The sandbox refuses every write to an IDE folder (``.vscode``, ``.idea``) or git
+    file (``.gitmodules``) wherever it is, with no setting to lift it, and a dozen
+    published packages ship one (OpossumUI's tree has eleven). So the packages are
+    fetched and unpacked outside the sandbox with their scripts off (only the package
+    manager runs, its traffic through the proxy), then every install script runs inside
+    the sandbox. A later ``yarn add`` by the agent leaves the files in place and works.
+    """
+    outside = LocalRunner(base_env={**env, **proxy_env(proxy_port)})
+    for attempt in range(1, FETCH_ATTEMPTS + 1):
+        # npm on Node 22 here fails about one fetch in five with
+        # ERR_SSL_CIPHER_OPERATION_FAILED, with or without the proxy; a fetch starts
+        # from scratch, so another attempt is safe.
+        fetch = outside.run(
+            [*command, "--ignore-scripts"],
+            paths.repo,
+            log_file=log_dir / f"general-agent-fetch-{attempt}.log",
+        )
+        if fetch.ok:
+            break
+    done = f"`{fetch.command}` exited {fetch.exit_code} (attempt {attempt})"
+    if not fetch.ok:
+        raise GeneralAgentError(f"the host install's fetch failed: {done}")
+    scripts = sandboxed.run(
+        INSTALL_SCRIPTS, paths.repo, log_file=log_dir / "general-agent-install.log"
+    )
+    done += f"; the install scripts, sandboxed, exited {scripts.exit_code}"
+    if not scripts.ok:
+        raise GeneralAgentError(f"the host install's scripts failed: {done}")
+    return done
