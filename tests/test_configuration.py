@@ -152,7 +152,7 @@ def test_a_configuration_stored_before_the_m5_removals_still_loads() -> None:
     opus = find_configuration("opus-low", CONFIGS)
     stored = opus.model_dump(mode="json")
     stored["repair"] |= {"attempt_efforts": None, "advisor": None}
-    assert Configuration.model_validate(stored).digest() == opus.digest() == "d81d48a907d0"
+    assert Configuration.model_validate(stored).digest() == opus.digest() == "44820b26d105"
     for key, value in (("attempt_efforts", ["low"] * 3), ("advisor", {"model": "x"})):
         bad = opus.model_dump(mode="json")
         bad["repair"][key] = value

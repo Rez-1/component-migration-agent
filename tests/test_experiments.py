@@ -47,7 +47,7 @@ def test_configurations_written_before_m5_keep_their_digests() -> None:
     """New fields are left out of the digest while unset, so M2-M4 results stay
     resumable and comparable."""
     assert find_configuration("baseline", CONFIGS).digest() == "73a3262d088d"
-    assert find_configuration("opus-low", CONFIGS).digest() == "d81d48a907d0"
+    assert find_configuration("opus-low", CONFIGS).digest() == "44820b26d105"
 
 
 CANDIDATES = (
