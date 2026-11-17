@@ -88,6 +88,32 @@ def test_a_tunnel_delivers_every_byte_when_the_server_closes(
     assert len(log.read_text().splitlines()) == 5
 
 
+def test_a_tunnel_that_breaks_part_way_is_recorded(tmp_path: Path) -> None:
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen()
+
+    def serve() -> None:
+        conn, _ = srv.accept()
+        conn.recv(1024)
+        conn.sendall(b"x" * 1000)
+        conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, b"\x01\x00\x00\x00\x00\x00\x00\x00")
+        conn.close()  # a reset, not an orderly close
+
+    threading.Thread(target=serve, daemon=True).start()
+    with AllowlistProxy(["localhost"], upstream_port=srv.getsockname()[1]) as proxy:
+        s, head = _connect(proxy.port, "localhost:443")
+        assert head.startswith(b"HTTP/1.1 200")
+        s.sendall(b"GET / HTTP/1.1\r\n\r\n")
+        got = _read_all(s)
+        s.close()
+    srv.close()
+    (entry,) = proxy.entries()
+    assert len(got) <= 1000
+    assert entry.reason is not None and "host side broke off" in entry.reason
+    assert proxy.summary().failed == {"localhost:443": 1}
+
+
 def test_hosts_off_the_list_other_ports_plain_http_and_socks_are_refused(
     tmp_path: Path,
 ) -> None:

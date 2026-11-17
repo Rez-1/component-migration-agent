@@ -28,6 +28,7 @@ from migrator.general_agent.sandbox import AgentPaths, SrtRunner, key_dir
 PROBE_MODEL = "claude-haiku-5-5"
 PROBE_BUDGET_USD = 0.05
 PROBE_TIMEOUT_S = 300
+PROBE_TRIES = 3
 
 
 class ProbeResult(BaseModel):
@@ -72,9 +73,12 @@ def outside_target(paths: AgentPaths) -> Path:
 
 def probe_script(checks: list[tuple[str, str, bool]], out: Path) -> str:
     lines = ["#!/bin/sh", f": > {shlex.quote(str(out))}"]
-    for name, command, _ in checks:
+    for name, command, should_run in checks:
+        # What must get through has three tries, so one dropped connection can't stop a
+        # run; what must be refused has one, since a retry could only let it through.
+        tries = " || ".join([f"( {command} )"] * (PROBE_TRIES if should_run else 1))
         lines.append(
-            f"if ( {command} ) >/dev/null 2>&1; then r=ran; else r=refused; fi; "
+            f"if {{ {tries}; }} >/dev/null 2>&1; then r=ran; else r=refused; fi; "
             f"echo {shlex.quote(name)}=$r >> {shlex.quote(str(out))}"
         )
     return "\n".join(lines) + "\n"

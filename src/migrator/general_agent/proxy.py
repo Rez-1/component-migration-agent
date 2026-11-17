@@ -45,7 +45,8 @@ class ProxyEntry(BaseModel):
 class ProxySummary(BaseModel):
     allowed: int
     refused: dict[str, int]  # target -> times refused
-    failed: dict[str, int]  # allowed target -> times the host could not be reached
+    # allowed target -> times the host could not be reached, or a tunnel broke part-way
+    failed: dict[str, int]
 
 
 def summarise(entries: Sequence[ProxyEntry]) -> ProxySummary:
@@ -191,17 +192,24 @@ class AllowlistProxy:
             await writer.drain()
             return
         counts = [0, 0]  # sent, received: kept even when the proxy stops mid-tunnel
+        broke: list[str] = []  # a side whose connection failed mid-tunnel
         try:
             writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
             await writer.drain()
             await asyncio.gather(
-                _pump(reader, up_writer, counts, 0), _pump(up_reader, writer, counts, 1)
+                _pump(reader, up_writer, counts, 0, broke, "command"),
+                _pump(up_reader, writer, counts, 1, broke, "host"),
             )
         finally:
             up_writer.close()
             self._record(
                 ProxyEntry(
-                    at=_now(), target=target, allowed=True, sent=counts[0], received=counts[1]
+                    at=_now(),
+                    target=target,
+                    allowed=True,
+                    reason="; ".join(broke) or None,
+                    sent=counts[0],
+                    received=counts[1],
                 )
             )
 
@@ -217,16 +225,22 @@ class AllowlistProxy:
 
 
 async def _pump(
-    reader: asyncio.StreamReader, writer: asyncio.StreamWriter, counts: list[int], i: int
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+    counts: list[int],
+    i: int,
+    broke: list[str],
+    side: str,
 ) -> None:
-    """Copy one direction to its end, then pass the end on (after what is queued)."""
+    """Copy one direction to its end, then pass the end on (after what is queued). A
+    connection that fails part-way is recorded; what came through is still delivered."""
     try:
         while data := await reader.read(CHUNK):
             writer.write(data)
             await writer.drain()
             counts[i] += len(data)
-    except (ConnectionError, OSError):
-        pass
+    except (ConnectionError, OSError) as exc:
+        broke.append(f"the {side} side broke off: {exc!r}")
     finally:
         try:
             if writer.can_write_eof() and not writer.is_closing():

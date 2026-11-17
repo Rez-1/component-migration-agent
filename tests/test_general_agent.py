@@ -198,6 +198,22 @@ def test_the_probe_script_records_ran_or_refused(tmp_path: Path) -> None:
     assert outside_target(AgentPaths(root=tmp_path / "r1")).parent == Path.home()
 
 
+def test_the_probe_retries_what_must_get_through_but_not_what_must_be_refused(
+    tmp_path: Path,
+) -> None:
+    import subprocess
+
+    out = tmp_path / "results.txt"
+    flaky = tmp_path / "flaky"  # fails the first time, then works: one dropped connection
+    once = tmp_path / "once"  # works the first time only: never retried into a pass
+    checks = [
+        ("reachable", f"test -e {flaky} || {{ touch {flaky}; false; }}", True),
+        ("blocked", f"test -e {once} || {{ touch {once}; false; }}", False),
+    ]
+    subprocess.run(["sh", "-c", probe_script(checks, out)], check=True)
+    assert out.read_text().splitlines() == ["reachable=ran", "blocked=refused"]
+
+
 # --------------------------------------------------------------------------- one Claude run
 
 
