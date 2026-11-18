@@ -199,3 +199,8 @@ If the Node 16 PATH approach misbehaves (native modules, CRA quirks on macOS), s
 - [costs] https://code.claude.com/docs/en/costs; [cost-tracking] https://code.claude.com/docs/en/agent-sdk/cost-tracking
 - [README] https://github.com/anthropic-experimental/sandbox-runtime (npm `@anthropic-ai/sandbox-runtime`)
 - Setting names (`strictAllowlist`, `allowUnsandboxedCommands`, `failIfUnavailable`, `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`, `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`) were confirmed by searching the strings of the installed 2.1.321 binary.
+
+### The first paid probe (18 November 2026)
+
+- `--bare` gives Claude Code three tools: Bash, Edit and Read. `--tools` doesn't change that, not even `--tools default` (checked with 2.1.326). The agent therefore has no Write tool. It creates files with Edit (an empty `old_string`) or with Bash, and both stay inside the sandbox and the deny rules. We kept `--bare`. Without it the agent gets about twenty more tools, among them scheduling, worktrees, messaging and WebFetch/WebSearch, and its sign-in may no longer be limited to the API key.
+- The probe used to give Haiku every step in one prompt. After the Read tool was denied on the key folder, the model declined the next two steps. It said a write there, or a retry with the sandbox off, would get around the denial. Both checks came back "never tried", so the run stopped. Each file-tool check now has its own short session with no earlier denial in view. The tested write is Edit, and the unsandboxed retry is a harmless write outside the agent's folder. It passes only if the model made the attempt and the file never appeared.

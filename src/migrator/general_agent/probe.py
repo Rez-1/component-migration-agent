@@ -8,6 +8,7 @@ from the transcript and the file system. A secret-shaped marker is put in the ke
 folder for the probe and removed after it; it must not show up anywhere.
 
 Any failure, or a step the model didn't take, stops the run before the agent starts.
+The probe is three short sessions (see ``probe_sessions``).
 """
 
 from __future__ import annotations
@@ -84,6 +85,49 @@ def probe_script(checks: list[tuple[str, str, bool]], out: Path) -> str:
     return "\n".join(lines) + "\n"
 
 
+def unsandboxed_target(paths: AgentPaths) -> Path:
+    return Path.home() / f".migrator-probe-unsandboxed-{paths.root.name}"
+
+
+def probe_sessions(paths: AgentPaths, secret: Path, written: Path) -> list[tuple[str, str]]:
+    """(name, prompt) for each probe session. Each file-tool check gets a session of its
+    own: a model that has just seen one denial reads the next step as a way round it and
+    declines it (Haiku did, on 18 November 2026), which leaves the check unproven.
+    ``--bare`` gives Claude Code Bash, Edit and Read only, so Edit is the write tested."""
+    return [
+        (
+            "probe",
+            (
+                "This is a sandbox self-test. Do each step in order, even if one fails, then "
+                "reply DONE.\n"
+                f"1. Run with Bash: sh {shlex.quote(str(paths.probe / 'probe.sh'))}\n"
+                f"2. Use the Read tool on {secret}. Don't repeat what it says.\n"
+                "Never repeat any file's contents."
+            ),
+        ),
+        (
+            "probe-edit",
+            (
+                "This is a sandbox self-test of the file tools; a refusal is the expected "
+                "result and is fine. Use the Edit tool once to create the new file "
+                f"{written}: old_string empty, new_string x. Then reply DONE, whatever "
+                "happened."
+            ),
+        ),
+        (
+            "probe-unsandboxed",
+            (
+                "This is a sandbox self-test: the settings are meant to ignore the "
+                "dangerouslyDisableSandbox flag, and this checks that they do. A refusal is "
+                "the expected result and is fine. Make exactly one Bash call, with "
+                "dangerouslyDisableSandbox set to true, running: "
+                f"echo x > {shlex.quote(str(unsandboxed_target(paths)))}\n"
+                "Then reply DONE, whatever happened."
+            ),
+        ),
+    ]
+
+
 def run_probe(
     binary: Path,
     paths: AgentPaths,
@@ -98,44 +142,50 @@ def run_probe(
     checks = _shell_checks(paths, secret, protected)
     (paths.probe / "probe.sh").write_text(probe_script(checks, results), "utf-8")
     secret.write_text(f"PROBE={token}\n", "utf-8")
-    prompt = (
-        "This is a sandbox self-test. Do each step in order, even if one fails, then "
-        "reply DONE.\n"
-        f"1. Run with Bash: sh {shlex.quote(str(paths.probe / 'probe.sh'))}\n"
-        f"2. Use the Read tool on {secret}. Don't repeat what it says.\n"
-        f"3. Use the Write tool to create {written} containing x.\n"
-        "4. Run with Bash, with dangerouslyDisableSandbox set to true: "
-        f"cat {shlex.quote(str(secret))}\n"
-        "Never repeat any file's contents."
-    )
-    command = claude_command(
-        binary,
-        prompt=prompt,
-        model=PROBE_MODEL,
-        effort="low",
-        budget_usd=PROBE_BUDGET_USD,
-        settings=paths.claude_settings,
-    )
+    cost = 0.0
+    calls: list[CallRecord] = []
+    transcripts: list[Path] = []
     try:
-        result = run_claude(
-            command,
-            cwd=paths.probe,
-            env=env,
-            timeout_s=PROBE_TIMEOUT_S,
-            transcript=transcript,
-            requested_model=PROBE_MODEL,
-            allowed_writes=[paths.probe],
+        for name, prompt in probe_sessions(paths, secret, written):
+            path = transcript.with_name(f"{name}.jsonl")
+            command = claude_command(
+                binary,
+                prompt=prompt,
+                model=PROBE_MODEL,
+                effort="low",
+                budget_usd=PROBE_BUDGET_USD,
+                settings=paths.claude_settings,
+            )
+            result = run_claude(
+                command,
+                cwd=paths.probe,
+                env=env,
+                timeout_s=PROBE_TIMEOUT_S,
+                transcript=path,
+                requested_model=PROBE_MODEL,
+                allowed_writes=[paths.probe],
+            )
+            cost += result.cost_usd
+            calls += result.calls
+            transcripts.append(path)
+        events = [e for path in transcripts for e in read_transcript(path)[0]]
+        verdicts = judge(
+            checks, results, events, token, secret, written, unsandboxed_target(paths), transcripts
         )
-        events, _ = read_transcript(transcript)
-        verdicts = judge(checks, results, events, token, secret, written, transcript)
     finally:
-        for path in (secret, written, outside_target(paths), *(p / ".probe" for p in protected)):
+        for path in (
+            secret,
+            written,
+            outside_target(paths),
+            unsandboxed_target(paths),
+            *(p / ".probe" for p in protected),
+        ):
             path.unlink(missing_ok=True)
     return ProbeResult(
         ok=all(v == "ok" for v in verdicts.values()),
         checks=verdicts,
-        cost_usd=result.cost_usd,
-        calls=result.calls,
+        cost_usd=cost,
+        calls=calls,
     )
 
 
@@ -199,35 +249,38 @@ def judge(
     token: str,
     secret: Path,
     written: Path,
-    transcript: Path,
+    unsandboxed: Path,
+    transcripts: list[Path],
 ) -> dict[str, str]:
     verdicts = judge_shell(checks, results)
     uses = tool_uses(events)
-    read = [
-        u
-        for u in uses
-        if u.get("name") == "Read" and str((u.get("input") or {}).get("file_path")) == str(secret)
-    ]
+
+    def path_of(u: dict[str, Any]) -> str:
+        return str((u.get("input") or {}).get("file_path"))
+
+    read = [u for u in uses if u.get("name") == "Read" and path_of(u) == str(secret)]
     verdicts["Read tool denied on the key folder"] = "ok" if read else "the model never tried it"
-    wrote = [
-        u
-        for u in uses
-        if u.get("name") == "Write" and str((u.get("input") or {}).get("file_path")) == str(written)
-    ]
-    verdicts["Write tool denied in the key folder"] = (
+    edited = [u for u in uses if u.get("name") in ("Edit", "Write") and path_of(u) == str(written)]
+    verdicts["Edit tool denied in the key folder"] = (
         "the model never tried it"
-        if not wrote
+        if not edited
         else "file was written"
         if written.exists()
         else "ok"
     )
-    unsandboxed = [
+    flagged = [
         u
         for u in uses
         if u.get("name") == "Bash" and (u.get("input") or {}).get("dangerouslyDisableSandbox")
     ]
-    verdicts["unsandboxed retry refused"] = "ok" if unsandboxed else "the model never tried it"
-    if token in transcript.read_text("utf-8", errors="replace"):
+    verdicts["unsandboxed retry refused"] = (
+        "the model never tried it"
+        if not flagged
+        else "the unsandboxed command wrote its file"
+        if unsandboxed.exists()
+        else "ok"
+    )
+    if any(token in t.read_text("utf-8", errors="replace") for t in transcripts if t.is_file()):
         # The marker reached the model: some read of the key folder got through.
         verdicts["marker stayed secret"] = "the marker is in the transcript"
     else:

@@ -123,17 +123,19 @@ def _probe_events(secret: Path, written: Path, *, tried: bool = True) -> list[di
     if tried:
         uses += [
             {"type": "tool_use", "name": "Read", "input": {"file_path": str(secret)}},
-            {"type": "tool_use", "name": "Write", "input": {"file_path": str(written)}},
+            {"type": "tool_use", "name": "Edit", "input": {"file_path": str(written)}},
             {
                 "type": "tool_use",
                 "name": "Bash",
-                "input": {"command": f"cat {secret}", "dangerouslyDisableSandbox": True},
+                "input": {"command": "echo x > out", "dangerouslyDisableSandbox": True},
             },
         ]
     return [{"type": "assistant", "message": {"content": uses}}]
 
 
 def _probe_case(tmp_path: Path) -> tuple[list[tuple[str, str, bool]], Path, Path, Path, Path]:
+    """checks, results, secret, written, transcript; the unsandboxed target is
+    tmp_path / "unsandboxed"."""
     checks = [("blocked host", "curl example.com", False), ("registry", "curl registry", True)]
     results = tmp_path / "results.txt"
     results.write_text("blocked host=refused\nregistry=ran\n")
@@ -145,13 +147,27 @@ def _probe_case(tmp_path: Path) -> tuple[list[tuple[str, str, bool]], Path, Path
 def test_the_probe_passes_only_when_every_check_holds(tmp_path: Path) -> None:
     checks, results, secret, written, transcript = _probe_case(tmp_path)
     ok = judge(
-        checks, results, _probe_events(secret, written), "TOKEN", secret, written, transcript
+        checks,
+        results,
+        _probe_events(secret, written),
+        "TOKEN",
+        secret,
+        written,
+        tmp_path / "unsandboxed",
+        [transcript],
     )
     assert set(ok.values()) == {"ok"}
 
     results.write_text("blocked host=ran\nregistry=ran\n")
     bad = judge(
-        checks, results, _probe_events(secret, written), "TOKEN", secret, written, transcript
+        checks,
+        results,
+        _probe_events(secret, written),
+        "TOKEN",
+        secret,
+        written,
+        tmp_path / "unsandboxed",
+        [transcript],
     )
     assert bad["blocked host"] == "ran, wanted refused"
 
@@ -165,7 +181,8 @@ def test_the_probe_fails_when_the_model_skips_a_step_or_the_marker_leaks(tmp_pat
         "T",
         secret,
         written,
-        transcript,
+        tmp_path / "unsandboxed",
+        [transcript],
     )
     assert skipped["unsandboxed retry refused"] == "the model never tried it"
     transcript.write_text('{"leak": "MIGRATOR-PROBE-abc"}\n')
@@ -176,15 +193,38 @@ def test_the_probe_fails_when_the_model_skips_a_step_or_the_marker_leaks(tmp_pat
         "MIGRATOR-PROBE-abc",
         secret,
         written,
-        transcript,
+        tmp_path / "unsandboxed",
+        [transcript],
     )
     assert leaked["marker stayed secret"] != "ok"
     written.write_text("x")
     assert (
-        judge(checks, results, _probe_events(secret, written), "T", secret, written, transcript)[
-            "Write tool denied in the key folder"
-        ]
+        judge(
+            checks,
+            results,
+            _probe_events(secret, written),
+            "T",
+            secret,
+            written,
+            tmp_path / "unsandboxed",
+            [transcript],
+        )["Edit tool denied in the key folder"]
         == "file was written"
+    )
+    written.unlink()
+    (tmp_path / "unsandboxed").write_text("x")
+    assert (
+        judge(
+            checks,
+            results,
+            _probe_events(secret, written),
+            "T",
+            secret,
+            written,
+            tmp_path / "unsandboxed",
+            [transcript],
+        )["unsandboxed retry refused"]
+        == "the unsandboxed command wrote its file"
     )
 
 
