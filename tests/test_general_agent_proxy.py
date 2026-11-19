@@ -294,3 +294,37 @@ def test_the_host_install_fetches_outside_with_scripts_off_then_runs_them_sandbo
     assert env["HTTPS_PROXY"] == "http://127.0.0.1:4321" and env["NO_PROXY"] == ""
     assert inside.ran == [sandbox.INSTALL_SCRIPTS]
     assert "exited 0" in done
+
+
+# --------------------------------------------------------------------------- baseline
+
+
+def test_the_cheating_start_is_the_codemods_version_unless_the_agent_undid_it() -> None:
+    from migrator.general_agent.baseline import cheating_start
+
+    untouched = {"a.tsx": "v4", "b.test.tsx": "test", "c.tsx": "same"}
+    baseline = {"a.tsx": "codemod", "b.test.tsx": "codemod test", "c.tsx": "same"}
+    final = {"a.tsx": "agent", "b.test.tsx": "test", "c.tsx": "same"}
+    start = cheating_start(untouched, baseline, final)
+    # a: the codemod's line is the Rules layer's; b: the agent restored the test file,
+    # which is not a change of its own; c: nobody changed it.
+    assert start == {"a.tsx": "codemod", "b.test.tsx": "test", "c.tsx": "same"}
+    assert cheating_start(untouched, None, final) == untouched
+
+
+def test_a_codemod_line_is_a_note_and_only_more_of_it_fails() -> None:
+    from migrator.checks import CheckInput, run_checks
+    from migrator.general_agent.baseline import cheating_start
+
+    line = "// eslint-disable-next-line @typescript-eslint/no-empty-interface\n"
+    untouched = {"src/App.tsx": "export const a = 1;\n"}
+    baseline = {"src/App.tsx": line + "interface T {}\nexport const a = 1;\n"}
+    for copies, failing in ((1, False), (2, True)):
+        final = {"src/App.tsx": (line + "interface T {}\n") * copies + "export const b = 1;\n"}
+        start = cheating_start(untouched, baseline, final)
+        layers = {p: "agent" for p in final if start.get(p) != final.get(p)}
+        report = run_checks(
+            CheckInput(before=untouched, after_rules=start, final=final, later_layers=layers)
+        )
+        assert bool(report.hits) is failing, copies
+        assert len(report.notes) == 1

@@ -753,6 +753,43 @@ def _say_features_off(configuration: Configuration) -> None:
         console.print(f"[yellow]Turned off:[/] {note}")
 
 
+@eval_app.command("rescore")
+def eval_rescore(
+    experiment: Annotated[
+        str, typer.Argument(help="A general-agent experiment id such as dev/v8, or its folder.")
+    ],
+    root: RootOpt = None,
+    results_dir: ResultsOpt = None,
+    cases_dir: Annotated[Path | None, typer.Option(help="Default <root>/evals/m6-cases.")] = None,
+) -> None:
+    """Re-score general-agent runs with the codemod baseline (M8): a line the codemods
+    write is the Rules layer's, as in a Migrator run. Calls no model."""
+    from migrator.evals import load_cases, read_manifest
+    from migrator.general_agent.rescore import rescore_experiment
+
+    base = _repo_root(root)
+    results = (results_dir or base / "runs" / "evals").resolve()
+    try:
+        variant = experiment_dir(results, experiment)
+        manifest = read_manifest(variant)
+        folder = (cases_dir or base / "evals" / "m6-cases").resolve()
+        cases = [c for c in load_cases(folder, manifest.split) if c.id in manifest.cases]
+        done = rescore_experiment(variant, cases)
+    except EvalError as exc:
+        raise _fail(str(exc)) from exc
+    for d in done:
+        console.print(
+            f"{d.run}: {d.status}"
+            + (
+                f" (hits {d.hits_before} -> {d.hits_after}, clean {d.clean_before} -> "
+                f"{d.clean_after})"
+                if d.status == "rescored"
+                else ""
+            )
+        )
+    console.print(f"Next: migrator eval summary {manifest.experiment}")
+
+
 @eval_app.command("score-reference")
 def eval_score_reference(
     experiment: Annotated[

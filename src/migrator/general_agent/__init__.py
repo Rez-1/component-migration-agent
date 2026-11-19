@@ -156,6 +156,7 @@ class AgentRun(BaseModel):
     copied_back: CopyBack | None = None
     proxy: ProxySummary | None = None  # what the agent's commands tried to reach
     rehearsal: list[RehearsalStep] | None = None  # a rehearsal's steps, in place of a model
+    codemod_baseline: str | None = None  # the cheating checks' baseline: what happened
 
     def calls(self) -> list[CallRecord]:
         """Every model call of the run, the probe's included."""

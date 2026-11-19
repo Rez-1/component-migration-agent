@@ -10,13 +10,18 @@ install was for this machine), then the run goes on to the same final Verify.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from migrator.cost import LedgerRow, now_utc
+from migrator.execs import LocalRunner
 from migrator.general_agent import AgentRun, run_general_agent
+from migrator.general_agent.baseline import BASELINE_FILE, codemod_baseline
 from migrator.rules import ToolsError, ensure_tools
 from migrator.run.context import RunContext
+from migrator.run.files import save_files
 from migrator.run.state import RunState
+from migrator.scan import UsageReport
 from migrator.verify import install
 
 
@@ -43,6 +48,8 @@ def general_agent_node(ctx: RunContext, state: GeneralAgentState) -> GeneralAgen
         tools = ensure_tools(d.spec, d.runner, d.tools_cache) if d.spec.tools else None
     except ToolsError as exc:
         raise RuntimeError(f"the pinned tools could not be installed: {exc}") from exc
+    # Before the agent: its changes are copied back into this workspace at the end.
+    baseline_note = _baseline(ctx, state, tools)
     run = run_general_agent(
         settings=settings,
         spec=d.spec,
@@ -80,11 +87,35 @@ def general_agent_node(ctx: RunContext, state: GeneralAgentState) -> GeneralAgen
             f"folder: {', '.join(found.outside_writes) or 'none'} (see general-agent/run.json)",
         )
     run = _reinstall(ctx, state, run)
+    run = run.model_copy(update={"codemod_baseline": baseline_note})
     (record / "run.json").write_text(run.model_dump_json(indent=2) + "\n", "utf-8")
     return {
         "general_agent": run.model_dump(mode="json"),
         "calls": [*(state.get("calls") or []), *(c.model_dump(mode="json") for c in calls)],
     }
+
+
+def _baseline(ctx: RunContext, state: GeneralAgentState, tools: Path | None) -> str:
+    """What the codemods alone do to the untouched workspace, for the cheating checks
+    (see ``general_agent.baseline``); a failure is recorded and the checks fall back to
+    the untouched workspace."""
+    d = ctx.deps
+    usage = UsageReport.model_validate_json(Path(state["usage_path"]).read_text("utf-8"))
+    d.say("General agent", "running the codemods alone, as the cheating checks' baseline")
+    record = ctx.files.folder / "general-agent"
+    files, note = codemod_baseline(
+        workspace=ctx.workspace(state),
+        spec=d.spec,
+        config=d.config,
+        affected_files=usage.affected_files(),
+        tools_dir=tools,
+        runner=LocalRunner(),
+        scratch=record / "codemod-baseline",
+    )
+    if files is not None:
+        save_files(record / BASELINE_FILE, files)
+    d.say("General agent", f"codemod baseline: {note}")
+    return note
 
 
 def _reinstall(ctx: RunContext, state: GeneralAgentState, run: AgentRun) -> AgentRun:
