@@ -39,8 +39,10 @@ def test_shipped_configurations_load() -> None:
         "m7-baseline",
         "m7-strong-low",
         "m8-agent-plain",
+        "m8-agent-plain-stop190",
         "m8-agent-rehearsal",
         "m8-agent-rules",
+        "m8-agent-rules-stop190",
         "opus-low",
         "sonnet-medium",
     ]
