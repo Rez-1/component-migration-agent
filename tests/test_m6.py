@@ -37,8 +37,8 @@ CONFIGS = REPO_ROOT / "evals" / "configs"
 def test_older_configuration_digests_are_unchanged() -> None:
     # The M6 cost field is left out of the digest while unset (M2-M5 results stay attached).
     assert (
-        find_configuration("opus-low", CONFIGS).digest() == "d81d48a907d0"
-    )  # as recorded in .claude/hillclimb/dev/v3
+        find_configuration("opus-low", CONFIGS).digest() == "44820b26d105"
+    )  # d81d48a907d0 in .claude/hillclimb/dev/v3, before the month cap went to $50 (M7)
     m6 = find_configuration("m6-opus-low", CONFIGS)
     assert (m6.cost.max_run_usd, m6.cost.max_month_usd, m6.cost.reserve_attempt_usd) == (
         8.0,

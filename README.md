@@ -12,9 +12,9 @@ On three real open-source repos that made the MUI v4 → v5 move:
 - **The agent did not reduce silent misses.** A silent miss is a file that differs from what the developers merged, passes every check the repo has, and was not handed off. Nothing in the run flags it. The agent's count stayed the same as the codemods' or went up by one.
 - **The high percentages need a warning.** The codemods alone already migrate 83–90% of the files on these repos, and the agent adds 0 to 7 files on top. On the repo with the fewest tests, "passes the checks" says little.
 
-An agent run cost $0.55 to $1.87. The full results are [below](#results).
+An agent run cost $0.55 to $1.20. The full results are [below](#results).
 
-On a test app I wrote myself, the numbers looked much better: 89% of the files were migrated without a human, against 22% for the codemods alone, at $0.12 a run. That app was built around the guide's breaking changes and has a test for nearly every one, so 89% is a ceiling for simple code, not a forecast.
+On a test app I wrote myself, the numbers looked much better: 89% of the files were migrated without a human, against 22% for the codemods alone, at $0.11 a run. That app was built around the guide's breaking changes and has a test for nearly every one, so 89% is a ceiling for simple code, not a forecast.
 
 ## Quick start
 
@@ -56,7 +56,7 @@ One LangGraph graph per run, checkpointed so it can resume:
 | Read files and search the migration guide | Editing tests, mocks, snapshots, configs, lockfiles or `package.json` |
 | Edit the failing file and the files it imports | Adding `@ts-ignore`, `as any` or `eslint-disable` |
 | Run the repo's type-check, lint and tests | Running terminal commands |
-| Hand the file to a human, with a reason | More than 3 attempts per file, or a patch over 60 lines or 40% of the file |
+| Hand the file to a human, with a reason | More than 3 attempts per file, or a patch over 60 lines, or over 40% of the file once it passes 10 lines |
 
 After the run, **cheating checks** read the final diff for gamed success, such as a skipped test or a test run with fewer tests than the Pre-check. A free check also flags agent edits to accessibility attributes or the rendered element in a file whose failure was a test, since that can mean the code was bent to fit an old test. A different model from the agent (Claude Sonnet, not Opus) then decides each flagged patch.
 
@@ -64,7 +64,7 @@ After the run, **cheating checks** read the final diff for gamed success, such a
 
 ## Results
 
-All numbers come from real runs measured by the eval harness in this repo, 2 runs per row.
+All numbers come from real runs measured by the eval harness in this repo, 2 runs per row, re-run on the final M7 code (wps excepted, see below).
 
 ### Real open-source repos
 
@@ -75,17 +75,20 @@ Each run starts from the commit before the repo's merged migration PR. The resul
 
 | Repo | Setup | Clean runs | Migrated without a human | Not migrated | Silent misses | Cost per run | Time per run |
 |---|---|---|---|---|---|---|---|
-| OpossumUI (52 files) | Codemods only | 0 of 2 | 43 (83%) | 9 left failing | 3 | $0 | 6 min |
-| | Opus, low effort | **2 of 2** | 43–44 (83–85%) | 8–9 handed off | 3–4 | $1.05 | 17 min |
-| kubeflow (76 files) | Codemods only | 0 of 2 | 66 (87%) | 10 left failing | 0 | $0 | 11 min |
-| | Opus, low effort | **2 of 2** | 68 (89%) | 8 handed off | 0 | $1.87 | 54 min |
+| OpossumUI (52 files) | Codemods only | 0 of 2 | 43 (83%) | 9 left failing | 3 | $0 | 5 min |
+| | Opus, low effort | **2 of 2** | 43 (83%) | 9 handed off | 3 | $0.78 | 13 min |
+| kubeflow (76 files) | Codemods only | 0 of 2 | 66 (87%) | 10 left failing | 0 | $0 | 17 min |
+| | Opus, low effort | **2 of 2** | 69 (91%) | 7 handed off | 0 | $1.20 | 48 min |
 | wps, held out (141 files) | Codemods only | 0 of 2 | 127 (90%) | 14 left failing | 13 ¹ | $0 | 5.5 min |
 | | Opus, low effort | **2 of 2** | 134 (95%) | 7 handed off | 14 ² | $0.55 | 10 min |
 
-Migrated and not migrated add up to the repo's file count. A clean run does not mean fewer files for a human: on OpossumUI the agent handed off 8–9 files where the codemods left 9 failing. What changes is that each one comes with a reason.
+Migrated and not migrated add up to the repo's file count. A clean run does not mean fewer files for a human: on OpossumUI the agent handed off 9 files where the codemods left 9 failing. What changes is that each one comes with a reason.
 
 ¹ The stray-parentheses fix in Rules was found by reading wps's results, so the table keeps the blind numbers. Re-run after the fix, the codemods-only score is 11 ([per-file score](docs/results/m6/bcgov-wps-baseline-after-rules-fix-reference-score.md)).<br>
-² 15 by the judge alone. I overrode one of its verdicts; [`overrides.toml`](evals/m6-cases/bcgov-wps/overrides.toml) records who, when and why, and the judge's verdict is kept beside it.
+² 15 by the judge alone. I overrode one of its verdicts; [`overrides.toml`](evals/m6-cases/bcgov-wps/overrides.toml) records who, when and why, and the judge's verdict is kept beside it.<br>
+³ The same files scored 46 / 1 / 5 / 0 under M6's Opus judge. The change is the judge, now Claude Sonnet 5.5, not the runs.
+
+wps is not re-run: as the held-out repo it keeps its blind M6 result, scored by the Opus judge.
 
 **Where the silent misses are.** Test coverage decides them. On kubeflow, 54 of the 66 files the codemods migrated are covered by a test, and there are no silent misses. On wps only 22 of 127 are covered. Its silent misses are mostly styling the developers added by hand to make up for v5's changes: a font size, a label colour, the position of an input adornment. No test checks those, so neither the codemods nor the agent are told anything is wrong. Every migrated file is now labelled *covered* or *not covered* by a test, so a reviewer knows where to look.
 
@@ -105,26 +108,26 @@ A file equal to the PR after formatting matches outright. For the rest, an LLM j
 
 | Repo | Setup | Matches / other valid / wrong / untouched | Migrated files covered by a test |
 |---|---|---|---|
-| OpossumUI | Codemods only | 46 / 1 / 5 / 0 | 43 of 43 |
-| | Opus | 46 / 1 / 5 / 0 | 43–44 of 43–44 |
+| OpossumUI | Codemods only | 43 / 4 / 5 / 0 ³ | 43 of 43 |
+| | Opus | 43 / 4 / 5 / 0 ³ | 43 of 43 |
 | kubeflow | Codemods only | 65 / 2 / 4 / 0 | 54 of 66 |
-| | Opus | 66 / 3 / 2 / 0 | 56 of 68 |
+| | Opus | 66 / 4 / 1 / 0 | 57 of 69 |
 | wps | Codemods only | 103 / 4 / 15 / 1 | 22 of 127 |
 | | Opus | 100 / 7 / 15 / 1 | 27 of 134 |
 
-On kubeflow, 37 snapshot files fail only because v5 renders different markup. The Migrator updates those itself and lists them for a human to review; the agent never edits them.
+On kubeflow, 37 snapshot files fail only because v5 renders different markup. The Migrator updates those itself and lists them for a human to review; the agent never edits them. When that update rewrites a snapshot kept inside a test file (`toMatchInlineSnapshot`), the cheating checks read the test file as it was just before the update, so the Migrator's rewrite isn't counted as an agent edit and an agent's own edit still is. A test file that still fails after the update isn't covered by this: a rewrite there would still be counted against the agent.
 
-Per-file scores: [OpossumUI](docs/results/m6/opossum-ui-opus-reference-score.md), [kubeflow](docs/results/m6/kubeflow-pipelines-opus-reference-score.md), [wps](docs/results/m6/bcgov-wps-opus-reference-score.md), each with the codemods-only score beside it (`*-baseline-reference-score.md`).
+Per-file scores: [OpossumUI](docs/results/m7/opossum-ui-opus-reference-score.md), [kubeflow](docs/results/m7/kubeflow-pipelines-opus-reference-score.md), [wps](docs/results/m6/bcgov-wps-opus-reference-score.md), each with the codemods-only score beside it (`*-baseline-reference-score.md`). The M6 per-file scores are kept in [`docs/results/m6/`](docs/results/m6).
 
 </details>
 
-**Checking the judge.** I rated 20 OpossumUI items blind, without seeing the judge's verdict or which setup produced the file. At first the judge agreed with me on 7 of the 17 items it decided. Most of the gap was mine: I couldn't tell which of the PR's changes were for v5. With the PR's changes labelled, we agreed on 10 of 17, and nearly agreed on the silent-miss count (Opus runs: me 4, judge 4 and 5). On these runs the judge was Opus grading Opus's work, which is why my ratings sit next to its numbers.
+**Checking the judge.** I rated 20 OpossumUI items blind, without seeing the judge's verdict or which setup produced the file. At first the judge agreed with me on 7 of the 17 items it decided. Most of the gap was mine: I couldn't tell which of the PR's changes were for v5. With the PR's changes labelled, we agreed on 10 of 17, and nearly agreed on the silent-miss count (Opus runs: me 4, judge 4 and 5). On those M6 runs the judge was Opus grading Opus's work, which is why my ratings sit next to its numbers. From M7 the judge is Claude Sonnet 5.5, a different model from the agent, and the tables above are scored by it (wps excepted).
 
 **The model may have seen the answers.** All three PRs were merged before the model's training cutoff (June 2026). Treat "matches" as an upper bound, the held-out repo included.
 
 **The checks are the slow part, not the model.** On kubeflow, model calls are about 3% of a run's time; the rest is the repo's own checks in Docker. Four speed-ups cut two codemods-only runs from 11.4 to 3–4 minutes on OpossumUI and from 22.3 to 9.5 on kubeflow, each kept only if the scorecards stayed identical. A fifth, `node_modules` in a Docker volume, broke the codemods and was dropped.
 
-The real-repo phase cost about $17, judge calls included.
+The real-repo phase cost about $17, judge calls included. The end-of-M7 re-run of every row here and of the held-out test app cost $6.53.
 
 ### Test apps with planted traps
 
@@ -135,9 +138,9 @@ Before the real repos, I measured the agent on test apps I wrote myself: small R
 | Setup | Clean runs | Migrated without a human | Agent traps fixed | Cost per run |
 |---|---|---|---|---|
 | Codemods only | 0 of 2 | 22% | 0 of 6 | $0 |
-| **Opus, low effort** | **2 of 2** | **89%** | **6 of 6** | **$0.12** |
+| **Opus, low effort** | **2 of 2** | **89%** | **6 of 6** | **$0.11** |
 
-89% is the maximum on this app. The one file left is a test that checks v4 class names; only a human may change tests, and the agent handed it off both times with that reason. [Summary](docs/results/opus-low-holdout/experiment-summary.md).
+89% is the maximum on this app. The one file left is a test that checks v4 class names; only a human may change tests, and the agent handed it off both times with that reason. [Summary](docs/results/m7/holdout-opus-low-experiment-summary.md) (M5: [summary](docs/results/opus-low-holdout/experiment-summary.md)).
 
 **Choosing the model.** Seven paid rounds on two other test apps, 4 runs per row (full log in [`experiments.md`](experiments.md)). Measured at commit [`0eddf6e`](https://github.com/Rez-1/component-migration-agent/tree/0eddf6e), the last with the advisor, the Haiku-then-Opus cascade and `eval climb`; reproduce these rows from there. They are left out of the end-of-M7 re-run.
 
