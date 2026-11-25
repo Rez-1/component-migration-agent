@@ -14,9 +14,11 @@ from migrator.checks import (
     read_test_rules,
     run_checks,
 )
+from migrator.general_agent.baseline import BASELINE_FILE, cheating_start
 from migrator.repair.records import RepairReport
 from migrator.report import write_json
 from migrator.run.context import RunContext
+from migrator.run.files import load_files
 from migrator.run.state import RunState, dump_failures
 from migrator.scan import ScanInput, scan
 from migrator.scoring import SnapshotUpdate
@@ -97,6 +99,13 @@ def final_verify_node(ctx: RunContext, state: RunState) -> RunState:
     final_files = read_files(workspace)
     ctx.files.save_final(final_files)
     start = ctx.files.start_of_repair()
+    if state.get("general_agent"):
+        # The codemods' own changes are the Rules layer, as in a Migrator run.
+        start = cheating_start(
+            ctx.files.untouched(),
+            load_files(ctx.files.folder / "general-agent" / BASELINE_FILE) or None,
+            final_files,
+        )
     layers = final_layers(start, final_files, report, migrator_snapshots(state, final_snapshots))
     checked = without_inline_rewrites(final_files, before_update, final_snapshots)
     cheating = cheating_checks(ctx, state, final, start, checked, layers)

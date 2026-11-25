@@ -45,14 +45,24 @@ from migrator.general_agent.agent import (
 )
 from migrator.general_agent.errors import GeneralAgentError
 from migrator.general_agent.hostnode import ensure_node
-from migrator.general_agent.probe import ProbeResult, require_probe, run_probe
+from migrator.general_agent.probe import (
+    ProbeResult,
+    require_probe,
+    run_probe,
+    run_shell_probe,
+    with_proxy_checks,
+)
+from migrator.general_agent.proxy import AllowlistProxy, ProxySummary
+from migrator.general_agent.rehearsal import RehearsalStep, rehearsal_steps, run_rehearsal
 from migrator.general_agent.sandbox import (
+    ALLOWED_DOMAINS,
     AgentPaths,
     Policy,
     SrtRunner,
     clean_env,
     ensure_key_helper,
     ensure_srt,
+    host_install,
     real_home,
 )
 from migrator.migrations import MigrationSpec
@@ -144,6 +154,9 @@ class AgentRun(BaseModel):
     unfinished: list[Unfinished] = []
     unfinished_note: str | None = None
     copied_back: CopyBack | None = None
+    proxy: ProxySummary | None = None  # what the agent's commands tried to reach
+    rehearsal: list[RehearsalStep] | None = None  # a rehearsal's steps, in place of a model
+    codemod_baseline: str | None = None  # the cheating checks' baseline: what happened
 
     def calls(self) -> list[CallRecord]:
         """Every model call of the run, the probe's included."""
@@ -177,6 +190,8 @@ def run_general_agent(
     )
     folder = (home or agent_home()) / "runs" / run_id
     paths = AgentPaths(root=folder)
+    record = run_dir / "general-agent"
+    proxy = AllowlistProxy(ALLOWED_DOMAINS, record / "proxy.jsonl")
     try:
         binary = claude or find_claude()
         base.claude_version = claude_version(binary)
@@ -187,7 +202,12 @@ def run_general_agent(
         node_bin = ensure_node(config.node, cache / "node", config.package_manager)
         srt_bin = ensure_node(SRT_NODE, cache / "node")
         srt = ensure_srt(cache / "srt", srt_bin)
-        policy = Policy(paths=paths, protected=[workspace.parent, run_dir], real_home=real_home())
+        policy = Policy(
+            paths=paths,
+            protected=[workspace.parent, run_dir],
+            real_home=real_home(),
+            proxy_port=proxy.start(),
+        )
         policy.write(ensure_key_helper(cache))
         start = make_copy(workspace, paths)
         shutil.copytree(spec.guide_dir(), paths.guide)
@@ -195,53 +215,58 @@ def run_general_agent(
         env = clean_env(paths, node_bin, config.install_env)
         say("General agent", f"installing packages in the agent's copy (Node {config.node})")
         command = install_command(config.package_manager, True, config.install_flags)
-        install = SrtRunner(srt, srt_bin, paths.srt_settings, env).run(
-            command, paths.repo, log_file=run_dir / "logs" / "general-agent-install.log"
+        runner = SrtRunner(srt, srt_bin, paths.srt_settings, env)
+        base.host_install = host_install(
+            paths=paths,
+            command=command,
+            env=env,
+            proxy_port=policy.proxy_port,
+            sandboxed=runner,
+            log_dir=run_dir / "logs",
         )
-        base.host_install = f"`{install.command}` exited {install.exit_code}"
-        if not install.ok:
-            raise GeneralAgentError(f"the host install failed: {base.host_install}")
         say("General agent", "probing the sandbox")
         model_vars = model_env(settings.model, settings.effort)
-        base.probe = run_probe(
-            binary,
-            paths,
-            {**env, **model_vars},
-            policy.protected,
-            run_dir / "general-agent" / "probe.jsonl",
-        )
+        if settings.rehearsal:
+            probe = run_shell_probe(runner, paths, policy.protected)
+        else:
+            probe = run_probe(
+                binary, paths, {**env, **model_vars}, policy.protected, record / "probe.jsonl"
+            )
+        base.probe = with_proxy_checks(probe, proxy.entries())
         require_probe(base.probe)
         prompt = render_prompt(settings, spec, config, paths, tools)
-        (run_dir / "general-agent").mkdir(parents=True, exist_ok=True)
-        (run_dir / "general-agent" / "prompt.md").write_text(prompt, "utf-8")
-        left = round(budget_usd - base.probe.cost_usd, 2)
-        say(
-            "General agent",
-            f"Claude Code on {settings.model}, effort {settings.effort}, stop at ${left:.2f}",
-        )
-        result = run_claude(
-            claude_command(
-                binary,
-                prompt=prompt,
-                model=settings.model,
-                effort=settings.effort,
-                budget_usd=left,
-                settings=paths.claude_settings,
-            ),
-            cwd=paths.repo,
-            env={**env, **model_vars},
-            timeout_s=settings.timeout_s,
-            transcript=run_dir / "general-agent" / "transcript.jsonl",
-            requested_model=settings.model,
-            allowed_writes=[paths.root],  # the sandbox's own write limit
-        )
+        record.mkdir(parents=True, exist_ok=True)
+        (record / "prompt.md").write_text(prompt, "utf-8")
+        if settings.rehearsal:
+            say("General agent", "rehearsal: a fixed script in place of Claude Code")
+            result, base.rehearsal = run_rehearsal(
+                runner,
+                paths,
+                rehearsal_steps(spec, config, tools),
+                record / "rehearsal",
+                settings.timeout_s,
+            )
+        else:
+            left = round(budget_usd - base.probe.cost_usd, 2)
+            say(
+                "General agent",
+                f"Claude Code on {settings.model}, effort {settings.effort}, stop at ${left:.2f}",
+            )
+            result = _run_agent(
+                binary, settings, prompt, left, paths, {**env, **model_vars}, record
+            )
     except GeneralAgentError as exc:
-        return base.model_copy(update={"reason": str(exc)})
+        return base.model_copy(update={"reason": str(exc), "proxy": proxy.summary()})
+    finally:
+        proxy.stop()
     say(
         "General agent",
         f"{result.status} after {result.num_turns} turns, ${result.cost_usd:.2f}, "
         f"{result.duration_s:.0f}s",
     )
+    summary = proxy.summary()
+    if summary.refused:
+        say("General agent", f"the proxy refused: {', '.join(sorted(summary.refused))}")
     back = copy_back(paths.repo, start, workspace)
     unfinished: list[Unfinished] = []
     note = None
@@ -254,7 +279,36 @@ def run_general_agent(
             "copied_back": back,
             "unfinished": unfinished,
             "unfinished_note": note,
+            "proxy": summary,
         }
+    )
+
+
+def _run_agent(
+    binary: Path,
+    settings: GeneralAgentSettings,
+    prompt: str,
+    budget_usd: float,
+    paths: AgentPaths,
+    env: dict[str, str],
+    record: Path,
+) -> AgentResult:
+    assert settings.model and settings.effort
+    return run_claude(
+        claude_command(
+            binary,
+            prompt=prompt,
+            model=settings.model,
+            effort=settings.effort,
+            budget_usd=budget_usd,
+            settings=paths.claude_settings,
+        ),
+        cwd=paths.repo,
+        env=env,
+        timeout_s=settings.timeout_s,
+        transcript=record / "transcript.jsonl",
+        requested_model=settings.model,
+        allowed_writes=[paths.root],  # the sandbox's own write limit
     )
 
 

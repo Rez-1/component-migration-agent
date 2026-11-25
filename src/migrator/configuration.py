@@ -151,6 +151,10 @@ class GeneralAgentSettings(_Model):
     prompt_version: str | None = None
     # Wall-clock limit for the agent itself; the run's ceiling still bounds the whole run.
     timeout_s: float = Field(default=3600.0, gt=0)
+    # A rehearsal calls no model: the probe's shell checks and a fixed script stand in
+    # for Claude Code (the codemod, adding the new packages, the repo's checks), so every
+    # other step of a run is tried for free before a paid one.
+    rehearsal: bool = False
 
     @model_validator(mode="after")
     def _complete_when_on(self) -> GeneralAgentSettings:
@@ -279,6 +283,8 @@ class Configuration(_Model):
         data = self.model_dump(mode="json", exclude={"description", "models"})
         if not self.general_agent.enabled:
             data.pop("general_agent")  # M8: absent when off, so earlier digests stand
+        elif not self.general_agent.rehearsal:
+            data["general_agent"].pop("rehearsal")
         repair = data["repair"]
         for key, off in _DIGEST_OPTIONAL.items():
             if repair.get(key) == off:

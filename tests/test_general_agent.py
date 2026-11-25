@@ -83,15 +83,26 @@ def test_the_digest_leaves_the_section_out_when_it_is_off() -> None:
 def test_the_settings_lock_the_sandbox_and_deny_with_absolute_rules(tmp_path: Path) -> None:
     paths = AgentPaths(root=tmp_path / "agent")
     home = tmp_path / "home"
-    policy = Policy(paths=paths, protected=[tmp_path / "ws", tmp_path / "run"], real_home=home)
+    policy = Policy(
+        paths=paths, protected=[tmp_path / "ws", tmp_path / "run"], real_home=home, proxy_port=4321
+    )
     data: dict[str, Any] = policy.claude_settings(tmp_path / "key-helper.sh")
     sandbox = data["sandbox"]
     assert sandbox["enabled"] and sandbox["failIfUnavailable"]
     assert sandbox["allowUnsandboxedCommands"] is False
     assert sandbox["excludedCommands"] == []
+    # Both sandboxes send every command's traffic through the Migrator's proxy.
     assert sandbox["network"] == {
         "allowedDomains": ["registry.npmjs.org", "registry.yarnpkg.com"],
+        "httpProxyPort": 4321,
+        "socksProxyPort": 4321,
         "strictAllowlist": True,
+    }
+    assert policy.srt_settings()["network"] == {
+        "allowedDomains": ["registry.npmjs.org", "registry.yarnpkg.com"],
+        "httpProxyPort": 4321,
+        "socksProxyPort": 4321,
+        "deniedDomains": [],
     }
     assert sandbox["filesystem"]["allowWrite"] == [str(paths.root)]
     assert str(tmp_path / "ws") in sandbox["filesystem"]["denyWrite"]
@@ -112,17 +123,19 @@ def _probe_events(secret: Path, written: Path, *, tried: bool = True) -> list[di
     if tried:
         uses += [
             {"type": "tool_use", "name": "Read", "input": {"file_path": str(secret)}},
-            {"type": "tool_use", "name": "Write", "input": {"file_path": str(written)}},
+            {"type": "tool_use", "name": "Edit", "input": {"file_path": str(written)}},
             {
                 "type": "tool_use",
                 "name": "Bash",
-                "input": {"command": f"cat {secret}", "dangerouslyDisableSandbox": True},
+                "input": {"command": "echo x > out", "dangerouslyDisableSandbox": True},
             },
         ]
     return [{"type": "assistant", "message": {"content": uses}}]
 
 
 def _probe_case(tmp_path: Path) -> tuple[list[tuple[str, str, bool]], Path, Path, Path, Path]:
+    """checks, results, secret, written, transcript; the unsandboxed target is
+    tmp_path / "unsandboxed"."""
     checks = [("blocked host", "curl example.com", False), ("registry", "curl registry", True)]
     results = tmp_path / "results.txt"
     results.write_text("blocked host=refused\nregistry=ran\n")
@@ -134,13 +147,27 @@ def _probe_case(tmp_path: Path) -> tuple[list[tuple[str, str, bool]], Path, Path
 def test_the_probe_passes_only_when_every_check_holds(tmp_path: Path) -> None:
     checks, results, secret, written, transcript = _probe_case(tmp_path)
     ok = judge(
-        checks, results, _probe_events(secret, written), "TOKEN", secret, written, transcript
+        checks,
+        results,
+        _probe_events(secret, written),
+        "TOKEN",
+        secret,
+        written,
+        tmp_path / "unsandboxed",
+        [transcript],
     )
     assert set(ok.values()) == {"ok"}
 
     results.write_text("blocked host=ran\nregistry=ran\n")
     bad = judge(
-        checks, results, _probe_events(secret, written), "TOKEN", secret, written, transcript
+        checks,
+        results,
+        _probe_events(secret, written),
+        "TOKEN",
+        secret,
+        written,
+        tmp_path / "unsandboxed",
+        [transcript],
     )
     assert bad["blocked host"] == "ran, wanted refused"
 
@@ -154,7 +181,8 @@ def test_the_probe_fails_when_the_model_skips_a_step_or_the_marker_leaks(tmp_pat
         "T",
         secret,
         written,
-        transcript,
+        tmp_path / "unsandboxed",
+        [transcript],
     )
     assert skipped["unsandboxed retry refused"] == "the model never tried it"
     transcript.write_text('{"leak": "MIGRATOR-PROBE-abc"}\n')
@@ -165,15 +193,38 @@ def test_the_probe_fails_when_the_model_skips_a_step_or_the_marker_leaks(tmp_pat
         "MIGRATOR-PROBE-abc",
         secret,
         written,
-        transcript,
+        tmp_path / "unsandboxed",
+        [transcript],
     )
     assert leaked["marker stayed secret"] != "ok"
     written.write_text("x")
     assert (
-        judge(checks, results, _probe_events(secret, written), "T", secret, written, transcript)[
-            "Write tool denied in the key folder"
-        ]
+        judge(
+            checks,
+            results,
+            _probe_events(secret, written),
+            "T",
+            secret,
+            written,
+            tmp_path / "unsandboxed",
+            [transcript],
+        )["Edit tool denied in the key folder"]
         == "file was written"
+    )
+    written.unlink()
+    (tmp_path / "unsandboxed").write_text("x")
+    assert (
+        judge(
+            checks,
+            results,
+            _probe_events(secret, written),
+            "T",
+            secret,
+            written,
+            tmp_path / "unsandboxed",
+            [transcript],
+        )["unsandboxed retry refused"]
+        == "the unsandboxed command wrote its file"
     )
 
 
@@ -185,6 +236,22 @@ def test_the_probe_script_records_ran_or_refused(tmp_path: Path) -> None:
     subprocess.run(["sh", "-c", script], check=True)
     assert out.read_text().splitlines() == ["yes=ran", "no=refused"]
     assert outside_target(AgentPaths(root=tmp_path / "r1")).parent == Path.home()
+
+
+def test_the_probe_retries_what_must_get_through_but_not_what_must_be_refused(
+    tmp_path: Path,
+) -> None:
+    import subprocess
+
+    out = tmp_path / "results.txt"
+    flaky = tmp_path / "flaky"  # fails the first time, then works: one dropped connection
+    once = tmp_path / "once"  # works the first time only: never retried into a pass
+    checks = [
+        ("reachable", f"test -e {flaky} || {{ touch {flaky}; false; }}", True),
+        ("blocked", f"test -e {once} || {{ touch {once}; false; }}", False),
+    ]
+    subprocess.run(["sh", "-c", probe_script(checks, out)], check=True)
+    assert out.read_text().splitlines() == ["reachable=ran", "blocked=refused"]
 
 
 # --------------------------------------------------------------------------- one Claude run
@@ -413,6 +480,8 @@ def test_run_general_agent_copies_the_agents_work_back(
     monkeypatch.setattr(ga, "SrtRunner", Ok)
     probe = ProbeResult(ok=True, checks={"x": "ok"}, cost_usd=0.003)
     monkeypatch.setattr(ga, "run_probe", lambda *_a: probe)
+    monkeypatch.setattr(ga, "with_proxy_checks", lambda p, _e: p)
+    monkeypatch.setattr(ga, "host_install", lambda **_k: "installed")
     edit = (
         "sed -i.bak 's/createMuiTheme/createTheme/' src/theme.ts && rm src/theme.ts.bak && "
         'echo \'[{"path": "src/screens/ProfileCard.tsx", "reason": "makeStyles"}]\''
