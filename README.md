@@ -11,7 +11,7 @@ On three real open-source repos that made the MUI v4 → v5 move:
 - **Every agent run was clean, and no codemods-only run was.** A run is clean when every remaining failure is in a file the agent handed to a human, with a reason. For example: "needs `@mui/x-date-pickers`, which isn't a dependency".
 - **The agent did not reduce silent misses.** A silent miss is a file that differs from what the developers merged, passes every check the repo has, and was not handed off. Nothing in the run flags it. The agent's count stayed the same as the codemods' or went up by one.
 - **The high percentages need a warning.** The codemods alone already migrate 83–90% of the files on these repos, and the agent adds 0 to 7 files on top. On the repo with the fewest tests, "passes the checks" says little.
-- **A general coding agent was not a substitute.** Claude Code on the same model, with the same guide and codemods, migrated more files, but 2 of its 12 runs were clean, against all 6 of the Migrator's. Without rules it passed by editing tests and snapshots; with the rules in its prompt it mostly kept them, but not always. It had more silent misses on every repo. [Details](#a-general-agent-on-the-same-repos).
+- **A general coding agent was not a substitute.** Claude Code on the same model, with the same guide and codemods, migrated more files, but 2 of its 12 runs were clean, against all 6 of the Migrator's. Without rules it passed by editing tests and snapshots; with the rules in its prompt it mostly kept them, but not always. It had more silent misses on OpossumUI and kubeflow; on wps, 9 to 12 a run against the Migrator's 14 (scored by a different judge). [Details](#a-general-agent-on-the-same-repos).
 
 A Migrator run with the agent cost $0.55 to $1.20. The full results are [below](#results).
 
@@ -146,20 +146,20 @@ Is the pipeline worth building, or would a general coding agent do as well? I ra
 | | General agent, plain | 0 of 2 | 73 / 75 | 3 / 1 | 5 / 4 | 53 / 48 | $0.57 | 32 min |
 | | General agent, rules | 0 of 2 | 74 / 66 | 2 / 10 ⁴ | 3 / 1 | 4 / 2 | $0.80 | 36 min |
 | wps, held out (141 files) | Migrator, Opus low | **2 of 2** | 134 (95%) | 7 handed off | 14 | 0 | $0.55 | 10 min |
-| | General agent, plain | 0 of 2 | 138 / 138 | 3 / 3 | 25 / 25 ⁵ | 4 / 7 | $0.70 | 25 min |
-| | General agent, rules | 1 of 2 | 139 / 123 | 2 / 18 ⁶ | 25 ⁵ / 12 | 0 / 0 | $1.31 | 17 min |
+| | General agent, plain | 0 of 2 | 138 / 138 | 3 / 3 | 9 / 11 ⁵ | 4 / 7 | $0.70 | 25 min |
+| | General agent, rules | 1 of 2 | 139 / 123 | 2 / 18 ⁶ | 12 ⁵ / 12 | 0 / 0 | $1.31 | 17 min |
 
 General-agent cells give run 1 / run 2. The Migrator rows are the ones above.
 
 ⁴ 5 of the 10 listed as unfinished, so handed off.<br>
-⁵ An undercount of the agent's work: these runs added a `makeStyles` wrapper that the judge, reading one file at a time, can't see. 14 to 16 of each run's "wrong" verdicts name no other problem. [Details](docs/results/m8/README.md).<br>
+⁵ These runs added their own `makeStyles` wrapper. The judge reads one file at a time, so at first it couldn't see the wrapper and scored 25 silent misses in each run. Judged again with the new files a run writes shown beside the file that imports them, it scores 9, 11 and 12. [Details](docs/results/m8/README.md).<br>
 ⁶ 18 test files still import v4. The rules forbid editing tests, so the agent left them, and they pass.
 
 **What the plain agent does to pass.** On kubeflow it regenerated 39 snapshot files and edited 9 to 11 test files in each run. On wps both runs changed 4 test files, and one added two `eslint-disable` comments and four `any` types. On OpossumUI both runs changed the same three test helpers. It migrates more files than the Migrator, and the hits show part of how.
 
 **Telling the agent the rules mostly works.** With the rules in the prompt, wps had no hits in either run, and OpossumUI's only hit was a duplicated codemod comment. kubeflow still failed both runs: each lost a snapshot (378 to 377) and left one obsolete, and run 1 edited a test and its snapshot. So the limits belong in the tools, not only the prompt: 2 of the 6 rules runs were clean, against all 6 Migrator runs.
 
-**Silent misses went up, not down**, in both setups on every repo. The general agent changes more files, and nothing checks the ones without tests.
+**Silent misses went up on the dev repos**, in both setups: the general agent changes more files, and nothing checks the ones without tests. On wps the agent had 9 to 12 a run against the Migrator's 14, but the Migrator's wps row was scored by M6's Opus judge, so that gap is within the noise of a judge change.
 
 **Read with care:**
 
@@ -167,7 +167,7 @@ General-agent cells give run 1 / run 2. The Migrator rows are the ones above.
 - **A scoring change after the first results.** A comment the codemods write is a note in a Migrator run, not a failure. For the general agent, which runs the codemods itself, the same comment first counted against it. The cheating checks now start from what the codemods alone write; I approved this before the kubeflow and wps runs, and the two OpossumUI experiments were re-scored by `migrator eval rescore`, which calls no model.
 - **Different judges on wps.** The Migrator's wps row is M6's blind result, scored by the Opus judge; the general agent's runs are scored by Sonnet 5.5.
 
-The 12 runs cost $8.02, and judging them about $2.70 (from the ledger: per-file scores leave out calls that were cached after the judge hit its cap once). Per-run summaries and per-file scores: [`docs/results/m8/`](docs/results/m8/README.md).
+The 12 runs cost $8.02, judging them about $2.70 (from the ledger: per-file scores leave out calls that were cached after the judge hit its cap once), and re-judging the three wrapper runs $1.74. Per-run summaries and per-file scores: [`docs/results/m8/`](docs/results/m8/README.md).
 
 ### Test apps with planted traps
 
