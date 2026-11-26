@@ -1,0 +1,23 @@
+# M8 Part A: a general coding agent instead of the Migrator's stages. Claude Code, run
+# headless on the repo with the vendored guide and the pinned codemods, on the same model
+# and effort as the Migrator's repair agent (Opus 5.5, low), subagents forced onto it.
+# Its shell commands run in Claude Code's sandbox (docs/research/claude-code-sandbox.md);
+# Scan, Pre-check, the final Verify and Scoring are the Migrator's own. The prompt is
+# migrator/general_agent/prompts/plain-v1.md, written before the first run, never tuned.
+# Same as m8-agent-plain but for the stop: the owner set $1.90 a run for kubeflow and wps (25 Nov 2026), so 8 runs fit under the $49 month stop.
+schema_version = 1
+name = "m8-agent-plain-stop190"
+description = "Claude Code headless (Opus 5.5, low), plain prompt: the repo, the guide, the codemods."
+
+[general_agent]
+enabled = true
+setup = "plain"
+model = "claude-opus-5-5"
+effort = "low"
+prompt_version = "v1"
+timeout_s = 3600
+
+[cost]
+max_run_usd = 8.0
+max_month_usd = 49.0
+stop_run_usd = 1.9
