@@ -15,9 +15,11 @@ from migrator.evals.reference import (
     Judgement,
     ReferenceScore,
     judge_key,
+    judge_prompt,
     load_overrides,
     normalise,
     render_reference_score,
+    run_helpers,
     select_items,
 )
 from migrator.rules import apply_extra_dependencies
@@ -140,6 +142,29 @@ def test_judge_cache_round_trip(tmp_path: Path) -> None:
     cache.put(key, Judgement(verdict="wrong", reason="r", out_of_scope_changes=[]), "prompt")
     got = cache.get(key)
     assert got is not None and got.verdict == "wrong"
+
+
+def test_the_judge_sees_new_helper_files_the_item_imports() -> None:
+    wrapper = "export default function makeStyles() {}\n"
+    base = {"src/a/A.tsx": "v4", "src/utils/old.ts": "x"}
+    files = {
+        "src/a/A.tsx": "import makeStyles from 'utils/makeStyles'\nimport B from './B'\n",
+        "src/a/B.tsx": "b",
+        "src/utils/makeStyles.ts": wrapper,
+        "src/utils/old.ts": "x",
+    }
+    helpers = run_helpers("src/a/A.tsx", files["src/a/A.tsx"], base, files)
+    # bare (baseUrl src/) and relative specifiers both resolve; only new files count
+    assert helpers == {"src/a/B.tsx": "b", "src/utils/makeStyles.ts": wrapper}
+    assert run_helpers("src/a/A.tsx", "import x from '../../utils/old'", base, files) == {}
+    rel = run_helpers("src/a/A.tsx", "import m from '../utils/makeStyles'", base, files)
+    assert rel == {"src/utils/makeStyles.ts": wrapper}
+    prompt = judge_prompt("src/a/A.tsx", "", "", helpers)
+    assert "CANDIDATE helper files" in prompt and wrapper in prompt
+    assert "helper files" not in judge_prompt("src/a/A.tsx", "", "", {})
+    # no helpers: the key is the one cached before M8; helpers change it
+    assert judge_key("a.tsx", "o", "r", "n", helpers={}) == judge_key("a.tsx", "o", "r", "n")
+    assert judge_key("a.tsx", "o", "r", "n", helpers=helpers) != judge_key("a.tsx", "o", "r", "n")
 
 
 def test_a_suite_that_cannot_load_keeps_its_real_error() -> None:
