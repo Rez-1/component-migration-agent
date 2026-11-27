@@ -18,9 +18,10 @@ quotes and trailing commas *matches* without a model. Everything else goes to an
 judge, which also says which reference changes are out of scope. M6's judge was Claude
 Opus 5.5 at low effort; from M7 it is the balanced level (Claude Sonnet 5.5 by default),
 so the judge is never the repair agent's model. The judge sees the two diffs only,
-never which configuration made the run. Its answers are cached on disk by content, so a
-file that came out the same in several runs (every Baseline run, and every file the
-agent didn't touch) is judged once.
+never which configuration made the run. From M8 it also sees any new file the run wrote
+that the item imports (a general agent's own ``makeStyles`` wrapper, say). Its answers
+are cached on disk by content, so a file that came out the same in several runs (every
+Baseline run, and every file the agent didn't touch) is judged once.
 
 A **real-repo Silent miss** is a *wrong* or *untouched* item whose file has no failure
 at the final verify and was not handed off: verify can't show it.
@@ -249,11 +250,67 @@ def label_hunks(diff_text: str) -> str:
     return "".join(out)
 
 
-def judge_prompt(path: str, reference_diff: str, candidate_diff: str) -> str:
-    return (
+HELPER_MAX_CHARS = 6000  # per helper file shown to the judge
+_IMPORT_SPEC = re.compile(r"""(?:from|import)\s*\(?\s*['"]([^'"]+)['"]""")
+_RESOLVE_SUFFIXES = ("", ".ts", ".tsx", ".js", ".jsx", "/index.ts", "/index.tsx", "/index.js")
+
+
+def run_helpers(
+    path: str, final: str | None, base: dict[str, str], files: dict[str, str]
+) -> dict[str, str]:
+    """The files the run created (absent from the untouched workspace) that ``final``
+    imports: a local wrapper such as an agent's own ``makeStyles``. The judge sees one
+    file at a time, so without these it can't tell whether an import of the wrapper is
+    a correct migration. Relative specifiers resolve against the file's folder; bare
+    ones against the repo root and ``src/`` (a tsconfig ``baseUrl``). Files that existed
+    before the run are left out, so every other item's prompt and cache key is
+    unchanged."""
+    if final is None:
+        return {}
+    new = {p for p in files if p not in base}
+    if not new:
+        return {}
+    folder = path.rsplit("/", 1)[0] if "/" in path else ""
+    found: dict[str, str] = {}
+    for spec in _IMPORT_SPEC.findall(final):
+        if spec.startswith("."):
+            parts: list[str] = folder.split("/") if folder else []
+            for seg in spec.split("/"):
+                if seg == "..":
+                    parts = parts[:-1]
+                elif seg not in ("", "."):
+                    parts.append(seg)
+            roots = ["/".join(parts)]
+        else:
+            roots = [spec, f"src/{spec}"]
+        for root in roots:
+            hit = next((root + s for s in _RESOLVE_SUFFIXES if root + s in new), None)
+            if hit is not None and hit != path:
+                found[hit] = files[hit]
+                break
+    return dict(sorted(found.items()))
+
+
+def judge_prompt(
+    path: str,
+    reference_diff: str,
+    candidate_diff: str,
+    helpers: dict[str, str] | None = None,
+) -> str:
+    prompt = (
         f"File: {path}\n\nREFERENCE diff:\n```diff\n{label_hunks(reference_diff) or '(empty)'}"
         f"```\n\nCANDIDATE diff:\n```diff\n{candidate_diff or '(empty)'}```\n"
     )
+    if helpers:
+        prompt += (
+            "\nCANDIDATE helper files: new files the automated run wrote that this file "
+            "imports. They are part of the candidate: judge an import of one by what the "
+            "helper does, as if its code were inline.\n"
+        )
+        for hp, text in helpers.items():
+            shown = text if len(text) <= HELPER_MAX_CHARS else text[:HELPER_MAX_CHARS] + "\n..."
+            prompt += f"\n{hp}:\n```ts\n{shown}\n```\n"
+    return prompt
 
 
 def judge_key(
@@ -263,10 +320,13 @@ def judge_key(
     final: str | None,
     *,
     model: str = JUDGE_MODEL,
+    helpers: dict[str, str] | None = None,
 ) -> str:
     h = hashlib.sha256()
     for part in (JUDGE_PROMPT_VERSION, model, JUDGE_EFFORT, path, base, ref, final):
         h.update((part if part is not None else "\0none").encode() + b"\0")
+    for hp, text in (helpers or {}).items():  # none: the key is the same as before M8
+        h.update(b"helper\0" + hp.encode() + b"\0" + text.encode() + b"\0")
     return h.hexdigest()[:20]
 
 
@@ -421,7 +481,8 @@ def pending_judgements(
             final = r.final.get(path)
             if final is not None and ref is not None and normalise(final) == normalise(ref):
                 continue
-            key = judge_key(path, r.base.get(path), ref, final, model=model)
+            helpers = run_helpers(path, final, r.base, r.final)
+            key = judge_key(path, r.base.get(path), ref, final, model=model, helpers=helpers)
             if cache.get(key) is None:
                 keys.add(key)
     return len(keys)
@@ -492,12 +553,13 @@ def score_run(
             by: Literal["deterministic", "judge", "override"] = "deterministic"
             reason = "the same as the reference after normalising formatting"
         else:
-            key = judge_key(path, base, ref, final, model=judge_model)
+            helpers = run_helpers(path, final, run.base, run.final)
+            key = judge_key(path, base, ref, final, model=judge_model, helpers=helpers)
             found = cache.get(key)
             if found is None:
                 if judge is None:
                     raise RuntimeError(f"{path} needs a judge call and judging is off")
-                prompt = judge_prompt(path, diff(base, ref, path), diff(base, final, path))
+                prompt = judge_prompt(path, diff(base, ref, path), diff(base, final, path), helpers)
                 found = judge(prompt, path)
                 cache.put(key, found, prompt)
                 calls += 1

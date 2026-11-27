@@ -56,7 +56,7 @@ Scored against [https://github.com/kubeflow/pipelines/pull/12925](https://github
 | `src/components/viewers/Tensorboard.tsx` | wrong **(silent miss)** | judge | Migrated by agent | 0 | yes | The candidate handles the imports, the Button color removal and the event type (R1-R3 equivalent). It omits R4, so FormControl and Select would default to the outlined variant in v5 and look different from v4. |
 | `src/components/viewers/VisualizationCreator.tsx` | wrong **(silent miss)** | judge | Migrated by agent | 0 | yes | The candidate migrates the imports and the onChange type, but omits R2's variant='standard' on FormControl and Select. In v5 the default variant is outlined, so the Select would look different from v4. |
 | `src/icons/statusCached.tsx` | matches | deterministic | Migrated by agent | 0 | yes | the same as the reference after normalising formatting |
-| `src/index.tsx` | matches | judge | Migrated by agent | 0 | no | The candidate makes the same import change and the same StyledEngineProvider injectFirst wrapping as R1 and R2. Its extra DefaultTheme module declaration is the standard codemod addition for @mui/styles typing and does not change behavior. |
+| `src/index.tsx` | matches | judge | Migrated by agent | 0 | no | The candidate makes the same import change and adds the same StyledEngineProvider injectFirst wrapper (R1, R2). The extra DefaultTheme module augmentation is harmless typing for @mui/styles. |
 | `src/lib/Buttons.ts` | matches | deterministic | Migrated by agent | 0 | yes | the same as the reference after normalising formatting |
 | `src/lib/WorkflowParser.ts` | matches | deterministic | Migrated by agent | 0 | yes | the same as the reference after normalising formatting |
 | `src/mlmd/Css.tsx` | other valid fix | judge | Migrated by agent | 0 | yes | The candidate changes the import to @mui/material/styles and wraps the v4-style theme in adaptV4Theme. That is MUI's official v4-to-v5 compatibility path, so it converts overrides to styleOverrides and rewrites the $-selectors at runtime. It should behave the same as the reference's manual rewrite, though adaptV4Theme is deprecated. |
@@ -157,4 +157,4 @@ Scored against [https://github.com/kubeflow/pipelines/pull/12925](https://github
 - `package-lock.json`
 - `package.json`
 
-Judge: 12 new calls, $0.10.
+Judge: 1 new calls, $0.01.
